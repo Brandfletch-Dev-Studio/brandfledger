@@ -1,10 +1,14 @@
-// UPDATED: src/app/(auth)/register/page.tsx
-// Change: after signup, go straight to /dashboard (not /onboarding)
-// The dashboard will show the setup checklist instead
+// FIXED: src/app/(auth)/register/page.tsx
+// Bug: useEffect called supabase.auth.signOut() on mount, button stayed disabled
+//      if signOut stalled (cold Vercel function, no active session, etc.)
+// Fix: remove the signOut entirely — it's unnecessary. The register form creates
+//      a NEW account; there's no reason to sign out first. If a logged-in user 
+//      reaches /register, the middleware already redirects them to /dashboard.
 
 "use client";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,22 +17,24 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Zap, Loader2 } from "lucide-react";
 
 export default function RegisterPage() {
+  const router = useRouter();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [ready, setReady] = useState(false);
 
-  useEffect(() => {
-    const supabase = createClient();
-    supabase.auth.signOut().finally(() => setReady(true));
-  }, []);
+  // Refs to avoid stale closure on submit
+  const refs = { fullName, email, password };
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!email || !password || !fullName) {
       setError("Please fill in all fields.");
+      return;
+    }
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters.");
       return;
     }
     setLoading(true);
@@ -51,20 +57,15 @@ export default function RegisterPage() {
     }
 
     if (data.session) {
-      // Auto-confirm on — go straight to dashboard (checklist will show there)
-      window.location.href = "/dashboard";
+      // Auto-confirm on — go straight to dashboard, checklist handles setup
+      router.refresh();
+      await new Promise(r => setTimeout(r, 100));
+      router.push("/dashboard");
     } else {
+      // Email confirmation required
       setError("Account created! Check your email to verify, then sign in.");
       setLoading(false);
     }
-  }
-
-  if (!ready) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
   }
 
   return (
@@ -82,24 +83,54 @@ export default function RegisterPage() {
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
               {error && (
-                <div className={`rounded-md p-3 text-sm ${error.startsWith("Account created") ? "bg-green-50 text-green-700 border border-green-200" : "bg-destructive/10 text-destructive"}`}>
+                <div className={`rounded-md p-3 text-sm ${
+                  error.startsWith("Account created")
+                    ? "bg-green-50 text-green-700 border border-green-200"
+                    : "bg-destructive/10 text-destructive"
+                }`}>
                   {error}
                 </div>
               )}
               <div className="space-y-2">
                 <Label htmlFor="fullName">Full name</Label>
-                <Input id="fullName" placeholder="John Doe" value={fullName} onChange={e => setFullName(e.target.value)} required autoComplete="name" />
+                <Input
+                  id="fullName"
+                  placeholder="John Doe"
+                  value={fullName}
+                  onChange={e => setFullName(e.target.value)}
+                  required
+                  autoComplete="name"
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
-                <Input id="email" type="email" placeholder="you@example.com" value={email} onChange={e => setEmail(e.target.value)} required autoComplete="email" />
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  required
+                  autoComplete="email"
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="password">Password</Label>
-                <Input id="password" type="password" placeholder="At least 6 characters" value={password} onChange={e => setPassword(e.target.value)} required autoComplete="new-password" minLength={6} />
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder="At least 6 characters"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  required
+                  autoComplete="new-password"
+                  minLength={6}
+                />
               </div>
               <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Creating account...</> : "Create account"}
+                {loading
+                  ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Creating account...</>
+                  : "Create account"}
               </Button>
             </form>
           </CardContent>
