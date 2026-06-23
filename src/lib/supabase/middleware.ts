@@ -25,20 +25,24 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { user } } = await supabase.auth.getUser();
 
   const { pathname } = request.nextUrl;
+
+  // Never intercept the auth callback — it handles its own redirects
+  if (pathname.startsWith("/auth/")) {
+    return supabaseResponse;
+  }
+
   const authPaths = ["/login", "/register", "/forgot-password", "/reset-password"];
   const isAuthPath = authPaths.some((p) => pathname.startsWith(p));
-  const isOnboarding = pathname.startsWith("/onboarding");
   const isPublic = pathname === "/";
 
   if (!user && !isAuthPath && !isPublic) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
   if (user && isAuthPath) {
+    // Returning user hitting auth pages → send to dashboard
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
