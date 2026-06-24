@@ -1,6 +1,6 @@
-// NEW FILE: src/app/api/invoices/send/route.ts
-// Sends invoice email to customer using Resend (or nodemailer as fallback)
-// Requires RESEND_API_KEY env var in .env.local
+// src/app/api/invoices/send/route.ts
+// Sends invoice email to customer using Resend
+// Requires RESEND_API_KEY env var set in Vercel dashboard
 
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
@@ -11,11 +11,26 @@ export async function POST(req: NextRequest) {
     const { invoiceId } = await req.json();
     if (!invoiceId) return NextResponse.json({ error: "Missing invoiceId" }, { status: 400 });
 
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      { cookies: { get: (n: string) => cookieStore.get(n)?.value, set: () => {}, remove: () => {} } }
+      {
+        cookies: {
+          getAll() {
+            return cookieStore.getAll();
+          },
+          setAll(cookiesToSet) {
+            try {
+              cookiesToSet.forEach(({ name, value, options }) =>
+                cookieStore.set(name, value, options)
+              );
+            } catch {
+              // Route handler — ignore set errors
+            }
+          },
+        },
+      }
     );
 
     const { data: { user } } = await supabase.auth.getUser();
@@ -30,18 +45,25 @@ export async function POST(req: NextRequest) {
 
     if (invErr || !invoice) return NextResponse.json({ error: "Invoice not found" }, { status: 404 });
 
-    const customer = invoice.customers;
-    const business = invoice.businesses;
+    const customer = invoice.customers as Record<string, string> | null;
+    const business = invoice.businesses as Record<string, string> | null;
 
     if (!customer?.email) {
       return NextResponse.json({ error: "Customer has no email address" }, { status: 400 });
     }
 
     const currency = business?.currency ?? "USD";
-    const fmt = (n: number) => new Intl.NumberFormat("en-US", { style: "currency", currency, minimumFractionDigits: 2 }).format(n);
+    const fmt = (n: number) =>
+      new Intl.NumberFormat("en-US", { style: "currency", currency, minimumFractionDigits: 2 }).format(n);
 
     // Build line items HTML
-    const itemRows = (invoice.items as any[]).map(item => `
+    const itemRows = (invoice.items as Array<{
+      name: string;
+      description?: string;
+      quantity: number;
+      unit_price: number;
+      total: number;
+    }>).map(item => `
       <tr>
         <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;">${item.name}${item.description ? `<br/><span style="color:#888;font-size:12px;">${item.description}</span>` : ""}</td>
         <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;text-align:center;">${item.quantity}</td>
@@ -96,29 +118,34 @@ export async function POST(req: NextRequest) {
 
     const RESEND_API_KEY = process.env.RESEND_API_KEY;
     if (!RESEND_API_KEY) {
-      return NextResponse.json({ error: "Email service not configured. Add RESEND_API_KEY to .env.local" }, { status: 503 });
+      return NextResponse.json(
+        { error: "Email service not configured. Add RESEND_API_KEY to Vercel environment variables." },
+        { status: 503 }
+      );
     }
-
-    const fromEmail = business?.email ?? `invoices@${process.env.NEXT_PUBLIC_SITE_URL?.replace(/https?:\/\//, "") ?? "brandfledger.app"}`;
 
     const emailRes = await fetch("https://api.resend.com/emails", {
       method: "POST",
-      headers: { "Authorization": `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
+      headers: {
+        Authorization: `Bearer ${RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
         from: `${business?.name ?? "Brandfledger"} <onboarding@resend.dev>`,
         to: [customer.email],
-        subject: `Invoice ${invoice.invoice_number} from ${business?.name} — ${fmt(invoice.total)} due ${new Date(invoice.due_date).toLocaleDateString()}`,
+        subject: `Invoice ${invoice.invoice_number} from ${business?.name} — ${fmt(Number(invoice.total))} due ${new Date(invoice.due_date).toLocaleDateString()}`,
         html: emailHtml,
       }),
     });
 
     if (!emailRes.ok) {
-      const err = await emailRes.json();
+      const err = await emailRes.json() as { message?: string };
       return NextResponse.json({ error: err.message ?? "Email send failed" }, { status: 500 });
     }
 
     return NextResponse.json({ success: true });
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message ?? "Internal error" }, { status: 500 });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : "Internal error";
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
