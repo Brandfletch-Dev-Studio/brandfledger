@@ -1,3 +1,4 @@
+// src/lib/supabase/middleware.ts
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
@@ -12,8 +13,7 @@ export async function updateSession(request: NextRequest) {
         getAll() {
           return request.cookies.getAll();
         },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        setAll(cookiesToSet: { name: string; value: string; options?: any }[]) {
+        setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value)
           );
@@ -26,20 +26,33 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
-  // Refresh session
   await supabase.auth.getUser();
 
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
   const { pathname } = request.nextUrl;
 
-  if (pathname.startsWith("/auth/") || pathname.startsWith("/api/")) {
+  if (
+    pathname.startsWith("/auth/") ||
+    pathname.startsWith("/api/") ||
+    pathname.startsWith("/_next/")
+  ) {
     return supabaseResponse;
   }
 
   const protectedPaths = [
-    "/dashboard", "/customers", "/invoices", "/products",
-    "/payments", "/expenses", "/reports", "/settings",
-    "/team", "/subscription",
+    "/dashboard",
+    "/customers",
+    "/invoices",
+    "/products",
+    "/payments",
+    "/expenses",
+    "/reports",
+    "/settings",
+    "/team",
+    "/subscription",
   ];
 
   const isProtected = protectedPaths.some(
