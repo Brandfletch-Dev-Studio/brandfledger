@@ -180,17 +180,22 @@ function SetupChecklist({ initialStatus }: { initialStatus: SetupStatus }) {
                   <div className="space-y-1"><Label className="text-xs">Price</Label><Input className="h-8 text-sm" type="number" value={prodForm.price} onChange={e => setProdForm(p => ({ ...p, price: e.target.value }))} /></div>
                   <div className="space-y-1"><Label className="text-xs">Category</Label><Input className="h-8 text-sm" placeholder="Services" value={prodForm.category} onChange={e => setProdForm(p => ({ ...p, category: e.target.value }))} /></div>
                 </div>
+                {retrying && <p className="text-xs text-muted-foreground flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />{CONNECTION_ERROR_MESSAGE}</p>}
                 <div className="flex gap-2">
                   <Button size="sm" disabled={loading || !prodForm.name} onClick={async () => {
                     setLoading(true); setError("");
                     const sb = createClient();
                     const { data: biz, error: bizErr } = await getDefaultBusiness(sb);
                     if (bizErr || !biz) { setError(bizErr?.message ?? "Business not found"); setLoading(false); return; }
-                    const { error: prodErr } = await sb.from("products").insert({ name: prodForm.name, price: parseFloat(prodForm.price) || 0, category: prodForm.category, business_id: biz.id });
+                    const { error: prodErr } = await retryUntilOnline(
+                      () => sb.from("products").insert({ name: prodForm.name, price: parseFloat(prodForm.price) || 0, category: prodForm.category, business_id: biz.id }),
+                      { onRetrying: setRetrying }
+                    );
                     if (prodErr) { setError(prodErr.message); setLoading(false); return; }
+                    clearDraft("product");
                     setStatus(s => ({ ...s, hasProduct: true })); setExpanded(null); setLoading(false);
                   }}>{loading ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}Add product</Button>
-                  <Button size="sm" variant="ghost" onClick={() => { setError(""); setStatus(s => ({ ...s, hasProduct: true })); setExpanded(null); }}>Skip</Button>
+                  <Button size="sm" variant="ghost" onClick={() => { setError(""); clearDraft("product"); setStatus(s => ({ ...s, hasProduct: true })); setExpanded(null); }}>Skip</Button>
                 </div>
               </div>
             )}
