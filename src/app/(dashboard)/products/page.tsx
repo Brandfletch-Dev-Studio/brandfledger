@@ -31,10 +31,15 @@ export default function ProductsPage() {
     const sb = createClient();
     const { data: { user } } = await sb.auth.getUser();
     if (!user) { setPageLoading(false); return; }
-    const { data: biz } = await sb.from("businesses").select("*").eq("owner_id", user.id).single();
+    const { data: biz, error: bizError } = await sb.from("businesses").select("*").eq("owner_id", user.id).single();
+    if (bizError && bizError.code !== "PGRST116") {
+      toast({ title: "Couldn't load business", description: bizError.message, variant: "destructive" });
+      setPageLoading(false); return;
+    }
     if (!biz) { setPageLoading(false); return; }
     setBusiness(biz);
-    const { data } = await sb.from("products").select("*").eq("business_id", biz.id).order("name");
+    const { data, error } = await sb.from("products").select("*").eq("business_id", biz.id).order("name");
+    if (error) toast({ title: "Couldn't load products", description: error.message, variant: "destructive" });
     setProducts(data ?? []);
     setPageLoading(false);
   }
