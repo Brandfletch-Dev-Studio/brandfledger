@@ -1,12 +1,8 @@
-import { createClient } from "@/lib/supabase/server";
-import { redirect } from "next/navigation";
 import { Sidebar } from "@/components/layout/sidebar";
 
-export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const supabase = await createClient();
-  const { data: { user }, error } = await supabase.auth.getUser();
-  if (error || !user) redirect("/login");
-
+// TEMPORARY: auth removed while it's being rebuilt from scratch.
+// This app is fully publicly accessible right now — no login required.
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       <Sidebar />
