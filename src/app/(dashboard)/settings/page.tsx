@@ -8,20 +8,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
-import { Loader2, Save, Building2, User, Shield } from "lucide-react";
+import { Loader2, Save, Building2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const currencies = ["USD", "EUR", "GBP", "CAD", "AUD", "MWK", "ZAR", "NGN", "KES", "GHS"];
 
+// TEMPORARY: auth removed while it's being rebuilt from scratch.
+// Account-level settings (profile name, password) required a signed-in user
+// and have been removed for now — only business settings remain.
 export default function SettingsPage() {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [business, setBusiness] = useState<any>(null);
-  const [profile, setProfile] = useState({ full_name: "", email: "" });
   const [bizForm, setBizForm] = useState({ name: "", email: "", phone: "", address: "", website: "", currency: "USD", invoice_prefix: "INV" });
-  const [passwords, setPasswords] = useState({ current: "", newPass: "", confirm: "" });
-  const [pwLoading, setPwLoading] = useState(false);
 
   useEffect(() => { load(); }, []);
 
@@ -45,11 +44,9 @@ export default function SettingsPage() {
     setLoading(false);
   }
 
-
-
   return (
     <div>
-      <Header title="Settings" description="Manage your business and account settings" />
+      <Header title="Settings" description="Manage your business settings" />
       <div className="p-6 max-w-2xl space-y-6">
         {/* Business settings */}
         <Card>
@@ -69,32 +66,6 @@ export default function SettingsPage() {
             </div>
             <Button onClick={saveBusiness} disabled={loading || !bizForm.name}>
               {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}Save business settings
-            </Button>
-          </CardContent>
-        </Card>
-
-        {/* Profile */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2"><User className="h-5 w-5 text-muted-foreground" /><CardTitle className="text-base">Your Profile</CardTitle></div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2"><Label>Full name</Label><Input value={profile.full_name} onChange={e => setProfile(p => ({ ...p, full_name: e.target.value }))} /></div>
-            <div className="space-y-2"><Label>Email address</Label><Input type="email" value={profile.email} disabled className="bg-muted" /></div>
-            <Button onClick={saveProfile} disabled={loading}><Save className="mr-2 h-4 w-4" />Save profile</Button>
-          </CardContent>
-        </Card>
-
-        {/* Password */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2"><Shield className="h-5 w-5 text-muted-foreground" /><CardTitle className="text-base">Change Password</CardTitle></div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2"><Label>New password</Label><Input type="password" placeholder="8+ characters" value={passwords.newPass} onChange={e => setPasswords(p => ({ ...p, newPass: e.target.value }))} /></div>
-            <div className="space-y-2"><Label>Confirm password</Label><Input type="password" value={passwords.confirm} onChange={e => setPasswords(p => ({ ...p, confirm: e.target.value }))} /></div>
-            <Button onClick={changePassword} disabled={pwLoading || !passwords.newPass} variant="outline">
-              {pwLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Shield className="mr-2 h-4 w-4" />}Change password
             </Button>
           </CardContent>
         </Card>
