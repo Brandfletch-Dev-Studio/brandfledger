@@ -6,9 +6,10 @@ import {
   DollarSign, TrendingUp, TrendingDown, Clock, Users, FileText,
   CheckCircle2, Circle, Building2, UserPlus, Package, Zap,
   ChevronDown, ChevronUp, Loader2, ArrowRight, AlertCircle,
-  BarChart3, Plus, Download, Bell,
+  BarChart3, Plus, Download, Bell, ShoppingCart,
 } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { PeriodSelect } from "./period-select";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -32,11 +33,12 @@ interface SetupStatus { hasBusiness: boolean; hasCustomer: boolean; hasProduct: 
 
 interface Props {
   business: { name: string; currency: string; id?: string } | null;
-  stats: { revenue: number; expenses: number; profit: number; outstandingAmount: number; outstandingCount: number; customerCount: number; } | null;
+  stats: { revenue: number; expenses: number; profit: number; outstandingAmount: number; outstandingCount: number; customerCount: number; totalSalesCount: number; totalSalesAmount: number; } | null;
   recentInvoices?: { id: string; total: number; status: string; created_at: string; invoice_number: string }[];
   monthlyTrend?: { month: string; revenue: number; expenses: number }[];
   topCustomers?: { name: string; total: number; invoiceCount: number }[];
   setupStatus: SetupStatus;
+  period?: string;
 }
 
 const statusBadge: Record<string, string> = {
@@ -74,7 +76,7 @@ function StatCard({ label, value, sub, icon: Icon, tone = "primary" }: { label: 
     <Card className="shadow-sm hover:shadow-md transition-shadow">
       <CardContent className="p-5 sm:p-6">
         <div className="flex items-center justify-between mb-4">
-          <span className="text-sm font-medium text-muted-foreground">{label}</span>
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{label}</span>
           <div className={`h-9 w-9 rounded-xl flex items-center justify-center shrink-0 ${t.bg}`}>
             <Icon className={`h-4 w-4 ${t.icon}`} />
           </div>
@@ -221,11 +223,11 @@ function SetupChecklist({ initialStatus }: { initialStatus: SetupStatus }) {
   );
 }
 
-export default function DashboardClient({ business, stats, recentInvoices = [], monthlyTrend = [], topCustomers = [], setupStatus }: Props) {
+export default function DashboardClient({ business, stats, recentInvoices = [], monthlyTrend = [], topCustomers = [], setupStatus, period = "this_month" }: Props) {
   if (!business || !stats) {
     return (
       <div>
-        <div className="border-b bg-card px-6 py-4 md:pl-6 pl-16">
+        <div className="border-b bg-card px-4 sm:px-6 py-4">
           <h1 className="text-xl font-semibold">Dashboard</h1>
         </div>
         <div className="p-6 max-w-xl">
@@ -240,8 +242,8 @@ export default function DashboardClient({ business, stats, recentInvoices = [], 
 
   return (
     <div className="relative min-h-full">
-      <div className="relative border-b bg-gradient-to-r from-primary/5 via-card to-card px-6 py-5 md:pl-6 pl-16">
-        <div className="flex items-center justify-between gap-3">
+      <div className="relative border-b bg-gradient-to-r from-primary/5 via-card to-card px-4 sm:px-6 py-5">
+        <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide truncate">{business.name}</p>
             <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Dashboard</h1>
@@ -249,11 +251,7 @@ export default function DashboardClient({ business, stats, recentInvoices = [], 
               {getGreeting()}, here&apos;s an overview of your account
             </p>
           </div>
-          <Link href="/reports" className="shrink-0">
-            <Button size="icon" variant="ghost" className="rounded-full text-muted-foreground hover:bg-primary/10 hover:text-primary" aria-label="Reports">
-              <BarChart3 className="h-5 w-5" />
-            </Button>
-          </Link>
+          <PeriodSelect value={period} />
         </div>
 
         {/* Quick action pills */}
@@ -277,11 +275,11 @@ export default function DashboardClient({ business, stats, recentInvoices = [], 
         )}
 
         {/* Stats */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard label="Total Revenue" value={fmt(stats.revenue)} sub="From paid invoices" icon={TrendingUp} tone="emerald" />
-          <StatCard label="Total Expenses" value={fmt(stats.expenses)} icon={TrendingDown} tone="rose" />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <StatCard label="Revenue" value={fmt(stats.revenue)} icon={TrendingUp} tone="emerald" />
+          <StatCard label="Expenses" value={fmt(stats.expenses)} icon={TrendingDown} tone="rose" />
           <StatCard label="Net Profit" value={fmt(stats.profit)} icon={DollarSign} tone={stats.profit >= 0 ? "emerald" : "rose"} />
-          <StatCard label="Outstanding" value={fmt(stats.outstandingAmount)} sub={`${stats.outstandingCount} invoice${stats.outstandingCount !== 1 ? "s" : ""}`} icon={Clock} tone="amber" />
+          <StatCard label="Total Sales" value={String(stats.totalSalesCount)} sub={`${fmt(stats.totalSalesAmount)} invoiced`} icon={ShoppingCart} tone="primary" />
         </div>
 
         {/* Outstanding reminder — only shown when it's actually relevant */}
