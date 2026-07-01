@@ -47,14 +47,21 @@ export default function InvoicesPage() {
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setPageLoading(false); return; }
-    const { data: biz } = await supabase.from("businesses").select("*").eq("owner_id", user.id).single();
+    const { data: biz, error: bizError } = await supabase.from("businesses").select("*").eq("owner_id", user.id).single();
+    if (bizError && bizError.code !== "PGRST116") {
+      toast({ title: "Couldn't load business", description: bizError.message, variant: "destructive" });
+      setPageLoading(false); return;
+    }
     if (!biz) { setPageLoading(false); return; }
     setBusiness(biz);
-    const [{ data: invs }, { data: custs }, { data: prods }] = await Promise.all([
+    const [{ data: invs, error: invError }, { data: custs, error: custError }, { data: prods, error: prodError }] = await Promise.all([
       supabase.from("invoices").select("*, customers(name, email)").eq("business_id", biz.id).order("created_at", { ascending: false }),
       supabase.from("customers").select("*").eq("business_id", biz.id).order("name"),
       supabase.from("products").select("*").eq("business_id", biz.id).order("name"),
     ]);
+    if (invError || custError || prodError) {
+      toast({ title: "Couldn't load some data", description: (invError ?? custError ?? prodError)?.message, variant: "destructive" });
+    }
     setInvoices(invs ?? []);
     setCustomers(custs ?? []);
     setProducts(prods ?? []);
