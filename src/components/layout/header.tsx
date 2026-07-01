@@ -14,7 +14,7 @@ export function Header({ title, description, icon: Icon, actions, className }: H
   return (
     <div
       className={cn(
-        "relative flex items-center justify-between gap-3 border-b bg-gradient-to-r from-primary/5 via-card to-card px-6 py-5 md:pl-6 pl-16",
+        "relative flex items-center justify-between gap-3 border-b bg-gradient-to-r from-primary/5 via-card to-card px-4 sm:px-6 py-5",
         className
       )}
     >
