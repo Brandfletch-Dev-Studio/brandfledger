@@ -28,9 +28,14 @@ export default function TeamPage() {
     const sb = createClient();
     const { data: { user } } = await sb.auth.getUser();
     if (!user) { setPageLoading(false); return; }
-    const { data: biz } = await sb.from("businesses").select("id").eq("owner_id", user.id).single();
+    const { data: biz, error: bizError } = await sb.from("businesses").select("id").eq("owner_id", user.id).single();
+    if (bizError && bizError.code !== "PGRST116") {
+      toast({ title: "Couldn't load business", description: bizError.message, variant: "destructive" });
+      setPageLoading(false); return;
+    }
     if (!biz) { setPageLoading(false); return; }
-    const { data } = await sb.from("business_members").select("*").eq("business_id", biz.id);
+    const { data, error } = await sb.from("business_members").select("*").eq("business_id", biz.id);
+    if (error) toast({ title: "Couldn't load team members", description: error.message, variant: "destructive" });
     setMembers(data ?? []);
     setPageLoading(false);
   }
