@@ -34,13 +34,20 @@ export default function PaymentsPage() {
     const sb = createClient();
     const { data: { user } } = await sb.auth.getUser();
     if (!user) { setPageLoading(false); return; }
-    const { data: biz } = await sb.from("businesses").select("*").eq("owner_id", user.id).single();
+    const { data: biz, error: bizError } = await sb.from("businesses").select("*").eq("owner_id", user.id).single();
+    if (bizError && bizError.code !== "PGRST116") {
+      toast({ title: "Couldn't load business", description: bizError.message, variant: "destructive" });
+      setPageLoading(false); return;
+    }
     if (!biz) { setPageLoading(false); return; }
     setBusiness(biz);
-    const [{ data: pmts }, { data: invs }] = await Promise.all([
+    const [{ data: pmts, error: pmtsError }, { data: invs, error: invsError }] = await Promise.all([
       sb.from("payments").select("*, invoices(invoice_number, total)").eq("business_id", biz.id).order("date", { ascending: false }),
       sb.from("invoices").select("id, invoice_number, total, status").eq("business_id", biz.id).in("status", ["sent", "overdue"]).order("created_at", { ascending: false }),
     ]);
+    if (pmtsError || invsError) {
+      toast({ title: "Couldn't load some data", description: (pmtsError ?? invsError)?.message, variant: "destructive" });
+    }
     setPayments(pmts ?? []);
     setInvoices(invs ?? []);
     setPageLoading(false);
