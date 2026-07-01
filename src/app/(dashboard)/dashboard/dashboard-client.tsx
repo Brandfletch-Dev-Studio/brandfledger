@@ -286,10 +286,15 @@ export default function DashboardClient({ business, stats, recentInvoices = [], 
           </Card>
         </div>
       </div>
+
+      <Link
+        href="/invoices?new=1"
+        className="fixed bottom-6 right-6 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 transition-colors"
+        aria-label="New Invoice"
+      >
+        <Plus className="h-6 w-6" />
+      </Link>
     </div>
   );
 }
 
-function BarChart3({ className }: { className?: string }) {
-  return <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/><line x1="2" y1="20" x2="22" y2="20"/></svg>;
-}
