@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, Legend } from "recharts";
 import { formatCurrency } from "@/lib/utils";
-import { Download, TrendingUp, TrendingDown, DollarSign, Loader2 } from "lucide-react";
+import { Download, TrendingUp, TrendingDown, DollarSign, Loader2, BarChart3 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { Business } from "@/types";
 
@@ -110,7 +110,7 @@ export default function ReportsPage() {
 
   if (pageLoading) return (
     <div>
-      <Header title="Reports" description="Financial overview and analytics" />
+      <Header title="Reports" description="Financial overview and analytics" icon={BarChart3} />
       <div className="p-6 flex items-center justify-center py-32">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
       </div>
