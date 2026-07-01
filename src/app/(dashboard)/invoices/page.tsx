@@ -222,7 +222,7 @@ function InvoicesPageInner() {
 
   if (pageLoading) return (
     <div>
-      <Header title="Invoices" description="Create and manage invoices" />
+      <Header title="Invoices" description="Create and manage invoices" icon={FileText} />
       <div className="p-6 flex items-center justify-center py-32">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
       </div>
