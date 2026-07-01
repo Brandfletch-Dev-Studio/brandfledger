@@ -46,7 +46,7 @@ export default function SettingsPage() {
 
   return (
     <div>
-      <Header title="Settings" description="Manage your business settings" />
+      <Header title="Settings" description="Manage your business settings" icon={Building2} />
       <div className="p-6 max-w-2xl space-y-6">
         {/* Business settings */}
         <Card>
