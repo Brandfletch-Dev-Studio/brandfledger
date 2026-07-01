@@ -65,11 +65,8 @@ export default function LandingClient() {
             <span className="font-bold text-base tracking-tight">Brandfledger</span>
           </div>
           <div className="flex items-center gap-2">
-            <Link href="/login" className="text-sm font-medium px-4 py-2 rounded-lg transition-colors" style={{ color: "#94a3b8" }}>
-              Sign in
-            </Link>
-            <Link href="/register" className="text-sm font-semibold px-4 py-2 rounded-lg text-white transition-opacity hover:opacity-90" style={{ background: "linear-gradient(135deg,#6366f1,#8b5cf6)" }}>
-              Get started
+            <Link href="/dashboard" className="text-sm font-semibold px-4 py-2 rounded-lg text-white transition-opacity hover:opacity-90" style={{ background: "linear-gradient(135deg,#6366f1,#8b5cf6)" }}>
+              Open dashboard
             </Link>
           </div>
         </div>
@@ -94,11 +91,8 @@ export default function LandingClient() {
         </p>
 
         <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-16">
-          <Link href="/register" className="flex items-center gap-2 px-6 py-3.5 rounded-xl text-white font-semibold text-base transition-opacity hover:opacity-90" style={{ background: "linear-gradient(135deg,#6366f1,#8b5cf6)", boxShadow: "0 0 32px rgba(99,102,241,0.35)" }}>
-            Create free workspace <ArrowRight className="w-4 h-4" />
-          </Link>
-          <Link href="/login" className="flex items-center gap-2 px-6 py-3.5 rounded-xl font-medium text-sm transition-colors" style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#cbd5e1" }}>
-            Already have an account
+          <Link href="/dashboard" className="flex items-center gap-2 px-6 py-3.5 rounded-xl text-white font-semibold text-base transition-opacity hover:opacity-90" style={{ background: "linear-gradient(135deg,#6366f1,#8b5cf6)", boxShadow: "0 0 32px rgba(99,102,241,0.35)" }}>
+            Open dashboard <ArrowRight className="w-4 h-4" />
           </Link>
         </div>
 
@@ -165,8 +159,8 @@ export default function LandingClient() {
         <p className="text-base mb-8" style={{ color: "#64748b" }}>
           Join thousands of businesses running smarter with Brandfledger. Free to start.
         </p>
-        <Link href="/register" className="inline-flex items-center gap-2 px-8 py-4 rounded-xl text-white font-semibold text-base transition-opacity hover:opacity-90" style={{ background: "linear-gradient(135deg,#6366f1,#8b5cf6)", boxShadow: "0 0 40px rgba(99,102,241,0.3)" }}>
-          Create free workspace <ArrowRight className="w-4 h-4" />
+        <Link href="/dashboard" className="inline-flex items-center gap-2 px-8 py-4 rounded-xl text-white font-semibold text-base transition-opacity hover:opacity-90" style={{ background: "linear-gradient(135deg,#6366f1,#8b5cf6)", boxShadow: "0 0 40px rgba(99,102,241,0.3)" }}>
+          Open dashboard <ArrowRight className="w-4 h-4" />
         </Link>
       </section>
 
