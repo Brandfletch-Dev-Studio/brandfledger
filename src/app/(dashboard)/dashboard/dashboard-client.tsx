@@ -1,6 +1,6 @@
 
 "use client";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import {
   DollarSign, TrendingUp, TrendingDown, Clock, Users, FileText,
@@ -16,8 +16,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Progress } from "@/components/ui/progress";
 import { createClient } from "@/lib/supabase/client";
 import { getDefaultBusiness } from "@/lib/default-business";
-import { retryUntilOnline, CONNECTION_ERROR_MESSAGE } from "@/lib/network";
-import { saveDraft, loadDraft, clearDraft } from "@/lib/local-draft";
 import { useRouter } from "next/navigation";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
@@ -61,27 +59,10 @@ function SetupChecklist({ initialStatus }: { initialStatus: SetupStatus }) {
   const [status, setStatus] = useState(initialStatus);
   const [expanded, setExpanded] = useState<string | null>(!initialStatus.hasBusiness ? "business" : !initialStatus.hasCustomer ? "customer" : !initialStatus.hasProduct ? "product" : null);
   const [loading, setLoading] = useState(false);
-  const [retrying, setRetrying] = useState(false);
   const [error, setError] = useState("");
   const [bizForm, setBizForm] = useState({ name: "", email: "", currency: "USD", invoice_prefix: "INV" });
   const [custForm, setCustForm] = useState({ name: "", email: "", phone: "" });
   const [prodForm, setProdForm] = useState({ name: "", price: "", category: "" });
-
-  // Resume any locally-cached drafts (e.g. a save that was interrupted by a dropped connection)
-  useEffect(() => {
-    const savedBiz = loadDraft<typeof bizForm>("business");
-    if (savedBiz) setBizForm(savedBiz);
-    const savedCust = loadDraft<typeof custForm>("customer");
-    if (savedCust) setCustForm(savedCust);
-    const savedProd = loadDraft<typeof prodForm>("product");
-    if (savedProd) setProdForm(savedProd);
-  }, []);
-
-  // Cache every keystroke locally so nothing is lost on a bad connection —
-  // there's no auth/session backing this up server-side right now.
-  useEffect(() => { if (bizForm.name) saveDraft("business", bizForm); }, [bizForm]);
-  useEffect(() => { if (custForm.name) saveDraft("customer", custForm); }, [custForm]);
-  useEffect(() => { if (prodForm.name) saveDraft("product", prodForm); }, [prodForm]);
 
   const completedCount = [status.hasBusiness, status.hasCustomer, status.hasProduct, status.hasInvoice].filter(Boolean).length;
   const allDone = completedCount === 4;
@@ -128,19 +109,14 @@ function SetupChecklist({ initialStatus }: { initialStatus: SetupStatus }) {
                   <div className="space-y-1"><Label className="text-xs">Invoice prefix</Label><Input className="h-8 text-sm" placeholder="INV" value={bizForm.invoice_prefix} onChange={e => setBizForm(p => ({ ...p, invoice_prefix: e.target.value.toUpperCase() }))} /></div>
                   <div className="space-y-1"><Label className="text-xs">Currency</Label><Select value={bizForm.currency} onValueChange={v => setBizForm(p => ({ ...p, currency: v }))}><SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger><SelectContent>{currencies.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select></div>
                 </div>
-                {retrying && <p className="text-xs text-muted-foreground flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />{CONNECTION_ERROR_MESSAGE}</p>}
                 <Button size="sm" disabled={loading || !bizForm.name} onClick={async () => {
                   setLoading(true); setError("");
                   const sb = createClient();
                   // Guard against double-insert if button clicked twice
                   const { data: existing } = await getDefaultBusiness(sb);
-                  if (existing) { clearDraft("business"); setStatus(s => ({ ...s, hasBusiness: true })); setExpanded("customer"); setLoading(false); router.refresh(); return; }
-                  const { error: e } = await retryUntilOnline(
-                    () => sb.from("businesses").insert({ ...bizForm }).select().single(),
-                    { onRetrying: setRetrying }
-                  );
+                  if (existing) { setStatus(s => ({ ...s, hasBusiness: true })); setExpanded("customer"); setLoading(false); router.refresh(); return; }
+                  const { error: e } = await sb.from("businesses").insert({ ...bizForm }).select().single();
                   if (e) { setError(e.message); setLoading(false); return; }
-                  clearDraft("business");
                   setStatus(s => ({ ...s, hasBusiness: true })); setExpanded("customer"); setLoading(false); router.refresh();
                 }}>{loading ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}Save business</Button>
               </div>
@@ -153,22 +129,17 @@ function SetupChecklist({ initialStatus }: { initialStatus: SetupStatus }) {
                   <div className="space-y-1"><Label className="text-xs">Email</Label><Input className="h-8 text-sm" type="email" value={custForm.email} onChange={e => setCustForm(p => ({ ...p, email: e.target.value }))} /></div>
                   <div className="space-y-1"><Label className="text-xs">Phone</Label><Input className="h-8 text-sm" value={custForm.phone} onChange={e => setCustForm(p => ({ ...p, phone: e.target.value }))} /></div>
                 </div>
-                {retrying && <p className="text-xs text-muted-foreground flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />{CONNECTION_ERROR_MESSAGE}</p>}
                 <div className="flex gap-2">
                   <Button size="sm" disabled={loading || !custForm.name} onClick={async () => {
                     setLoading(true); setError("");
                     const sb = createClient();
                     const { data: biz, error: bizErr } = await getDefaultBusiness(sb);
                     if (bizErr || !biz) { setError(bizErr?.message ?? "Business not found"); setLoading(false); return; }
-                    const { error: custErr } = await retryUntilOnline(
-                      () => sb.from("customers").insert({ ...custForm, business_id: biz.id, total_invoiced: 0 }),
-                      { onRetrying: setRetrying }
-                    );
+                    const { error: custErr } = await sb.from("customers").insert({ ...custForm, business_id: biz.id, total_invoiced: 0 });
                     if (custErr) { setError(custErr.message); setLoading(false); return; }
-                    clearDraft("customer");
                     setStatus(s => ({ ...s, hasCustomer: true })); setExpanded("product"); setLoading(false);
                   }}>{loading ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}Add customer</Button>
-                  <Button size="sm" variant="ghost" onClick={() => { setError(""); clearDraft("customer"); setStatus(s => ({ ...s, hasCustomer: true })); setExpanded("product"); }}>Skip</Button>
+                  <Button size="sm" variant="ghost" onClick={() => { setError(""); setStatus(s => ({ ...s, hasCustomer: true })); setExpanded("product"); }}>Skip</Button>
                 </div>
               </div>
             )}
@@ -180,22 +151,17 @@ function SetupChecklist({ initialStatus }: { initialStatus: SetupStatus }) {
                   <div className="space-y-1"><Label className="text-xs">Price</Label><Input className="h-8 text-sm" type="number" value={prodForm.price} onChange={e => setProdForm(p => ({ ...p, price: e.target.value }))} /></div>
                   <div className="space-y-1"><Label className="text-xs">Category</Label><Input className="h-8 text-sm" placeholder="Services" value={prodForm.category} onChange={e => setProdForm(p => ({ ...p, category: e.target.value }))} /></div>
                 </div>
-                {retrying && <p className="text-xs text-muted-foreground flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />{CONNECTION_ERROR_MESSAGE}</p>}
                 <div className="flex gap-2">
                   <Button size="sm" disabled={loading || !prodForm.name} onClick={async () => {
                     setLoading(true); setError("");
                     const sb = createClient();
                     const { data: biz, error: bizErr } = await getDefaultBusiness(sb);
                     if (bizErr || !biz) { setError(bizErr?.message ?? "Business not found"); setLoading(false); return; }
-                    const { error: prodErr } = await retryUntilOnline(
-                      () => sb.from("products").insert({ name: prodForm.name, price: parseFloat(prodForm.price) || 0, category: prodForm.category, business_id: biz.id }),
-                      { onRetrying: setRetrying }
-                    );
+                    const { error: prodErr } = await sb.from("products").insert({ name: prodForm.name, price: parseFloat(prodForm.price) || 0, category: prodForm.category, business_id: biz.id });
                     if (prodErr) { setError(prodErr.message); setLoading(false); return; }
-                    clearDraft("product");
                     setStatus(s => ({ ...s, hasProduct: true })); setExpanded(null); setLoading(false);
                   }}>{loading ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}Add product</Button>
-                  <Button size="sm" variant="ghost" onClick={() => { setError(""); clearDraft("product"); setStatus(s => ({ ...s, hasProduct: true })); setExpanded(null); }}>Skip</Button>
+                  <Button size="sm" variant="ghost" onClick={() => { setError(""); setStatus(s => ({ ...s, hasProduct: true })); setExpanded(null); }}>Skip</Button>
                 </div>
               </div>
             )}
