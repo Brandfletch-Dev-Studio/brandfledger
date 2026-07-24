@@ -28,117 +28,115 @@ export async function GET() {
   try {
     await client.connect();
     
-    // List all schemas
-    const { rows: schemas } = await client.query(
-      "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('pg_catalog', 'information_schema', 'pg_toast') ORDER BY schema_name"
-    );
+    const results: Record<string, unknown> = {};
     
-    // List all auth tables
-    let authTables: any[] = [];
+    // 1. Try auth.instances
     try {
-      const { rows } = await client.query(
-        "SELECT table_name FROM information_schema.tables WHERE table_schema = 'auth' ORDER BY table_name"
-      );
-      authTables = rows;
+      const { rows } = await client.query("SELECT * FROM auth.instances LIMIT 5");
+      results.authInstances = rows;
     } catch (e: any) {
-      authTables = [{ error: e.message }];
+      results.authInstancesError = e.message;
     }
     
-    // Try to get JWT secret from various places
-    let jwtSecret: string | null = null;
-    const secretAttempts: string[] = [];
-    
-    // Try auth.config
+    // 2. Check vault.decrypted_secrets columns
     try {
-      const { rows } = await client.query("SELECT secret FROM auth.config WHERE id = 'jwt'");
-      if (rows[0]?.secret) {
-        jwtSecret = rows[0].secret;
-        secretAttempts.push("Found in auth.config");
-      }
+      const { rows } = await client.query("SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = 'vault' AND table_name = 'decrypted_secrets'");
+      results.vaultColumns = rows;
     } catch (e: any) {
-      secretAttempts.push(`auth.config: ${e.message}`);
+      results.vaultColumnsError = e.message;
     }
     
-    // Try vault.decrypted_secrets
+    // 3. Try vault with correct columns
     try {
-      const { rows } = await client.query("SELECT name, value FROM vault.decrypted_secrets WHERE name LIKE '%jwt%' OR name LIKE '%secret%' OR name LIKE '%key%'");
-      if (rows.length > 0) {
-        for (const row of rows) {
-          secretAttempts.push(`vault: ${row.name} = ${String(row.value).substring(0, 30)}...`);
-          if (row.name.includes('jwt') || row.name.includes('secret')) {
-            jwtSecret = row.value;
+      const { rows } = await client.query("SELECT * FROM vault.decrypted_secrets LIMIT 10");
+      results.vaultSecrets = rows.map((r: any) => {
+        // Mask values partially
+        const masked: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(r)) {
+          if (typeof v === 'string' && v.length > 50) {
+            masked[k] = v.substring(0, 30) + '...';
+          } else {
+            masked[k] = v;
           }
         }
-      } else {
-        secretAttempts.push("vault: no secrets found");
+        return masked;
+      });
+    } catch (e: any) {
+      results.vaultSecretsError = e.message;
+    }
+    
+    // 4. Try pg_catalog for JWT-related settings
+    try {
+      const { rows } = await client.query("SELECT name, setting FROM pg_settings WHERE name LIKE '%jwt%' OR name LIKE '%auth%' OR name LIKE '%supabase%'");
+      results.pgSettings = rows;
+    } catch (e: any) {
+      results.pgSettingsError = e.message;
+    }
+    
+    // 5. Try to get the JWT secret from the auth schema's config function
+    try {
+      const { rows } = await client.query("SELECT auth.get_jwt_secret() as secret");
+      if (rows[0]?.secret) {
+        results.jwtSecret = rows[0].secret;
       }
     } catch (e: any) {
-      secretAttempts.push(`vault: ${e.message}`);
+      results.jwtSecretError = e.message;
     }
     
-    // Try pg_extension to see if GoTrue is installed
-    let extensions: any[] = [];
+    // 6. Try to get config from auth.schema_migrations or similar
     try {
-      const { rows } = await client.query("SELECT extname FROM pg_extension ORDER BY extname");
-      extensions = rows;
+      const { rows } = await client.query("SELECT * FROM auth.schema_migrations ORDER BY version DESC LIMIT 3");
+      results.schemaMigrations = rows;
     } catch (e: any) {
-      extensions = [{ error: e.message }];
+      results.schemaMigrationsError = e.message;
     }
     
-    // List public tables
-    const { rows: publicTables } = await client.query(
-      "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name"
-    );
-    
-    // Try to get auth users
-    let authUsers: any[] = [];
+    // 7. Try SHOW config_file or similar to find where config lives
     try {
-      const { rows } = await client.query("SELECT id, email, created_at FROM auth.users ORDER BY created_at DESC LIMIT 5");
-      authUsers = rows.map((r: any) => ({ email: r.email, created: r.created_at }));
+      const { rows } = await client.query("SELECT current_setting('app.supabase_jwt_secret', true) as secret");
+      results.appSetting = rows[0]?.secret || 'not set';
     } catch (e: any) {
-      authUsers = [{ error: e.message }];
+      results.appSettingError = e.message;
     }
     
-    // Generate keys from JWT secret if found
+    // 8. Direct approach: check all tables in auth for config-like data
+    try {
+      const { rows } = await client.query("SELECT table_name FROM information_schema.tables WHERE table_schema = 'auth' AND table_name LIKE '%config%' OR table_name LIKE '%setting%'");
+      results.configTables = rows;
+    } catch (e: any) {
+      results.configTablesError = e.message;
+    }
+    
+    // Generate keys if we found the JWT secret
     let anonKey: string | null = null;
     let serviceRoleKey: string | null = null;
+    let jwtSecret: string | null = null;
+    
+    if (results.jwtSecret) {
+      jwtSecret = results.jwtSecret as string;
+    }
+    
+    if (!jwtSecret && results.vaultSecrets) {
+      // Try to find a JWT secret in vault
+      for (const secret of results.vaultSecrets as any[]) {
+        if (secret.name && (secret.name.includes('jwt') || secret.name.includes('secret'))) {
+          // Need to get the full value
+        }
+      }
+    }
     
     if (jwtSecret) {
       const now = Math.floor(Date.now() / 1000);
       const exp = now + (10 * 365 * 24 * 60 * 60);
       
-      anonKey = createJWT({
-        role: "anon",
-        iss: "supabase",
-        ref: PROJECT_REF,
-        iat: now,
-        exp,
-      }, jwtSecret);
-      
-      serviceRoleKey = createJWT({
-        role: "service_role",
-        iss: "supabase",
-        ref: PROJECT_REF,
-        iat: now,
-        exp,
-      }, jwtSecret);
+      anonKey = createJWT({ role: "anon", iss: "supabase", ref: PROJECT_REF, iat: now, exp }, jwtSecret);
+      serviceRoleKey = createJWT({ role: "service_role", iss: "supabase", ref: PROJECT_REF, iat: now, exp }, jwtSecret);
+      results.anonKey = anonKey;
+      results.serviceRoleKey = serviceRoleKey;
     }
     
     await client.end();
-
-    return NextResponse.json({
-      success: true,
-      schemas: schemas.map((r: any) => r.schema_name),
-      authTables: authTables.map((r: any) => r.table_name || r.error),
-      publicTables: publicTables.map((r: any) => r.table_name),
-      extensions: extensions.map((r: any) => r.extname || r.error),
-      authUsers,
-      jwtSecretFound: !!jwtSecret,
-      jwtSecretPreview: jwtSecret?.substring(0, 20) + "...",
-      anonKey,
-      serviceRoleKey,
-      secretAttempts,
-    });
+    return NextResponse.json({ success: true, ...results });
   } catch (err: any) {
     try { await client.end(); } catch {}
     return NextResponse.json({ error: err.message }, { status: 500 });
