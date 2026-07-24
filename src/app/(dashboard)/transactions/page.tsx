@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { getDefaultBusiness } from "@/lib/default-business";
 import { Header } from "@/components/layout/header";
@@ -11,42 +11,20 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Search, TrendingUp, TrendingDown, Loader2, DollarSign, Receipt, Filter, Download } from "lucide-react";
+import { Plus, Search, TrendingUp, TrendingDown, Loader2, Receipt, Trash2, Tag } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
-import type { Transaction } from "@/types";
-import { INCOME_CATEGORIES, EXPENSE_CATEGORIES, PAYMENT_METHODS } from "@/types";
-
-const CATEGORY_LABELS: Record<string, string> = {
-  ad_sale: "Ad Sale",
-  design: "Design",
-  poster_design: "Poster Design",
-  video_design: "Video Design",
-  company_profile: "Company Profile",
-  ad_credit: "Ad Credit",
-  eye_drops: "Eye Drops",
-  other_income: "Other Income",
-  ad_budget: "Ad Budget (USD)",
-  usdt_purchase: "USDT Purchase",
-  internet_bundle: "Internet/Bundle",
-  fuel: "Fuel",
-  food_meals: "Food/Meals",
-  education: "Education/Tuition",
-  family: "Family/Asher",
-  designer_contractor: "Designer/Contractor",
-  loan: "Loan",
-  equipment: "Equipment",
-  business_online: "Business/Online",
-  vaccine: "Vaccine",
-  other_expense: "Other Expense",
-};
+import type { Transaction, Category, Product } from "@/types";
+import { PAYMENT_METHODS } from "@/types";
 
 const BLANK_INCOME = {
   client_name: "",
   description: "",
   amount: "",
-  ad_usd: "",
-  category: "ad_sale",
+  cost_amount: "",
+  cost_qty: "",
+  category_id: "",
+  product_id: "",
   payment_method: "cash",
   date: new Date().toISOString().split("T")[0],
 };
@@ -54,28 +32,32 @@ const BLANK_INCOME = {
 const BLANK_EXPENSE = {
   description: "",
   amount: "",
-  category: "ad_budget",
-  vendor: "",
+  category_id: "",
+  vendor_name: "",
   payment_method: "cash",
   date: new Date().toISOString().split("T")[0],
 };
 
+const BLANK_CATEGORY = { name: "", type: "income" as const, color: "" };
+
 export default function TransactionsPage() {
   const { toast } = useToast();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [business, setBusiness] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [open, setOpen] = useState(false);
+  const [catOpen, setCatOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("income");
   const [incomeForm, setIncomeForm] = useState(BLANK_INCOME);
   const [expenseForm, setExpenseForm] = useState(BLANK_EXPENSE);
+  const [catForm, setCatForm] = useState(BLANK_CATEGORY);
 
-  useEffect(() => { loadData(); }, []);
-
-  async function loadData() {
+  const loadData = useCallback(async () => {
     setPageLoading(true);
     const sb = createClient();
     const { data: biz, error } = await getDefaultBusiness(sb);
@@ -85,39 +67,64 @@ export default function TransactionsPage() {
       return;
     }
     setBusiness(biz);
-    const { data, error: txError } = await sb
-      .from("transactions")
-      .select("*")
-      .eq("business_id", biz.id)
-      .order("date", { ascending: false });
-    if (txError) toast({ title: "Couldn't load transactions", description: txError.message, variant: "destructive" });
-    setTransactions(data ?? []);
+    const [txRes, catRes, prodRes] = await Promise.all([
+      sb.from("transactions").select("*").eq("business_id", biz.id).order("date", { ascending: false }),
+      sb.from("categories").select("*").eq("business_id", biz.id).order("sort_order"),
+      sb.from("products").select("*").eq("business_id", biz.id).eq("is_active", true).order("name"),
+    ]);
+    if (txRes.error) toast({ title: "Couldn't load transactions", description: txRes.error.message, variant: "destructive" });
+    setTransactions(txRes.data ?? []);
+    setCategories(catRes.data ?? []);
+    setProducts(prodRes.data ?? []);
     setPageLoading(false);
-  }
+  }, [toast]);
 
-  // Auto-calculate profit preview
+  useEffect(() => { loadData(); }, [loadData]);
+
+  const incomeCategories = categories.filter(c => c.type === "income");
+  const expenseCategories = categories.filter(c => c.type === "expense");
+
+  // Profit preview for income form
   const profitPreview = useMemo(() => {
     const amount = parseFloat(incomeForm.amount) || 0;
-    const usd = parseFloat(incomeForm.ad_usd) || 0;
-    const rate = business?.usd_exchange_rate ?? 4300;
-    const adCost = usd * rate;
-    const profit = amount - adCost;
+    let cost = parseFloat(incomeForm.cost_amount) || 0;
+    const qty = parseFloat(incomeForm.cost_qty) || 0;
+    // If qty is set and cost is 0, auto-calc from business cost_rate
+    if (qty > 0 && cost === 0 && business?.cost_rate) {
+      cost = qty * business.cost_rate;
+    }
+    const profit = amount - cost;
     const margin = amount > 0 ? (profit / amount * 100) : 0;
-    return { adCost, profit, margin };
-  }, [incomeForm.amount, incomeForm.ad_usd, business]);
+    return { cost, profit, margin };
+  }, [incomeForm.amount, incomeForm.cost_amount, incomeForm.cost_qty, business]);
+
+  // When product is selected, auto-fill price & cost
+  function onProductChange(productId: string) {
+    const product = products.find(p => p.id === productId);
+    if (product) {
+      setIncomeForm(p => ({
+        ...p,
+        product_id: productId,
+        amount: String(product.price),
+        cost_amount: String(product.cost ?? 0),
+        description: product.name,
+      }));
+    } else {
+      setIncomeForm(p => ({ ...p, product_id: "" }));
+    }
+  }
 
   // Summary stats
   const stats = useMemo(() => {
     const income = transactions.filter(t => t.type === "income");
     const expenses = transactions.filter(t => t.type === "expense");
     const totalRevenue = income.reduce((s, t) => s + Number(t.amount), 0);
-    const totalAdCost = income.reduce((s, t) => s + Number(t.ad_cost || 0), 0);
+    const totalCost = income.reduce((s, t) => s + Number(t.cost_amount || 0), 0);
     const totalExpenses = expenses.reduce((s, t) => s + Number(t.amount), 0);
-    const grossProfit = totalRevenue - totalAdCost;
+    const grossProfit = totalRevenue - totalCost;
     const netProfit = grossProfit - totalExpenses;
-    const totalUsd = income.reduce((s, t) => s + Number(t.ad_usd || 0), 0);
     const avgMargin = totalRevenue > 0 ? (grossProfit / totalRevenue * 100) : 0;
-    return { totalRevenue, totalAdCost, totalExpenses, grossProfit, netProfit, totalUsd, avgMargin, salesCount: income.length };
+    return { totalRevenue, totalCost, totalExpenses, grossProfit, netProfit, avgMargin, salesCount: income.length };
   }, [transactions]);
 
   const filtered = useMemo(() => {
@@ -125,7 +132,7 @@ export default function TransactionsPage() {
       if (typeFilter !== "all" && t.type !== typeFilter) return false;
       if (search) {
         const q = search.toLowerCase();
-        return (t.client_name?.toLowerCase().includes(q) || t.description.toLowerCase().includes(q) || t.category.toLowerCase().includes(q));
+        return (t.client_name?.toLowerCase().includes(q) || t.description.toLowerCase().includes(q) || t.category_name?.toLowerCase().includes(q) || t.vendor_name?.toLowerCase().includes(q));
       }
       return true;
     });
@@ -136,16 +143,24 @@ export default function TransactionsPage() {
     setLoading(true);
     const sb = createClient();
     const amount = parseFloat(incomeForm.amount);
-    const adUsd = parseFloat(incomeForm.ad_usd) || 0;
+    let costAmount = parseFloat(incomeForm.cost_amount) || 0;
+    const costQty = parseFloat(incomeForm.cost_qty) || 0;
+    if (costQty > 0 && costAmount === 0 && business.cost_rate) {
+      costAmount = costQty * business.cost_rate;
+    }
+    const cat = categories.find(c => c.id === incomeForm.category_id);
 
     const { error } = await sb.from("transactions").insert({
       business_id: business.id,
       type: "income",
-      category: incomeForm.category,
+      category_id: incomeForm.category_id || null,
+      category_name: cat?.name || null,
       client_name: incomeForm.client_name,
-      description: incomeForm.description || `${incomeForm.client_name} - ${CATEGORY_LABELS[incomeForm.category]}`,
+      description: incomeForm.description || `${incomeForm.client_name}`,
       amount,
-      ad_usd: adUsd,
+      cost_amount: costAmount,
+      cost_qty: costQty,
+      product_id: incomeForm.product_id || null,
       payment_method: incomeForm.payment_method,
       date: incomeForm.date,
     });
@@ -153,7 +168,7 @@ export default function TransactionsPage() {
     if (error) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     } else {
-      toast({ title: "Transaction added", description: `${incomeForm.client_name} - ${formatCurrency(amount, business.currency)}` });
+      toast({ title: "Income logged", description: `${incomeForm.client_name} — ${formatCurrency(amount, business.currency)}` });
       setIncomeForm({ ...BLANK_INCOME, date: new Date().toISOString().split("T")[0] });
       setOpen(false);
       loadData();
@@ -166,24 +181,47 @@ export default function TransactionsPage() {
     setLoading(true);
     const sb = createClient();
     const amount = parseFloat(expenseForm.amount);
+    const cat = categories.find(c => c.id === expenseForm.category_id);
 
     const { error } = await sb.from("transactions").insert({
       business_id: business.id,
       type: "expense",
-      category: expenseForm.category,
+      category_id: expenseForm.category_id || null,
+      category_name: cat?.name || null,
+      vendor_name: expenseForm.vendor_name || null,
       description: expenseForm.description,
       amount,
       payment_method: expenseForm.payment_method,
-      reference: expenseForm.vendor,
       date: expenseForm.date,
     });
 
     if (error) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     } else {
-      toast({ title: "Expense logged", description: `${expenseForm.description} - ${formatCurrency(amount, business.currency)}` });
+      toast({ title: "Expense logged", description: `${expenseForm.description} — ${formatCurrency(amount, business.currency)}` });
       setExpenseForm({ ...BLANK_EXPENSE, date: new Date().toISOString().split("T")[0] });
       setOpen(false);
+      loadData();
+    }
+    setLoading(false);
+  }
+
+  async function handleAddCategory() {
+    if (!catForm.name || !business) return;
+    setLoading(true);
+    const sb = createClient();
+    const { error } = await sb.from("categories").insert({
+      business_id: business.id,
+      name: catForm.name,
+      type: catForm.type,
+      color: catForm.color || null,
+    });
+    if (error) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } else {
+      toast({ title: "Category created" });
+      setCatForm(BLANK_CATEGORY);
+      setCatOpen(false);
       loadData();
     }
     setLoading(false);
@@ -201,7 +239,9 @@ export default function TransactionsPage() {
     }
   }
 
-  const currency = business?.currency ?? "MWK";
+  const currency = business?.currency ?? "USD";
+  const costRateLabel = business?.cost_rate_label ?? "Cost";
+  const costRateUnit = business?.cost_rate_unit ?? "";
 
   if (pageLoading) {
     return (
@@ -213,7 +253,7 @@ export default function TransactionsPage() {
 
   return (
     <div className="space-y-6">
-      <Header title="Transactions" subtitle="Log income & expenses with profit tracking" />
+      <Header title="Transactions" subtitle="Log income & expenses with automatic profit tracking" />
 
       {/* Summary Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
@@ -232,13 +272,13 @@ export default function TransactionsPage() {
         <Card className="shadow-sm">
           <CardContent className="p-4 sm:p-5">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-semibold text-muted-foreground uppercase">Ad Cost</span>
+              <span className="text-xs font-semibold text-muted-foreground uppercase">Cost of Sales</span>
               <div className="h-8 w-8 rounded-lg flex items-center justify-center bg-blue-100 dark:bg-blue-500/10">
-                <DollarSign className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                <Receipt className="h-4 w-4 text-blue-600 dark:text-blue-400" />
               </div>
             </div>
-            <div className="text-xl font-bold text-blue-600 dark:text-blue-400">{formatCurrency(stats.totalAdCost, currency)}</div>
-            <p className="text-xs text-muted-foreground mt-1">${stats.totalUsd.toFixed(0)} USD spent</p>
+            <div className="text-xl font-bold text-blue-600 dark:text-blue-400">{formatCurrency(stats.totalCost, currency)}</div>
+            <p className="text-xs text-muted-foreground mt-1">{costRateLabel}</p>
           </CardContent>
         </Card>
         <Card className="shadow-sm">
@@ -246,7 +286,7 @@ export default function TransactionsPage() {
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-semibold text-muted-foreground uppercase">Gross Profit</span>
               <div className="h-8 w-8 rounded-lg flex items-center justify-center bg-primary/10">
-                <Receipt className="h-4 w-4 text-primary" />
+                <TrendingUp className="h-4 w-4 text-primary" />
               </div>
             </div>
             <div className="text-xl font-bold">{formatCurrency(stats.grossProfit, currency)}</div>
@@ -264,7 +304,7 @@ export default function TransactionsPage() {
             <div className={`text-xl font-bold ${stats.netProfit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
               {formatCurrency(stats.netProfit, currency)}
             </div>
-            <p className="text-xs text-muted-foreground mt-1">After expenses</p>
+            <p className="text-xs text-muted-foreground mt-1">After all expenses</p>
           </CardContent>
         </Card>
       </div>
@@ -274,17 +314,10 @@ export default function TransactionsPage() {
         <div className="flex gap-2 flex-1 w-full">
           <div className="relative flex-1 max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search client, description..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="pl-9 h-9"
-            />
+            <Input placeholder="Search client, description, vendor..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9 h-9" />
           </div>
           <Select value={typeFilter} onValueChange={setTypeFilter}>
-            <SelectTrigger className="w-28 h-9">
-              <SelectValue />
-            </SelectTrigger>
+            <SelectTrigger className="w-28 h-9"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All</SelectItem>
               <SelectItem value="income">Income</SelectItem>
@@ -292,194 +325,209 @@ export default function TransactionsPage() {
             </SelectContent>
           </Select>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button size="sm" className="h-9">
-              <Plus className="h-4 w-4 mr-1" /> Quick Add
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-lg">
-            <DialogHeader>
-              <DialogTitle>Add Transaction</DialogTitle>
-            </DialogHeader>
-            <Tabs value={activeTab} onValueChange={setActiveTab}>
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="income">
-                  <TrendingUp className="h-4 w-4 mr-1" /> Income
-                </TabsTrigger>
-                <TabsTrigger value="expense">
-                  <TrendingDown className="h-4 w-4 mr-1" /> Expense
-                </TabsTrigger>
-              </TabsList>
+        <div className="flex gap-2">
+          <Dialog open={catOpen} onOpenChange={setCatOpen}>
+            <DialogTrigger asChild>
+              <Button size="sm" variant="outline" className="h-9">
+                <Tag className="h-4 w-4 mr-1" /> Categories
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-md">
+              <DialogHeader><DialogTitle>Manage Categories</DialogTitle></DialogHeader>
+              <div className="space-y-3 mt-2">
+                {/* Existing categories */}
+                {categories.length > 0 && (
+                  <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                    {categories.map(c => (
+                      <div key={c.id} className="flex items-center justify-between rounded-lg border px-3 py-2">
+                        <div className="flex items-center gap-2">
+                          <Badge variant={c.type === "income" ? "default" : "secondary"} className="text-xs">{c.type}</Badge>
+                          <span className="text-sm">{c.name}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {categories.length > 0 && <div className="border-t pt-3" />}
+                {/* Add new category */}
+                <div className="space-y-2">
+                  <Input placeholder="Category name (e.g. Ad Sales, Materials, Fuel)" value={catForm.name} onChange={e => setCatForm(p => ({ ...p, name: e.target.value }))} />
+                  <div className="grid grid-cols-2 gap-2">
+                    <Select value={catForm.type} onValueChange={v => setCatForm(p => ({ ...p, type: v as any }))}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="income">Income</SelectItem>
+                        <SelectItem value="expense">Expense</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Input placeholder="Color (optional)" value={catForm.color} onChange={e => setCatForm(p => ({ ...p, color: e.target.value }))} />
+                  </div>
+                  <Button className="w-full" disabled={loading || !catForm.name} onClick={handleAddCategory}>
+                    {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-1" />}
+                    Add Category
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+              <Button size="sm" className="h-9"><Plus className="h-4 w-4 mr-1" /> Quick Add</Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-lg">
+              <DialogHeader><DialogTitle>Add Transaction</DialogTitle></DialogHeader>
+              <Tabs value={activeTab} onValueChange={setActiveTab}>
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="income"><TrendingUp className="h-4 w-4 mr-1" /> Income</TabsTrigger>
+                  <TabsTrigger value="expense"><TrendingDown className="h-4 w-4 mr-1" /> Expense</TabsTrigger>
+                </TabsList>
 
-              {/* INCOME TAB */}
-              <TabsContent value="income" className="space-y-3 mt-4">
-                <div className="space-y-1">
-                  <Label className="text-sm">Client Name *</Label>
-                  <Input
-                    placeholder="e.g. Radiant Son"
-                    value={incomeForm.client_name}
-                    onChange={e => setIncomeForm(p => ({ ...p, client_name: e.target.value }))}
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
+                {/* INCOME TAB */}
+                <TabsContent value="income" className="space-y-3 mt-4">
+                  {/* Product quick-select (optional) */}
+                  {products.length > 0 && (
+                    <div className="space-y-1">
+                      <Label className="text-sm">Select Product (optional — auto-fills price & cost)</Label>
+                      <Select value={incomeForm.product_id} onValueChange={onProductChange}>
+                        <SelectTrigger><SelectValue placeholder="Choose a product..." /></SelectTrigger>
+                        <SelectContent>
+                          {products.map(p => (
+                            <SelectItem key={p.id} value={p.id}>{p.name} — {formatCurrency(p.price, currency)}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
                   <div className="space-y-1">
-                    <Label className="text-sm">Amount (MK) *</Label>
-                    <Input
-                      type="number"
-                      placeholder="12000"
-                      value={incomeForm.amount}
-                      onChange={e => setIncomeForm(p => ({ ...p, amount: e.target.value }))}
-                    />
+                    <Label className="text-sm">Client Name *</Label>
+                    <Input placeholder="Customer name" value={incomeForm.client_name} onChange={e => setIncomeForm(p => ({ ...p, client_name: e.target.value }))} />
                   </div>
-                  <div className="space-y-1">
-                    <Label className="text-sm">Ad USD ($)</Label>
-                    <Input
-                      type="number"
-                      placeholder="2"
-                      value={incomeForm.ad_usd}
-                      onChange={e => setIncomeForm(p => ({ ...p, ad_usd: e.target.value }))}
-                    />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-sm">Amount ({currency}) *</Label>
+                      <Input type="number" placeholder="0" value={incomeForm.amount} onChange={e => setIncomeForm(p => ({ ...p, amount: e.target.value }))} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-sm">Category</Label>
+                      <Select value={incomeForm.category_id} onValueChange={v => setIncomeForm(p => ({ ...p, category_id: v }))}>
+                        <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
+                        <SelectContent>
+                          {incomeCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <Label className="text-sm">Category</Label>
-                    <Select value={incomeForm.category} onValueChange={v => setIncomeForm(p => ({ ...p, category: v }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {INCOME_CATEGORIES.map(c => (
-                          <SelectItem key={c} value={c}>{CATEGORY_LABELS[c]}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-sm">Cost Qty {costRateUnit && `(${costRateUnit})`}</Label>
+                      <Input type="number" placeholder="0" value={incomeForm.cost_qty} onChange={e => setIncomeForm(p => ({ ...p, cost_qty: e.target.value }))} />
+                      <p className="text-xs text-muted-foreground">× {costRateLabel} ({business?.cost_rate ?? 1}) auto-calculates cost</p>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-sm">Or Cost Amount ({currency})</Label>
+                      <Input type="number" placeholder="0" value={incomeForm.cost_amount} onChange={e => setIncomeForm(p => ({ ...p, cost_amount: e.target.value }))} />
+                      <p className="text-xs text-muted-foreground">Manual override</p>
+                    </div>
                   </div>
-                  <div className="space-y-1">
-                    <Label className="text-sm">Payment Method</Label>
-                    <Select value={incomeForm.payment_method} onValueChange={v => setIncomeForm(p => ({ ...p, payment_method: v }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {PAYMENT_METHODS.map(m => (
-                          <SelectItem key={m} value={m}>{m.replace("_", " ").replace(/\b\w/g, l => l.toUpperCase())}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <Label className="text-sm">Date</Label>
-                    <Input
-                      type="date"
-                      value={incomeForm.date}
-                      onChange={e => setIncomeForm(p => ({ ...p, date: e.target.value }))}
-                    />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-sm">Date</Label>
+                      <Input type="date" value={incomeForm.date} onChange={e => setIncomeForm(p => ({ ...p, date: e.target.value }))} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-sm">Payment Method</Label>
+                      <Select value={incomeForm.payment_method} onValueChange={v => setIncomeForm(p => ({ ...p, payment_method: v }))}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {PAYMENT_METHODS.map(m => <SelectItem key={m} value={m}>{m.replace("_", " ").replace(/\b\w/g, l => l.toUpperCase())}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                   <div className="space-y-1">
                     <Label className="text-sm">Description (optional)</Label>
-                    <Input
-                      placeholder="Ad ($2) + poster"
-                      value={incomeForm.description}
-                      onChange={e => setIncomeForm(p => ({ ...p, description: e.target.value }))}
-                    />
+                    <Input placeholder="What was this for?" value={incomeForm.description} onChange={e => setIncomeForm(p => ({ ...p, description: e.target.value }))} />
                   </div>
-                </div>
 
-                {/* Profit Preview */}
-                {incomeForm.amount && incomeForm.ad_usd && (
-                  <div className="rounded-lg border bg-muted/50 p-3 space-y-1.5">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Ad Cost ({incomeForm.ad_usd} × {business?.usd_exchange_rate ?? 4300})</span>
-                      <span className="font-medium">{formatCurrency(profitPreview.adCost, currency)}</span>
+                  {/* Profit Preview */}
+                  {incomeForm.amount && (
+                    <div className="rounded-lg border bg-muted/50 p-3 space-y-1.5">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Revenue</span>
+                        <span className="font-medium">{formatCurrency(parseFloat(incomeForm.amount) || 0, currency)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Cost</span>
+                        <span className="font-medium">{formatCurrency(profitPreview.cost, currency)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm border-t pt-1.5">
+                        <span className="font-medium">Profit</span>
+                        <span className="font-bold text-emerald-600 dark:text-emerald-400">{formatCurrency(profitPreview.profit, currency)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Margin</span>
+                        <Badge variant={profitPreview.margin >= 25 ? "default" : profitPreview.margin >= 10 ? "secondary" : "destructive"}>
+                          {profitPreview.margin.toFixed(1)}%
+                        </Badge>
+                      </div>
                     </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Profit</span>
-                      <span className="font-bold text-emerald-600 dark:text-emerald-400">{formatCurrency(profitPreview.profit, currency)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Margin</span>
-                      <Badge variant={profitPreview.margin >= 25 ? "default" : profitPreview.margin >= 10 ? "secondary" : "destructive"}>
-                        {profitPreview.margin.toFixed(1)}%
-                      </Badge>
-                    </div>
-                  </div>
-                )}
+                  )}
 
-                <Button className="w-full" disabled={loading || !incomeForm.client_name || !incomeForm.amount} onClick={handleAddIncome}>
-                  {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                  Add Income
-                </Button>
-              </TabsContent>
+                  <Button className="w-full" disabled={loading || !incomeForm.client_name || !incomeForm.amount} onClick={handleAddIncome}>
+                    {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                    Add Income
+                  </Button>
+                </TabsContent>
 
-              {/* EXPENSE TAB */}
-              <TabsContent value="expense" className="space-y-3 mt-4">
-                <div className="space-y-1">
-                  <Label className="text-sm">Description *</Label>
-                  <Input
-                    placeholder="e.g. Paid to Daniel Chidike - designer"
-                    value={expenseForm.description}
-                    onChange={e => setExpenseForm(p => ({ ...p, description: e.target.value }))}
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
+                {/* EXPENSE TAB */}
+                <TabsContent value="expense" className="space-y-3 mt-4">
                   <div className="space-y-1">
-                    <Label className="text-sm">Amount (MK) *</Label>
-                    <Input
-                      type="number"
-                      placeholder="120000"
-                      value={expenseForm.amount}
-                      onChange={e => setExpenseForm(p => ({ ...p, amount: e.target.value }))}
-                    />
+                    <Label className="text-sm">Description *</Label>
+                    <Input placeholder="What was this expense for?" value={expenseForm.description} onChange={e => setExpenseForm(p => ({ ...p, description: e.target.value }))} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-sm">Amount ({currency}) *</Label>
+                      <Input type="number" placeholder="0" value={expenseForm.amount} onChange={e => setExpenseForm(p => ({ ...p, amount: e.target.value }))} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-sm">Category</Label>
+                      <Select value={expenseForm.category_id} onValueChange={v => setExpenseForm(p => ({ ...p, category_id: v }))}>
+                        <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
+                        <SelectContent>
+                          {expenseCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-sm">Vendor / Payee</Label>
+                      <Input placeholder="Who did you pay?" value={expenseForm.vendor_name} onChange={e => setExpenseForm(p => ({ ...p, vendor_name: e.target.value }))} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-sm">Payment Method</Label>
+                      <Select value={expenseForm.payment_method} onValueChange={v => setExpenseForm(p => ({ ...p, payment_method: v }))}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {PAYMENT_METHODS.map(m => <SelectItem key={m} value={m}>{m.replace("_", " ").replace(/\b\w/g, l => l.toUpperCase())}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-sm">Vendor / Reference</Label>
-                    <Input
-                      placeholder="Daniel Chidike"
-                      value={expenseForm.vendor}
-                      onChange={e => setExpenseForm(p => ({ ...p, vendor: e.target.value }))}
-                    />
+                    <Label className="text-sm">Date</Label>
+                    <Input type="date" value={expenseForm.date} onChange={e => setExpenseForm(p => ({ ...p, date: e.target.value }))} />
                   </div>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <Label className="text-sm">Category</Label>
-                    <Select value={expenseForm.category} onValueChange={v => setExpenseForm(p => ({ ...p, category: v }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {EXPENSE_CATEGORIES.map(c => (
-                          <SelectItem key={c} value={c}>{CATEGORY_LABELS[c]}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-sm">Payment Method</Label>
-                    <Select value={expenseForm.payment_method} onValueChange={v => setExpenseForm(p => ({ ...p, payment_method: v }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {PAYMENT_METHODS.map(m => (
-                          <SelectItem key={m} value={m}>{m.replace("_", " ").replace(/\b\w/g, l => l.toUpperCase())}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-sm">Date</Label>
-                  <Input
-                    type="date"
-                    value={expenseForm.date}
-                    onChange={e => setExpenseForm(p => ({ ...p, date: e.target.value }))}
-                  />
-                </div>
-                <Button className="w-full" disabled={loading || !expenseForm.description || !expenseForm.amount} onClick={handleAddExpense}>
-                  {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                  Add Expense
-                </Button>
-              </TabsContent>
-            </Tabs>
-          </DialogContent>
-        </Dialog>
+                  <Button className="w-full" disabled={loading || !expenseForm.description || !expenseForm.amount} onClick={handleAddExpense}>
+                    {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                    Add Expense
+                  </Button>
+                </TabsContent>
+              </Tabs>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       {/* Transactions Table */}
@@ -490,10 +538,10 @@ export default function TransactionsPage() {
               <thead>
                 <tr className="border-b bg-muted/50">
                   <th className="text-left p-3 font-semibold text-muted-foreground">Date</th>
-                  <th className="text-left p-3 font-semibold text-muted-foreground">Client / Description</th>
+                  <th className="text-left p-3 font-semibold text-muted-foreground">Description</th>
                   <th className="text-left p-3 font-semibold text-muted-foreground hidden md:table-cell">Category</th>
                   <th className="text-right p-3 font-semibold text-muted-foreground">Amount</th>
-                  <th className="text-right p-3 font-semibold text-muted-foreground hidden sm:table-cell">Ad Cost</th>
+                  <th className="text-right p-3 font-semibold text-muted-foreground hidden sm:table-cell">Cost</th>
                   <th className="text-right p-3 font-semibold text-muted-foreground">Profit</th>
                   <th className="text-right p-3 font-semibold text-muted-foreground hidden sm:table-cell">Margin</th>
                   <th className="p-3"></th>
@@ -511,19 +559,19 @@ export default function TransactionsPage() {
                   <tr key={t.id} className="border-b hover:bg-muted/30 transition-colors">
                     <td className="p-3 whitespace-nowrap text-muted-foreground">{formatDate(t.date)}</td>
                     <td className="p-3">
-                      <div className="font-medium">{t.type === "income" ? t.client_name || "—" : t.description}</div>
-                      {t.description && t.type === "income" && (
-                        <div className="text-xs text-muted-foreground">{t.description}</div>
-                      )}
+                      <div className="font-medium">
+                        {t.type === "income" ? t.client_name || "—" : t.vendor_name || t.description}
+                      </div>
+                      <div className="text-xs text-muted-foreground">{t.description}</div>
                     </td>
                     <td className="p-3 hidden md:table-cell">
-                      <Badge variant="outline" className="text-xs">{CATEGORY_LABELS[t.category] || t.category}</Badge>
+                      {t.category_name && <Badge variant="outline" className="text-xs">{t.category_name}</Badge>}
                     </td>
                     <td className={`p-3 text-right font-medium whitespace-nowrap ${t.type === "income" ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
                       {t.type === "income" ? "+" : "-"}{formatCurrency(Number(t.amount), currency)}
                     </td>
                     <td className="p-3 text-right text-muted-foreground hidden sm:table-cell whitespace-nowrap">
-                      {t.type === "income" && Number(t.ad_cost) > 0 ? formatCurrency(Number(t.ad_cost), currency) : "—"}
+                      {t.type === "income" && Number(t.cost_amount) > 0 ? formatCurrency(Number(t.cost_amount), currency) : "—"}
                     </td>
                     <td className="p-3 text-right font-medium whitespace-nowrap">
                       {t.type === "income" ? (
@@ -541,7 +589,7 @@ export default function TransactionsPage() {
                     </td>
                     <td className="p-3">
                       <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleDelete(t.id)}>
-                        <Filter className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
+                        <Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
                       </Button>
                     </td>
                   </tr>

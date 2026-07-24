@@ -1,4 +1,3 @@
-
 "use client";
 import { useState } from "react";
 import Link from "next/link";
@@ -6,7 +5,7 @@ import {
   DollarSign, TrendingUp, TrendingDown, Clock, Users, FileText,
   CheckCircle2, Circle, Building2, UserPlus, Package, Zap,
   ChevronDown, ChevronUp, Loader2, ArrowRight, AlertCircle,
-  BarChart3, Plus, Download, Bell, ShoppingCart,
+  BarChart3, Plus, Download, Bell, ShoppingCart, ArrowLeftRight,
 } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { PeriodSelect } from "./period-select";
@@ -31,11 +30,33 @@ function getGreeting() {
 
 interface SetupStatus { hasBusiness: boolean; hasCustomer: boolean; hasProduct: boolean; hasInvoice: boolean; }
 
+interface Transaction {
+  id: string;
+  client_name: string | null;
+  description: string;
+  amount: number;
+  ad_usd: number;
+  ad_cost: number;
+  profit: number;
+  margin: number;
+  date: string;
+  category: string;
+}
+
 interface Props {
-  business: { name: string; currency: string; id?: string } | null;
-  stats: { revenue: number; expenses: number; profit: number; outstandingAmount: number; outstandingCount: number; customerCount: number; totalSalesCount: number; totalSalesAmount: number; } | null;
+  business: { name: string; currency: string; id?: string; usd_exchange_rate?: number } | null;
+  stats: {
+    totalRevenue: number;
+    totalAdCost: number;
+    grossProfit: number;
+    netProfit: number;
+    outstandingAmount: number;
+    outstandingCount: number;
+    customerCount: number;
+  } | null;
   recentInvoices?: { id: string; total: number; status: string; created_at: string; invoice_number: string }[];
-  monthlyTrend?: { month: string; revenue: number; expenses: number }[];
+  recentIncome?: Transaction[];
+  monthlyTrend?: { month: string; revenue: number; expenses: number; profit: number }[];
   topCustomers?: { name: string; total: number; invoiceCount: number }[];
   setupStatus: SetupStatus;
   period?: string;
@@ -55,7 +76,6 @@ const statusDot: Record<string, string> = {
   overdue: "bg-rose-500",
 };
 
-// Colored pill for an invoice's amount, echoing how transaction feeds show +/- amounts
 const amountPill: Record<string, string> = {
   draft: "bg-muted text-muted-foreground",
   sent: "bg-blue-100 text-blue-700",
@@ -223,7 +243,7 @@ function SetupChecklist({ initialStatus }: { initialStatus: SetupStatus }) {
   );
 }
 
-export default function DashboardClient({ business, stats, recentInvoices = [], monthlyTrend = [], topCustomers = [], setupStatus, period = "this_month" }: Props) {
+export default function DashboardClient({ business, stats, recentInvoices = [], recentIncome = [], monthlyTrend = [], topCustomers = [], setupStatus, period = "this_month" }: Props) {
   if (!business || !stats) {
     return (
       <div>
@@ -259,6 +279,9 @@ export default function DashboardClient({ business, stats, recentInvoices = [], 
           <Link href="/invoices?new=1" className="shrink-0">
             <Button size="sm" className="rounded-full"><Plus className="h-3.5 w-3.5 mr-1.5" />New Invoice</Button>
           </Link>
+          <Link href="/transactions" className="shrink-0">
+            <Button size="sm" variant="outline" className="rounded-full bg-card"><ArrowLeftRight className="h-3.5 w-3.5 mr-1.5" />Log Transaction</Button>
+          </Link>
           <Link href="/customers" className="shrink-0">
             <Button size="sm" variant="outline" className="rounded-full bg-card"><UserPlus className="h-3.5 w-3.5 mr-1.5" />Add Customer</Button>
           </Link>
@@ -275,11 +298,12 @@ export default function DashboardClient({ business, stats, recentInvoices = [], 
         )}
 
         {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatCard label="Revenue" value={fmt(stats.revenue)} icon={TrendingUp} tone="emerald" />
-          <StatCard label="Expenses" value={fmt(stats.expenses)} icon={TrendingDown} tone="rose" />
-          <StatCard label="Net Profit" value={fmt(stats.profit)} icon={DollarSign} tone={stats.profit >= 0 ? "emerald" : "rose"} />
-          <StatCard label="Total Sales" value={String(stats.totalSalesCount)} sub={`${fmt(stats.totalSalesAmount)} invoiced`} icon={ShoppingCart} tone="primary" />
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+          <StatCard label="Total Revenue" value={fmt(stats.totalRevenue)} icon={TrendingUp} tone="emerald" />
+          <StatCard label="Total Ad Cost" value={fmt(stats.totalAdCost)} icon={TrendingDown} tone="rose" />
+          <StatCard label="Gross Profit" value={fmt(stats.grossProfit)} icon={DollarSign} tone={stats.grossProfit >= 0 ? "emerald" : "rose"} />
+          <StatCard label="Net Profit" value={fmt(stats.netProfit)} icon={DollarSign} tone={stats.netProfit >= 0 ? "emerald" : "rose"} />
+          <StatCard label="Outstanding Invoices" value={fmt(stats.outstandingAmount)} sub={`${stats.outstandingCount} invoice${stats.outstandingCount !== 1 ? "s" : ""}`} icon={Clock} tone="amber" />
         </div>
 
         {/* Outstanding reminder — only shown when it's actually relevant */}
@@ -308,11 +332,12 @@ export default function DashboardClient({ business, stats, recentInvoices = [], 
             <CardHeader className="flex flex-row items-center justify-between pb-3">
               <div>
                 <CardTitle className="text-base">Monthly Trend</CardTitle>
-                <CardDescription className="text-xs mt-0.5">Revenue vs expenses, last 6 months</CardDescription>
+                <CardDescription className="text-xs mt-0.5">Revenue vs expenses & net profit, last 6 months</CardDescription>
               </div>
-              <div className="flex items-center gap-3 text-xs text-muted-foreground shrink-0">
+              <div className="flex items-center gap-3 text-xs text-muted-foreground shrink-0 flex-wrap">
                 <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-primary" />Revenue</span>
                 <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-rose-400" />Expenses</span>
+                <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-emerald-500" />Net Profit</span>
               </div>
             </CardHeader>
             <CardContent>
@@ -335,6 +360,7 @@ export default function DashboardClient({ business, stats, recentInvoices = [], 
                     <Tooltip formatter={(v: number) => fmt(v)} contentStyle={{ borderRadius: 8, fontSize: 12 }} />
                     <Area type="monotone" dataKey="revenue" name="Revenue" stroke="#6366f1" strokeWidth={2} fill="url(#revenueFill)" />
                     <Area type="monotone" dataKey="expenses" name="Expenses" stroke="#fb7185" strokeWidth={2} fill="url(#expensesFill)" />
+                    <Area type="monotone" dataKey="profit" name="Net Profit" stroke="#10b981" strokeWidth={2.5} fill="none" />
                   </AreaChart>
                 </ResponsiveContainer>
               ) : (
@@ -343,7 +369,7 @@ export default function DashboardClient({ business, stats, recentInvoices = [], 
                     <BarChart3 className="h-6 w-6 text-primary" />
                   </div>
                   <p className="text-sm text-muted-foreground">Not enough data yet</p>
-                  <p className="text-xs text-muted-foreground mt-1">Your trend will fill in as invoices and expenses come in</p>
+                  <p className="text-xs text-muted-foreground mt-1">Your trend will fill in as transactions come in</p>
                 </div>
               )}
             </CardContent>
@@ -383,44 +409,126 @@ export default function DashboardClient({ business, stats, recentInvoices = [], 
           </Card>
         </div>
 
-        <Card className="shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between pb-3">
-            <CardTitle className="text-base">Recent Invoices</CardTitle>
-            <Link href="/invoices" className="text-xs text-primary hover:underline flex items-center gap-1">View all <ArrowRight className="h-3 w-3" /></Link>
-          </CardHeader>
-          <CardContent>
-            {recentInvoices.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-10 text-center">
-                <div className="h-14 w-14 rounded-full bg-primary/10 flex items-center justify-center mb-3">
-                  <FileText className="h-6 w-6 text-primary" />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {/* Profit per Sale tracking - income transactions */}
+          <Card className="lg:col-span-2 shadow-sm overflow-hidden">
+            <CardHeader className="flex flex-row items-center justify-between pb-3">
+              <div>
+                <CardTitle className="text-base">Profit per Sale</CardTitle>
+                <CardDescription className="text-xs mt-0.5">Recent income transactions, ad costs, and margins</CardDescription>
+              </div>
+              <Link href="/transactions" className="text-xs text-primary hover:underline flex items-center gap-1">View all <ArrowRight className="h-3 w-3" /></Link>
+            </CardHeader>
+            <CardContent className="p-0">
+              {recentIncome.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-10 text-center px-6">
+                  <div className="h-14 w-14 rounded-full bg-emerald-100 dark:bg-emerald-500/10 flex items-center justify-center mb-3">
+                    <DollarSign className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
+                  </div>
+                  <p className="text-sm text-muted-foreground">No income transactions yet</p>
+                  <Link href="/transactions" className="mt-3"><Button size="sm" variant="outline">Log your first sale</Button></Link>
                 </div>
-                <p className="text-sm text-muted-foreground">No invoices yet</p>
-                <Link href="/invoices?new=1" className="mt-3"><Button size="sm" variant="outline">Create your first invoice</Button></Link>
-              </div>
-            ) : (
-              <div className="-mx-2">
-                {recentInvoices.map(inv => (
-                  <Link
-                    key={inv.id}
-                    href="/invoices"
-                    className="flex items-center justify-between gap-3 rounded-lg px-2 py-3 border-b last:border-0 hover:bg-muted/60 transition-colors"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <span className={`h-2 w-2 rounded-full shrink-0 ${statusDot[inv.status] ?? "bg-muted-foreground/40"}`} />
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium truncate">#{inv.invoice_number}</p>
-                        <p className="text-xs text-muted-foreground capitalize">{inv.status} · {formatDate(inv.created_at)}</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left">
+                    <thead>
+                      <tr className="border-b bg-muted/30 text-muted-foreground text-[10px] font-semibold uppercase tracking-wider">
+                        <th className="py-2.5 px-4">Client / Date</th>
+                        <th className="py-2.5 px-4 text-right">Sale Amount</th>
+                        <th className="py-2.5 px-4 text-right">Ad Cost</th>
+                        <th className="py-2.5 px-4 text-right">Net Profit</th>
+                        <th className="py-2.5 px-4 text-right">Margin</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {recentIncome.map((tx) => (
+                        <tr key={tx.id} className="hover:bg-muted/40 transition-colors">
+                          <td className="py-3 px-4">
+                            <p className="font-medium text-foreground truncate max-w-[150px] sm:max-w-[200px]" title={tx.client_name || "Direct Client"}>
+                              {tx.client_name || "Direct Client"}
+                            </p>
+                            <p className="text-xs text-muted-foreground">{formatDate(tx.date)} · <span className="capitalize">{tx.category}</span></p>
+                          </td>
+                          <td className="py-3 px-4 text-right font-medium text-foreground">
+                            {fmt(Number(tx.amount))}
+                          </td>
+                          <td className="py-3 px-4 text-right text-muted-foreground text-xs">
+                            {Number(tx.ad_cost) > 0 ? (
+                              <>
+                                <span>{fmt(Number(tx.ad_cost))}</span>
+                                {Number(tx.ad_usd) > 0 && (
+                                  <span className="block text-[10px] text-muted-foreground/70">
+                                    (${Number(tx.ad_usd).toFixed(2)} USD)
+                                  </span>
+                                )}
+                              </>
+                            ) : (
+                              <span className="text-muted-foreground/40">—</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-right font-semibold text-emerald-600 dark:text-emerald-400">
+                            {fmt(Number(tx.profit))}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                              Number(tx.margin) >= 50 
+                                ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300"
+                                : Number(tx.margin) >= 20
+                                ? "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
+                                : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300"
+                            }`}>
+                              {Number(tx.margin).toFixed(1)}%
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Recent Invoices */}
+          <Card className="shadow-sm">
+            <CardHeader className="flex flex-row items-center justify-between pb-3">
+              <CardTitle className="text-base">Recent Invoices</CardTitle>
+              <Link href="/invoices" className="text-xs text-primary hover:underline flex items-center gap-1">View all <ArrowRight className="h-3 w-3" /></Link>
+            </CardHeader>
+            <CardContent>
+              {recentInvoices.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-10 text-center">
+                  <div className="h-14 w-14 rounded-full bg-primary/10 flex items-center justify-center mb-3">
+                    <FileText className="h-6 w-6 text-primary" />
+                  </div>
+                  <p className="text-sm text-muted-foreground">No invoices yet</p>
+                  <Link href="/invoices?new=1" className="mt-3"><Button size="sm" variant="outline">Create your first invoice</Button></Link>
+                </div>
+              ) : (
+                <div className="-mx-2">
+                  {recentInvoices.map(inv => (
+                    <Link
+                      key={inv.id}
+                      href="/invoices"
+                      className="flex items-center justify-between gap-3 rounded-lg px-2 py-2.5 border-b last:border-0 hover:bg-muted/60 transition-colors"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className={`h-2 w-2 rounded-full shrink-0 ${statusDot[inv.status] ?? "bg-muted-foreground/40"}`} />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">#{inv.invoice_number}</p>
+                          <p className="text-xs text-muted-foreground capitalize">{inv.status} · {formatDate(inv.created_at)}</p>
+                        </div>
                       </div>
-                    </div>
-                    <span className={`text-sm font-semibold px-2.5 py-1 rounded-full shrink-0 ${amountPill[inv.status] ?? "bg-muted text-muted-foreground"}`}>
-                      {inv.status === "paid" ? "+" : ""}{fmt(inv.total)}
-                    </span>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                      <span className={`text-sm font-semibold px-2.5 py-1 rounded-full shrink-0 ${amountPill[inv.status] ?? "bg-muted text-muted-foreground"}`}>
+                        {inv.status === "paid" ? "+" : ""}{fmt(inv.total)}
+                      </span>
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
       <Link

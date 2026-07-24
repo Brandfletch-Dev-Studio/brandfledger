@@ -31,8 +31,6 @@ function getPeriodRange(period: string) {
   return { start, end: rangeEnd };
 }
 
-// TEMPORARY: auth removed while it's being rebuilt from scratch.
-// This page now operates on a single shared "default" business.
 export default async function DashboardPage({ searchParams }: { searchParams: { period?: string } }) {
   const supabase = await createClient();
   const period = searchParams?.period ?? "this_month";
@@ -45,34 +43,34 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
 
   const [
     { data: invoices },
-    { data: expenses },
+    { data: transactions },
     { data: customers },
   ] = await Promise.all([
     supabase.from("invoices").select("total, status, issue_date, created_at, id, invoice_number, customer_id, customers(name)").eq("business_id", business.id).order("created_at", { ascending: false }).limit(500),
-    supabase.from("expenses").select("amount, date").eq("business_id", business.id),
+    supabase.from("transactions").select("*").eq("business_id", business.id).order("date", { ascending: false }),
     supabase.from("customers").select("id").eq("business_id", business.id),
   ]);
 
   const allInvoices = invoices ?? [];
-  const allExpenses = expenses ?? [];
+  const allTransactions = transactions ?? [];
 
-  // Period-scoped slices for the top summary cards (This Month / Last Month / etc.)
+  // Period-scoped slices for the top summary cards
   const { start, end } = getPeriodRange(period);
   const inRange = (dateStr: string | null | undefined) => {
     if (!dateStr) return false;
     const d = new Date(dateStr);
     return d >= start && d <= end;
   };
-  const periodInvoices = allInvoices.filter(i => inRange(i.issue_date));
-  const periodExpenses = allExpenses.filter(e => inRange(e.date));
 
-  const paidPeriodInvoices = periodInvoices.filter(i => i.status === "paid");
-  const revenue = paidPeriodInvoices.reduce((s, i) => s + i.total, 0);
-  const totalExpenses = periodExpenses.reduce((s, e) => s + e.amount, 0);
+  const periodTransactions = allTransactions.filter(t => inRange(t.date));
+  const incomeTransactions = periodTransactions.filter(t => t.type === "income");
+  const expenseTransactions = periodTransactions.filter(t => t.type === "expense");
 
-  const salesInvoices = periodInvoices.filter(i => i.status !== "draft");
-  const totalSalesCount = salesInvoices.length;
-  const totalSalesAmount = salesInvoices.reduce((s, i) => s + i.total, 0);
+  const totalRevenue = incomeTransactions.reduce((sum, t) => sum + Number(t.amount || 0), 0);
+  const totalAdCost = incomeTransactions.reduce((sum, t) => sum + Number(t.ad_cost || 0), 0);
+  const grossProfit = totalRevenue - totalAdCost;
+  const totalExpenses = expenseTransactions.reduce((sum, t) => sum + Number(t.amount || 0), 0);
+  const netProfit = grossProfit - totalExpenses;
 
   // Outstanding is a "right now" metric — not scoped to the selected period
   const outstandingInvoices = allInvoices.filter(i => i.status === "sent" || i.status === "overdue");
@@ -82,27 +80,36 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
   const { data: hasProduct } = await supabase.from("products").select("id").eq("business_id", business.id).limit(1);
   const { data: hasInvoice } = await supabase.from("invoices").select("id").eq("business_id", business.id).limit(1);
 
-  // Last 6 months of revenue vs expenses, for the trend chart — independent of the period filter above
-  const monthMap: Record<string, { month: string; revenue: number; expenses: number }> = {};
+  // Last 6 months of revenue, expenses & profit for the trend chart
+  const monthMap: Record<string, { month: string; revenue: number; expenses: number; profit: number }> = {};
   for (let i = 0; i < 6; i++) {
     const d = new Date();
     d.setMonth(d.getMonth() - (5 - i));
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-    monthMap[key] = { month: d.toLocaleDateString("en-US", { month: "short" }), revenue: 0, expenses: 0 };
+    monthMap[key] = { month: d.toLocaleDateString("en-US", { month: "short" }), revenue: 0, expenses: 0, profit: 0 };
   }
-  allInvoices.filter(i => i.status === "paid").forEach(inv => {
-    if (!inv.issue_date) return;
-    const key = inv.issue_date.slice(0, 7);
-    if (monthMap[key]) monthMap[key].revenue += inv.total;
+
+  allTransactions.forEach(tx => {
+    if (!tx.date) return;
+    const key = tx.date.slice(0, 7);
+    if (monthMap[key]) {
+      if (tx.type === "income") {
+        monthMap[key].revenue += Number(tx.amount || 0);
+        monthMap[key].expenses += Number(tx.ad_cost || 0);
+      } else if (tx.type === "expense") {
+        monthMap[key].expenses += Number(tx.amount || 0);
+      }
+    }
   });
-  allExpenses.forEach(exp => {
-    if (!exp.date) return;
-    const key = exp.date.slice(0, 7);
-    if (monthMap[key]) monthMap[key].expenses += exp.amount;
+
+  // Calculate profit per month
+  Object.keys(monthMap).forEach(key => {
+    monthMap[key].profit = monthMap[key].revenue - monthMap[key].expenses;
   });
+
   const monthlyTrend = Object.values(monthMap);
 
-  // Top customers by total billed (all-time, all non-draft invoices) — computed live, not the stale customers.total_invoiced column
+  // Top customers by total billed (all-time, all non-draft invoices)
   const customerTotals: Record<string, { name: string; total: number; invoiceCount: number }> = {};
   allInvoices.filter(i => i.status !== "draft").forEach(inv => {
     const name = (inv as any).customers?.name ?? "Unknown customer";
@@ -113,19 +120,21 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
   });
   const topCustomers = Object.values(customerTotals).sort((a, b) => b.total - a.total).slice(0, 5);
 
+  // Recent income transactions for "Profit per Sale" tracking
+  const recentIncome = allTransactions.filter(t => t.type === "income").slice(0, 5);
+
   return (
     <DashboardClient
       business={business}
       period={period}
       stats={{
-        revenue,
-        expenses: totalExpenses,
-        profit: revenue - totalExpenses,
+        totalRevenue,
+        totalAdCost,
+        grossProfit,
+        netProfit,
         outstandingAmount,
         outstandingCount: outstandingInvoices.length,
         customerCount: (customers ?? []).length,
-        totalSalesCount,
-        totalSalesAmount,
       }}
       setupStatus={{
         hasBusiness: true,
@@ -134,6 +143,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
         hasInvoice: (hasInvoice ?? []).length > 0,
       }}
       recentInvoices={allInvoices.slice(0, 5)}
+      recentIncome={recentIncome}
       monthlyTrend={monthlyTrend}
       topCustomers={topCustomers}
     />

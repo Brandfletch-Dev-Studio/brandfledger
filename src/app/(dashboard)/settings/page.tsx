@@ -8,17 +8,21 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
-import { Loader2, Save, Building2, DollarSign, Percent } from "lucide-react";
+import { Loader2, Save, Building2, DollarSign } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
-const currencies = ["USD", "EUR", "GBP", "CAD", "AUD", "MWK", "ZAR", "NGN", "KES", "GHS"];
+const currencies = ["USD", "EUR", "GBP", "CAD", "AUD", "MWK", "ZAR", "NGN", "KES", "GHS", "INR", "PKR", "TZS", "UGX", "RWF"];
+
 const businessTypes = [
   { value: "media", label: "Media & Advertising" },
   { value: "retail", label: "Retail / Shop" },
+  { value: "wholesale", label: "Wholesale / Distribution" },
   { value: "services", label: "Services" },
   { value: "consulting", label: "Consulting" },
   { value: "manufacturing", label: "Manufacturing" },
+  { value: "freelance", label: "Freelance" },
+  { value: "agriculture", label: "Agriculture" },
+  { value: "restaurant", label: "Restaurant / Food" },
   { value: "other", label: "Other" },
 ];
 
@@ -28,8 +32,8 @@ export default function SettingsPage() {
   const [business, setBusiness] = useState<any>(null);
   const [bizForm, setBizForm] = useState({
     name: "", email: "", phone: "", address: "", website: "",
-    currency: "USD", invoice_prefix: "INV", business_type: "media", tax_id: "",
-    usd_exchange_rate: "4300", default_ad_rate: "6000",
+    currency: "USD", invoice_prefix: "INV", business_type: "other", tax_id: "",
+    cost_rate: "1", cost_rate_label: "Cost Rate", cost_rate_unit: "",
   });
 
   useEffect(() => { load(); }, []);
@@ -47,9 +51,10 @@ export default function SettingsPage() {
         name: biz.name, email: biz.email ?? "", phone: biz.phone ?? "",
         address: biz.address ?? "", website: biz.website ?? "",
         currency: biz.currency, invoice_prefix: biz.invoice_prefix,
-        business_type: biz.business_type ?? "media", tax_id: biz.tax_id ?? "",
-        usd_exchange_rate: String(biz.usd_exchange_rate ?? 4300),
-        default_ad_rate: String(biz.default_ad_rate ?? 6000),
+        business_type: biz.business_type ?? "other", tax_id: biz.tax_id ?? "",
+        cost_rate: String(biz.cost_rate ?? 1),
+        cost_rate_label: biz.cost_rate_label ?? "Cost Rate",
+        cost_rate_unit: biz.cost_rate_unit ?? "",
       });
     }
   }
@@ -63,8 +68,9 @@ export default function SettingsPage() {
       address: bizForm.address, website: bizForm.website,
       currency: bizForm.currency, invoice_prefix: bizForm.invoice_prefix,
       business_type: bizForm.business_type, tax_id: bizForm.tax_id,
-      usd_exchange_rate: parseFloat(bizForm.usd_exchange_rate) || 4300,
-      default_ad_rate: parseFloat(bizForm.default_ad_rate) || 6000,
+      cost_rate: parseFloat(bizForm.cost_rate) || 1,
+      cost_rate_label: bizForm.cost_rate_label,
+      cost_rate_unit: bizForm.cost_rate_unit,
       updated_at: new Date().toISOString(),
     }).eq("id", business.id);
     if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -98,35 +104,28 @@ export default function SettingsPage() {
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2"><DollarSign className="h-5 w-5 text-muted-foreground" /><CardTitle className="text-base">Profit Tracking</CardTitle></div>
-            <CardDescription>Configure how profit is calculated per sale</CardDescription>
+            <CardDescription>Configure how cost is calculated for your sales</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               <div className="space-y-2">
-                <Label>USD Exchange Rate (MK/$)</Label>
-                <Input type="number" placeholder="4300" value={bizForm.usd_exchange_rate} onChange={e => setBizForm(p => ({ ...p, usd_exchange_rate: e.target.value }))} />
-                <p className="text-xs text-muted-foreground">What you pay per $1 of ad spend</p>
+                <Label>Cost Rate Label</Label>
+                <Input placeholder="USD Rate" value={bizForm.cost_rate_label} onChange={e => setBizForm(p => ({ ...p, cost_rate_label: e.target.value }))} />
+                <p className="text-xs text-muted-foreground">What this rate means (e.g. "USD Rate", "Cost per unit")</p>
               </div>
               <div className="space-y-2">
-                <Label>Default Ad Rate (MK/$)</Label>
-                <Input type="number" placeholder="6000" value={bizForm.default_ad_rate} onChange={e => setBizForm(p => ({ ...p, default_ad_rate: e.target.value }))} />
-                <p className="text-xs text-muted-foreground">What you charge clients per $1</p>
+                <Label>Cost Rate Value</Label>
+                <Input type="number" placeholder="1" value={bizForm.cost_rate} onChange={e => setBizForm(p => ({ ...p, cost_rate: e.target.value }))} />
+                <p className="text-xs text-muted-foreground">Multiplier used for cost calculation</p>
+              </div>
+              <div className="space-y-2">
+                <Label>Cost Rate Unit</Label>
+                <Input placeholder="USD, hrs, kg..." value={bizForm.cost_rate_unit} onChange={e => setBizForm(p => ({ ...p, cost_rate_unit: e.target.value }))} />
+                <p className="text-xs text-muted-foreground">Unit symbol for cost quantity</p>
               </div>
             </div>
-            <div className="rounded-lg border bg-muted/50 p-3">
-              <div className="flex items-center gap-2 text-sm">
-                <Percent className="h-4 w-4 text-muted-foreground" />
-                <span className="text-muted-foreground">Default margin per $1:</span>
-                <span className="font-semibold">
-                  {(() => {
-                    const rate = parseFloat(bizForm.default_ad_rate) || 6000;
-                    const cost = parseFloat(bizForm.usd_exchange_rate) || 4300;
-                    const profit = rate - cost;
-                    const margin = rate > 0 ? (profit / rate * 100).toFixed(1) : "0";
-                    return `${profit.toLocaleString()} MK (${margin}%)`;
-                  })()}
-                </span>
-              </div>
+            <div className="rounded-lg border bg-muted/50 p-3 text-sm">
+              <span className="text-muted-foreground">Example: If you sell ad space at MK 6,000 per $1 and your cost rate is 4,300 (USD exchange rate), set cost rate label to "USD Rate", value to "4300", unit to "USD". Profit = sale amount - (qty × rate).</span>
             </div>
           </CardContent>
         </Card>

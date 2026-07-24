@@ -1,45 +1,16 @@
-// Updated types with transaction support and profit tracking
+// SaaS-generic types — no business-specific assumptions
 
 export type UserRole = "owner" | "admin" | "member" | "viewer";
 export type InvoiceStatus = "draft" | "sent" | "paid" | "overdue";
 export type SubscriptionPlan = "free" | "starter" | "pro" | "enterprise";
 export type TransactionType = "income" | "expense";
-
-// Income categories
-export const INCOME_CATEGORIES = [
-  "ad_sale",
-  "design",
-  "poster_design",
-  "video_design",
-  "company_profile",
-  "ad_credit",
-  "eye_drops",
-  "other_income",
-] as const;
-
-// Expense categories
-export const EXPENSE_CATEGORIES = [
-  "ad_budget",
-  "usdt_purchase",
-  "internet_bundle",
-  "fuel",
-  "food_meals",
-  "education",
-  "family",
-  "designer_contractor",
-  "loan",
-  "equipment",
-  "business_online",
-  "vaccine",
-  "other_expense",
-] as const;
+export type CategoryType = "income" | "expense";
 
 export const PAYMENT_METHODS = [
   "cash",
   "mobile_money",
   "bank_transfer",
-  "usdt",
-  "airtime",
+  "card",
   "other",
 ] as const;
 
@@ -54,10 +25,11 @@ export interface Business {
   phone?: string;
   email?: string;
   website?: string;
-  usd_exchange_rate: number;
-  default_ad_rate: number;
   business_type?: string;
   tax_id?: string;
+  cost_rate?: number;
+  cost_rate_label?: string;
+  cost_rate_unit?: string;
   created_at: string;
   updated_at: string;
 }
@@ -68,6 +40,17 @@ export interface BusinessMember {
   user_id: string;
   role: UserRole;
   created_at: string;
+}
+
+export interface Category {
+  id: string;
+  business_id: string;
+  name: string;
+  type: CategoryType;
+  color?: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Customer {
@@ -89,8 +72,11 @@ export interface Product {
   name: string;
   description?: string;
   price: number;
+  cost?: number;
   category?: string;
   unit?: string;
+  cost_unit?: string;
+  is_active?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -151,52 +137,49 @@ export interface Expense {
 }
 
 // ============================================================
-// NEW: Transaction with profit tracking
+// Transaction — generic income/expense with profit tracking
 // ============================================================
 export interface Transaction {
   id: string;
   business_id: string;
   type: TransactionType;
-  category: string;
+  category_id?: string;
+  category_name?: string;
   client_name?: string;
+  vendor_name?: string;
   description: string;
   amount: number;
-  ad_usd?: number;
-  ad_cost?: number;
+  cost_amount?: number;
+  cost_qty?: number;
   profit?: number;
   margin?: number;
   payment_method?: string;
   reference?: string;
   date: string;
+  product_id?: string;
   invoice_id?: string;
   attachment_url?: string;
   created_at: string;
   updated_at: string;
 }
 
-// ============================================================
-// NEW: Client ledger entry (from view)
-// ============================================================
 export interface ClientLedgerEntry {
   client_name: string;
   transaction_count: number;
-  total_paid: number;
-  total_ad_cost: number;
+  total_revenue: number;
+  total_cost: number;
   total_profit: number;
-  total_usd: number;
+  total_cost_qty: number;
+  avg_margin: number;
   last_transaction_date: string;
 }
 
-// ============================================================
-// NEW: Daily summary entry (from view)
-// ============================================================
 export interface DailySummary {
   date: string;
   income: number;
   expenses: number;
-  ad_cost: number;
+  total_cost: number;
   gross_profit: number;
-  net_profit: number;
   sales_count: number;
   expense_count: number;
 }
@@ -209,10 +192,8 @@ export interface DashboardStats {
   paidInvoices: number;
   overdueInvoices: number;
   recentTransactions: (Invoice | Expense)[];
-  // New profit tracking fields
-  totalAdCost?: number;
+  totalCost?: number;
   grossProfit?: number;
-  totalUsd?: number;
   avgMargin?: number;
   salesCount?: number;
 }
