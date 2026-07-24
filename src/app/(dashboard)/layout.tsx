@@ -1,6 +1,9 @@
 import { getDbUser, query } from "@/lib/db";
 import { TopBar } from "@/components/layout/top-bar";
 import { BottomNav } from "@/components/layout/bottom-nav";
+import { TrialBanner } from "@/components/trial-banner";
+import { NavProgress } from "@/components/layout/nav-progress";
+import { Paywall } from "@/components/paywall";
 
 export const dynamic = "force-dynamic";
 
@@ -22,9 +25,11 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background">
+      <NavProgress />
       <TopBar businessName={businessName} userEmail={userEmail} isAdmin={isAdmin} />
+      <TrialBanner />
       <main className="flex-1 overflow-y-auto pb-16 sm:pb-20">
-        {children}
+        <Paywall>{children}</Paywall>
       </main>
       <BottomNav isAdmin={isAdmin} />
     </div>
