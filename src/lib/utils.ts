@@ -5,7 +5,56 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/**
+ * Format a currency amount. For large amounts (≥10,000) uses compact notation:
+ * 1,200 → "MWK 1.2K", 2,870,600 → "MWK 2.9M"
+ */
 export function formatCurrency(amount: number, currency = "USD"): string {
+  const abs = Math.abs(amount ?? 0);
+  const sign = (amount ?? 0) < 0 ? "-" : "";
+  const prefix = getCurrencyPrefix(currency);
+
+  if (abs >= 1_000_000) {
+    return `${sign}${prefix}${(abs / 1_000_000).toFixed(1)}M`;
+  }
+  if (abs >= 10_000) {
+    return `${sign}${prefix}${(abs / 1_000).toFixed(0)}K`;
+  }
+  if (abs >= 1_000) {
+    return `${sign}${prefix}${(abs / 1_000).toFixed(1)}K`;
+  }
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(amount ?? 0);
+  } catch {
+    return `${sign}${prefix}${abs.toFixed(0)}`;
+  }
+}
+
+function getCurrencyPrefix(currency: string): string {
+  const map: Record<string, string> = {
+    MWK: "MWK ",
+    USD: "$",
+    EUR: "€",
+    GBP: "£",
+    ZAR: "R",
+    NGN: "₦",
+    KES: "KSh ",
+    GHS: "GH₵",
+    CAD: "CA$",
+    AUD: "A$",
+  };
+  return map[currency] ?? `${currency} `;
+}
+
+/**
+ * Full precision currency (for detail views / invoices)
+ */
+export function formatCurrencyFull(amount: number, currency = "USD"): string {
   try {
     return new Intl.NumberFormat("en-US", {
       style: "currency",

@@ -17,7 +17,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import { useRouter } from "next/navigation";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatCurrency, formatCurrencyFull, formatDate } from "@/lib/utils";
 
 const currencies = ["USD", "EUR", "GBP", "CAD", "AUD", "MWK", "ZAR", "NGN", "KES", "GHS"];
 
@@ -63,17 +63,20 @@ interface Props {
   period?: string;
 }
 
-function StatCard({ label, value, sub, valueClassName }: { label: string; value: string; sub?: string; valueClassName?: string }) {
+function StatCard({ label, value, fullValue, sub, valueClassName }: { label: string; value: string; fullValue?: string; sub?: string; valueClassName?: string }) {
   return (
     <Card className="shadow-sm">
-      <CardContent className="p-3 sm:p-5">
-        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
+      <CardContent className="p-3 sm:p-4">
+        <div className="text-[10px] sm:text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
           {label}
         </div>
-        <div className={`text-xl sm:text-3xl font-bold tracking-tight truncate ${valueClassName || 'text-foreground'}`}>
+        <div
+          className={`text-lg sm:text-xl font-bold tracking-tight leading-tight ${valueClassName || "text-foreground"}`}
+          title={fullValue}
+        >
           {value}
         </div>
-        {sub && <p className="text-xs text-muted-foreground mt-1.5">{sub}</p>}
+        {sub && <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">{sub}</p>}
       </CardContent>
     </Card>
   );
@@ -286,25 +289,29 @@ export default function DashboardClient({
           <StatCard
             label="Revenue"
             value={fmt(stats.totalRevenue)}
+            fullValue={formatCurrencyFull(stats.totalRevenue, business.currency)}
             sub={`${recentIncome.length} sale${recentIncome.length !== 1 ? "s" : ""}`}
             valueClassName="text-emerald-600 dark:text-emerald-400"
           />
           <StatCard
             label="Cost of Sales"
             value={fmt(stats.totalCost)}
+            fullValue={formatCurrencyFull(stats.totalCost, business.currency)}
             sub="From products sold"
             valueClassName="text-rose-600 dark:text-rose-400"
           />
           <StatCard
             label="Gross Profit"
             value={fmt(stats.grossProfit)}
+            fullValue={formatCurrencyFull(stats.grossProfit, business.currency)}
             sub={`${marginPercent.toFixed(1)}% margin`}
             valueClassName="text-indigo-600 dark:text-indigo-400"
           />
           <StatCard
             label="Net Profit"
             value={fmt(stats.netProfit)}
-            sub="After all expenses"
+            fullValue={formatCurrencyFull(stats.netProfit, business.currency)}
+            sub="After expenses"
             valueClassName={isNetProfitPositive ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}
           />
         </div>

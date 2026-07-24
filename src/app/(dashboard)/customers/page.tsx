@@ -1,30 +1,26 @@
 "use client";
-import { useState } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { getDefaultBusiness } from "@/lib/default-business";
+import { useState, useEffect, useCallback } from "react";
 import { Header } from "@/components/layout/header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Badge } from "@/components/ui/badge";
-import { Plus, Search, Pencil, Trash2, Users, Loader2, RefreshCw, Phone, Mail, MapPin, FileText, ArrowLeft, TrendingUp, ShoppingBag, Calendar } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, Users, Loader2, RefreshCw, Phone, Mail, TrendingUp } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
-import { useCachedFetch, clearCache } from "@/hooks/use-cached-fetch";
 import { useRouter } from "next/navigation";
 
 const BLANK_FORM = { name: "", email: "", phone: "", address: "", notes: "" };
 
 function getPalette(name: string) {
   const palettes = [
-    { bg: "bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300" },
-    { bg: "bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300" },
-    { bg: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300" },
-    { bg: "bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300" },
-    { bg: "bg-sky-100 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300" },
-    { bg: "bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300" },
+    "bg-indigo-100 text-indigo-700",
+    "bg-amber-100 text-amber-700",
+    "bg-emerald-100 text-emerald-700",
+    "bg-purple-100 text-purple-700",
+    "bg-sky-100 text-sky-700",
+    "bg-rose-100 text-rose-700",
   ];
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
@@ -35,30 +31,35 @@ export default function CustomersPage() {
   const { toast } = useToast();
   const router = useRouter();
   const [business, setBusiness] = useState<any>(null);
+  const [customers, setCustomers] = useState<any[]>([]);
+  const [incomeTx, setIncomeTx] = useState<any[]>([]);
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [pageLoading, setPageLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [form, setForm] = useState(BLANK_FORM);
 
-  const bizId = typeof window !== "undefined" ? localStorage.getItem("activeBusinessId") : null;
-  const { data: pageData, loading: pageLoading, refreshing, refetch } = useCachedFetch({
-    key: `customers:${bizId ?? "default"}`,
-    fetcher: async () => {
-      const sb = createClient();
-      const { data: biz, error: bizError } = await getDefaultBusiness(sb);
-      if (bizError || !biz) throw new Error("No business found");
-      setBusiness(biz);
-      const [custRes, txRes] = await Promise.all([
-        sb.from("customers").select("*").eq("business_id", biz.id).order("name"),
-        sb.from("transactions").select("id, client_name, amount, cost_amount, profit, date, description, type, payment_method, product_id").eq("business_id", biz.id).eq("type", "income").order("date", { ascending: false }),
-      ]);
-      return { customers: custRes.data ?? [], incomeTx: txRes.data ?? [] };
-    },
-  });
+  const fetchData = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setPageLoading(true);
+    try {
+      const res = await fetch("/api/data/customers");
+      if (!res.ok) throw new Error("Failed to load");
+      const data = await res.json();
+      setBusiness(data.business);
+      setCustomers(data.customers ?? []);
+      setIncomeTx(data.incomeTx ?? []);
+    } catch (err: any) {
+      toast({ title: "Error loading clients", description: err.message, variant: "destructive" });
+    } finally {
+      setPageLoading(false);
+      setRefreshing(false);
+    }
+  }, [toast]);
 
-  const customers = pageData?.customers ?? [];
-  const incomeTx = pageData?.incomeTx ?? [];
+  useEffect(() => { fetchData(); }, [fetchData]);
 
   function openAdd() { setEditing(null); setForm(BLANK_FORM); setOpen(true); }
   function openEdit(c: any) {
@@ -69,31 +70,39 @@ export default function CustomersPage() {
   function handleOpenChange(v: boolean) { setOpen(v); if (!v) { setEditing(null); setForm(BLANK_FORM); } }
 
   async function handleSave() {
-    if (!form.name.trim() || !business) return;
+    if (!form.name.trim()) return;
     setLoading(true);
-    const sb = createClient();
-    if (editing) {
-      const { error } = await sb.from("customers").update(form).eq("id", editing.id);
-      if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
-      else toast({ title: "Client updated" });
-    } else {
-      const { error } = await sb.from("customers").insert({ ...form, business_id: business.id, total_invoiced: 0 });
-      if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
-      else toast({ title: "Client added" });
+    try {
+      const method = editing ? "PUT" : "POST";
+      const body = editing ? { ...form, id: editing.id } : form;
+      const res = await fetch("/api/data/customers", {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to save");
+      toast({ title: editing ? "Client updated" : "Client added" });
+      setOpen(false);
+      fetchData(true);
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
     }
-    setOpen(false); setLoading(false);
-    clearCache(`customers:${bizId ?? "default"}`);
-    refetch();
   }
 
   async function handleDelete(id: string) {
     if (!confirm("Delete this client?")) return;
-    const sb = createClient();
-    const { error } = await sb.from("customers").delete().eq("id", id);
-    if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
-    else toast({ title: "Client deleted" });
-    clearCache(`customers:${bizId ?? "default"}`);
-    refetch();
+    try {
+      const res = await fetch(`/api/data/customers?id=${id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to delete");
+      toast({ title: "Client deleted" });
+      fetchData(true);
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
   }
 
   const filtered = customers.filter((c: any) =>
@@ -101,6 +110,8 @@ export default function CustomersPage() {
     c.email?.toLowerCase().includes(search.toLowerCase()) ||
     c.phone?.toLowerCase().includes(search.toLowerCase())
   );
+
+  const currency = business?.currency ?? "MWK";
 
   if (pageLoading) return (
     <div>
@@ -111,16 +122,19 @@ export default function CustomersPage() {
     </div>
   );
 
-  const currency = business?.currency ?? "USD";
-
   return (
     <div>
-      <Header title="Clients" description="Manage your client database" icon={Users}
+      <Header
+        title="Clients"
+        description="Manage your client database"
+        icon={Users}
         actions={
           <div className="flex items-center gap-2">
             {refreshing && <RefreshCw className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
             <Dialog open={open} onOpenChange={handleOpenChange}>
-              <DialogTrigger asChild><Button onClick={openAdd} size="sm"><Plus className="mr-1.5 h-4 w-4" />Add Client</Button></DialogTrigger>
+              <DialogTrigger asChild>
+                <Button onClick={openAdd} size="sm"><Plus className="mr-1.5 h-4 w-4" />Add Client</Button>
+              </DialogTrigger>
               <DialogContent>
                 <DialogHeader><DialogTitle>{editing ? "Edit Client" : "Add Client"}</DialogTitle></DialogHeader>
                 <div className="space-y-4 py-2">
@@ -138,7 +152,26 @@ export default function CustomersPage() {
           </div>
         }
       />
+
       <div className="p-3 sm:p-6 space-y-4">
+        {/* Summary strip */}
+        {customers.length > 0 && (
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { label: "Total Clients", value: customers.length.toString() },
+              { label: "Total Revenue", value: formatCurrency(incomeTx.reduce((s: number, t: any) => s + Number(t.amount), 0), currency) },
+              { label: "Total Profit", value: formatCurrency(incomeTx.reduce((s: number, t: any) => s + Number(t.profit || 0), 0), currency) },
+            ].map(({ label, value }) => (
+              <Card key={label} className="shadow-sm">
+                <CardContent className="p-3 text-center">
+                  <div className="text-xs text-muted-foreground uppercase tracking-wide font-medium">{label}</div>
+                  <div className="text-base font-bold mt-0.5 text-indigo-600">{value}</div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+
         <div className="relative max-w-sm">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input placeholder="Search clients..." className="pl-9" value={search} onChange={e => setSearch(e.target.value)} />
@@ -158,37 +191,84 @@ export default function CustomersPage() {
           <div className="grid gap-3">
             {filtered.map((c: any) => {
               const palette = getPalette(c.name);
-              const customerTx = incomeTx.filter((t: any) => t.client_name?.toLowerCase() === c.name.toLowerCase());
+              const customerTx = incomeTx.filter((t: any) =>
+                t.client_name?.toLowerCase() === c.name.toLowerCase()
+              );
               const txCount = customerTx.length;
               const totalRevenue = customerTx.reduce((s: number, t: any) => s + Number(t.amount), 0);
               const totalProfit = customerTx.reduce((s: number, t: any) => s + Number(t.profit || (Number(t.amount) - Number(t.cost_amount || 0))), 0);
+              const lastDate = customerTx[0]?.date;
+
               return (
-                <Card key={c.id} className="hover:shadow-md transition-shadow cursor-pointer group" onClick={() => router.push(`/customers/${c.id}`)}>
-                  <CardContent className="flex items-center justify-between p-4 gap-4">
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <div className={`h-10 w-10 rounded-full flex items-center justify-center font-semibold text-sm shrink-0 ${palette.bg}`}>
-                        {c.name.charAt(0).toUpperCase()}
+                <Card key={c.id} className="hover:shadow-md transition-shadow">
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      {/* Avatar + name + meta */}
+                      <div
+                        className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer"
+                        onClick={() => router.push(`/customers/${c.id}`)}
+                      >
+                        <div className={`h-10 w-10 rounded-full flex items-center justify-center font-semibold text-sm shrink-0 ${palette}`}>
+                          {c.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-semibold truncate">{c.name}</p>
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5">
+                            {c.phone && (
+                              <span className="text-xs text-muted-foreground flex items-center gap-1">
+                                <Phone className="h-3 w-3" />{c.phone}
+                              </span>
+                            )}
+                            {c.email && (
+                              <span className="text-xs text-muted-foreground flex items-center gap-1">
+                                <Mail className="h-3 w-3" />{c.email}
+                              </span>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                      <div className="min-w-0">
-                        <p className="font-medium truncate">{c.name}</p>
-                        <p className="text-xs text-muted-foreground truncate">
-                          {txCount > 0 ? `${txCount} order${txCount !== 1 ? "s" : ""} · ${formatCurrency(totalRevenue, currency)}` : c.email || "No orders yet"}
-                        </p>
-                        {txCount > 0 && (
-                          <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
-                            {formatCurrency(totalProfit, currency)} profit
-                          </p>
-                        )}
+
+                      {/* Actions */}
+                      <div className="flex items-center gap-1 shrink-0">
+                        <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEdit(c)}>
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button size="icon" variant="ghost" className="h-8 w-8 text-rose-500 hover:text-rose-600" onClick={() => handleDelete(c.id)}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
-                      <button onClick={() => openEdit(c)} className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground">
-                        <Pencil className="h-4 w-4" />
-                      </button>
-                      <button onClick={() => handleDelete(c.id)} className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-destructive">
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
+
+                    {/* Stats row */}
+                    {txCount > 0 ? (
+                      <div className="mt-3 pt-3 border-t grid grid-cols-3 gap-2 text-center">
+                        <div>
+                          <div className="text-xs text-muted-foreground">Orders</div>
+                          <div className="text-sm font-semibold">{txCount}</div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-muted-foreground">Revenue</div>
+                          <div className="text-sm font-semibold text-emerald-600">{formatCurrency(totalRevenue, currency)}</div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-muted-foreground">Profit</div>
+                          <div className="text-sm font-semibold text-indigo-600 flex items-center justify-center gap-0.5">
+                            <TrendingUp className="h-3 w-3" />
+                            {formatCurrency(totalProfit, currency)}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-2">
+                        <span className="text-xs text-muted-foreground italic">No transactions yet</span>
+                      </div>
+                    )}
+
+                    {lastDate && (
+                      <div className="mt-1 text-xs text-muted-foreground text-right">
+                        Last order: {formatDate(lastDate)}
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               );
