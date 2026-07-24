@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 const ADMIN_EMAILS = ["geniuspulse22@gmail.com"];
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const user = await getDbUser();
+  const user = getDbUser();
   let businessName: string | undefined;
   let userEmail: string | undefined;
   let isAdmin = false;

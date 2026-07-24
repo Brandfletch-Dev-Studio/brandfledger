@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
   try {
-    const user = await getDbUser();
+    const user = getDbUser();
     if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
     const body = await req.json();

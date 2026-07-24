@@ -53,7 +53,7 @@ export default function TransactionsPage() {
 
   const bizId = typeof window !== "undefined" ? localStorage.getItem("activeBusinessId") : null;
   const { data: pageData, loading: pageLoading, refreshing, refetch } = useCachedFetch({
-    key: `transactions:${bizId ?? "default"}`,
+    key: `transactions_v2:${bizId ?? "default"}`,
     fetcher: async () => {
       const url = bizId ? `/api/data/transactions?business_id=${bizId}` : "/api/data/transactions";
       const res = await fetch(url);
@@ -159,7 +159,7 @@ export default function TransactionsPage() {
       toast({ title: "Income logged", description: `${incomeForm.client_name} — ${formatCurrency(amount, business.currency)}` });
       setIncomeForm({ ...BLANK_INCOME, date: new Date().toISOString().split("T")[0] });
       setOpen(false);
-      clearCache(`transactions:${bizId ?? "default"}`);
+      clearCache(`transactions_v2:${bizId ?? "default"}`);
       refetch();
     }
     setLoading(false);
@@ -195,7 +195,7 @@ export default function TransactionsPage() {
       toast({ title: "Expense logged", description: `${expenseForm.description} — ${formatCurrency(amount, business.currency)}` });
       setExpenseForm({ ...BLANK_EXPENSE, date: new Date().toISOString().split("T")[0] });
       setOpen(false);
-      clearCache(`transactions:${bizId ?? "default"}`);
+      clearCache(`transactions_v2:${bizId ?? "default"}`);
       refetch();
     }
     setLoading(false);
@@ -222,7 +222,7 @@ export default function TransactionsPage() {
       toast({ title: "Category created" });
       setCatForm(BLANK_CATEGORY);
       setCatOpen(false);
-      clearCache(`transactions:${bizId ?? "default"}`);
+      clearCache(`transactions_v2:${bizId ?? "default"}`);
       refetch();
     }
     setLoading(false);
@@ -238,7 +238,7 @@ export default function TransactionsPage() {
     if (!res.ok) {
       toast({ title: "Error", description: "Failed to delete", variant: "destructive" });
     } else {
-      clearCache(`transactions:${bizId ?? "default"}`);
+      clearCache(`transactions_v2:${bizId ?? "default"}`);
       refetch();
       toast({ title: "Deleted" });
     }

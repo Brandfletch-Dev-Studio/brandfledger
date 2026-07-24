@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 
 export async function GET(request: Request) {
   try {
-    const user = await getDbUser();
+    const user = getDbUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     // Get business ID from query param or default to first business
@@ -46,7 +46,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const user = await getDbUser();
+    const user = getDbUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const body = await request.json();

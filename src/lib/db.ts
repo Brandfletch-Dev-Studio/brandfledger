@@ -5,8 +5,9 @@ const PROJECT_REF = "qgsaycsdoclsiwrsfaco";
 const DB_PASSWORD = encodeURIComponent("Arthur@472003Chibondo");
 const SESSION_SECRET = "brandfledger-session-secret-2026";
 
-export async function getDbUser() {
-  const cookieStore = await cookies();
+export function getDbUser() {
+  // In Next.js 14, cookies() is synchronous — do NOT await it
+  const cookieStore = cookies();
   const sessionCookie = cookieStore.get("brandfledger_session")?.value;
   
   if (!sessionCookie) return null;

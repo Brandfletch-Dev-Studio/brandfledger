@@ -32,7 +32,7 @@ function getPeriodRange(period: string) {
 
 export default async function DashboardPage({ searchParams }: { searchParams: { period?: string } }) {
   const period = searchParams?.period ?? "this_month";
-  const user = await getDbUser();
+  const user = getDbUser();
 
   if (!user) {
     return <DashboardClient business={null} stats={null} setupStatus={{ hasBusiness: false, hasCustomer: false, hasProduct: false, hasInvoice: false }} period={period} />;
