@@ -1,26 +1,16 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  LayoutDashboard, Users, FileText, CreditCard, Receipt,
-  Package, BarChart3, Settings, Crown, UserCircle2, X,
-  ArrowLeftRight, TrendingUp,
-} from "lucide-react";
+import { LayoutDashboard, Users, Package, Settings, BarChart3, Receipt, Crown, X, ArrowLeftRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const primaryNav = [
+const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/transactions", label: "Transactions", icon: ArrowLeftRight },
-  { href: "/invoices", label: "Sales / Invoices", icon: FileText },
   { href: "/products", label: "Products", icon: Package },
   { href: "/customers", label: "Clients", icon: Users },
-];
-
-const moreNav = [
-  { href: "/payments", label: "Payments", icon: CreditCard },
   { href: "/expenses", label: "Expenses", icon: Receipt },
   { href: "/reports", label: "Reports", icon: BarChart3 },
-  { href: "/team", label: "Team", icon: UserCircle2 },
   { href: "/subscription", label: "Pricing", icon: Crown },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
@@ -35,25 +25,6 @@ export function AppMenu({ open, onClose }: AppMenuProps) {
 
   if (!open) return null;
 
-  const Item = ({ href, label, icon: Icon }: { href: string; label: string; icon: React.ElementType }) => {
-    const active = pathname === href || pathname.startsWith(href + "/");
-    return (
-      <Link
-        href={href}
-        onClick={onClose}
-        className={cn(
-          "flex items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-medium transition-colors",
-          active ? "bg-primary text-primary-foreground shadow-sm" : "text-foreground hover:bg-muted"
-        )}
-      >
-        <div className={cn("h-8 w-8 rounded-lg flex items-center justify-center shrink-0", active ? "bg-primary-foreground/15" : "bg-muted")}>
-          <Icon className="h-4 w-4" />
-        </div>
-        {label}
-      </Link>
-    );
-  };
-
   return (
     <div className="fixed inset-0 z-50">
       <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={onClose} />
@@ -64,12 +35,24 @@ export function AppMenu({ open, onClose }: AppMenuProps) {
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="space-y-1">
-          {primaryNav.map((item) => <Item key={item.href} {...item} />)}
-        </div>
-        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-3.5 mt-4 mb-1.5">More</p>
-        <div className="space-y-1">
-          {moreNav.map((item) => <Item key={item.href} {...item} />)}
+        <div className="grid grid-cols-2 gap-2">
+          {navItems.map((item) => {
+            const active = pathname === item.href || pathname.startsWith(item.href + "/");
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={onClose}
+                className={cn(
+                  "flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
+                  active ? "bg-primary text-primary-foreground shadow-sm" : "text-foreground hover:bg-muted"
+                )}
+              >
+                <item.icon className="h-4 w-4 shrink-0" />
+                {item.label}
+              </Link>
+            );
+          })}
         </div>
       </div>
     </div>

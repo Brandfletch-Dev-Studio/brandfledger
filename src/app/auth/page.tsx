@@ -19,10 +19,14 @@ export default function AuthPage() {
     businessName: "",
   });
 
+  // Clear any stale cached data from a previous session
   useEffect(() => {
-    // Check for existing session cookie via API
-    fetch("/api/auth/me").then(r => r.ok ? router.push("/dashboard") : null).catch(() => {});
-  }, [router]);
+    try {
+      Object.keys(localStorage)
+        .filter(k => k.startsWith("cache:") || k === "activeBusinessId")
+        .forEach(k => localStorage.removeItem(k));
+    } catch {}
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -41,8 +45,13 @@ export default function AuthPage() {
           setLoading(false);
           return;
         }
+        // Clear all old session data
+        try {
+          Object.keys(localStorage)
+            .filter(k => k.startsWith("cache:") || k === "activeBusinessId")
+            .forEach(k => localStorage.removeItem(k));
+        } catch {}
         toast({ title: "Welcome to Brandfledger!", description: "Your account is ready." });
-        // Full page reload to ensure cookie is set
         window.location.href = "/dashboard";
         return;
       } catch (err: any) {
@@ -67,8 +76,14 @@ export default function AuthPage() {
         return;
       }
 
+      // Clear all old session data so new user gets a clean slate
+      try {
+        Object.keys(localStorage)
+          .filter(k => k.startsWith("cache:") || k === "activeBusinessId")
+          .forEach(k => localStorage.removeItem(k));
+      } catch {}
+
       toast({ title: "Welcome back!" });
-      // Full page reload to ensure cookie is sent with the middleware request
       window.location.href = "/dashboard";
     } catch (err: any) {
       toast({ title: "Sign in failed", description: err.message, variant: "destructive" });

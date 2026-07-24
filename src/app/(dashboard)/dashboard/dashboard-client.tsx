@@ -97,7 +97,7 @@ function SetupChecklist({ initialStatus }: { initialStatus: SetupStatus }) {
     { id: "business", label: "Set up your business", icon: Building2, done: status.hasBusiness },
     { id: "customer", label: "Add your first customer", icon: UserPlus, done: status.hasCustomer },
     { id: "product", label: "Add a product or service", icon: Package, done: status.hasProduct },
-    { id: "invoice", label: "Create your first invoice", icon: FileText, done: status.hasInvoice, href: "/invoices" },
+    { id: "invoice", label: "Create your first invoice", icon: FileText, done: status.hasInvoice, href: "/transactions" },
   ];
 
   return (
@@ -259,7 +259,7 @@ export default function DashboardClient({
 
       {/* Quick action pills */}
       <div className="flex items-center gap-2 overflow-x-auto pb-1 -mx-1 px-1">
-        <Link href="/invoices?new=1" className="shrink-0">
+        <Link href="/transactions?new=1" className="shrink-0">
           <Button size="sm" className="rounded-full"><Plus className="h-3.5 w-3.5 mr-1.5" />New Invoice</Button>
         </Link>
         <Link href="/transactions" className="shrink-0">
@@ -394,7 +394,7 @@ export default function DashboardClient({
 
       {/* Floating Action Button */}
       <Link
-        href="/invoices?new=1"
+        href="/transactions?new=1"
         className="fixed bottom-20 right-4 sm:bottom-6 sm:right-6 z-20 flex h-12 w-12 sm:h-14 sm:w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 transition-colors"
         aria-label="New Invoice"
       >

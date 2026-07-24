@@ -2,18 +2,18 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { LayoutGrid, FileText, Package, Users, MoreHorizontal, ArrowLeftRight } from "lucide-react";
+import { LayoutGrid, Package, Users, MoreHorizontal, ArrowLeftRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AppMenu } from "./app-menu";
 
 const tabs = [
   { href: "/dashboard", label: "Home", icon: LayoutGrid },
   { href: "/transactions", label: "Log", icon: ArrowLeftRight },
-  { href: "/invoices", label: "Sales", icon: FileText },
+  { href: "/products", label: "Products", icon: Package },
   { href: "/customers", label: "Clients", icon: Users },
 ];
 
-const moreRoutes = ["/payments", "/expenses", "/reports", "/team", "/subscription", "/settings", "/products"];
+const moreRoutes = ["/expenses", "/reports", "/settings", "/subscription"];
 
 export function BottomNav() {
   const pathname = usePathname();
