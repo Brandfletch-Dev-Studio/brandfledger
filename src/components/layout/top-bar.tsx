@@ -1,8 +1,8 @@
 "use client";
 import { useState } from "react";
-import Link from "next/link";
-import { Menu, Bell, ChevronDown, Zap } from "lucide-react";
+import { Menu, Bell } from "lucide-react";
 import { AppMenu } from "./app-menu";
+import { BusinessSwitcher } from "./business-switcher";
 
 interface TopBarProps {
   businessName?: string | null;
@@ -23,13 +23,7 @@ export function TopBar({ businessName }: TopBarProps) {
           >
             <Menu className="h-5 w-5" />
           </button>
-          <Link href="/settings" className="flex items-center gap-1.5 min-w-0 px-1.5 py-1.5 rounded-lg hover:bg-muted">
-            <div className="h-6 w-6 rounded-md bg-primary flex items-center justify-center shrink-0">
-              <Zap className="h-3.5 w-3.5 text-primary-foreground" />
-            </div>
-            <span className="text-xs sm:text-sm font-semibold truncate max-w-[7rem] sm:max-w-xs">{businessName || "Brandfledger"}</span>
-            <ChevronDown className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-muted-foreground shrink-0" />
-          </Link>
+          <BusinessSwitcher currentName={businessName} />
         </div>
 
         <div className="relative shrink-0">

@@ -248,50 +248,6 @@ export default function TransactionsPage() {
     <div className="space-y-4 sm:space-y-6 p-3 sm:p-6">
       <Header title="Transactions" description="Log income & expenses with automatic profit tracking" />
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="shadow-sm border">
-          <CardContent className="p-3 sm:p-4">
-            <p className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">REVENUE</p>
-            <p className="text-2xl font-extrabold text-emerald-600 dark:text-emerald-400 mt-1">
-              {formatCurrency(stats.totalRevenue, currency)}
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">
-              {stats.salesCount} sale{stats.salesCount !== 1 ? "s" : ""}
-            </p>
-          </CardContent>
-        </Card>
-        <Card className="shadow-sm border">
-          <CardContent className="p-3 sm:p-4">
-            <p className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">COST OF SALES</p>
-            <p className="text-2xl font-extrabold text-rose-600 dark:text-rose-400 mt-1">
-              {formatCurrency(stats.totalCost, currency)}
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">From products sold</p>
-          </CardContent>
-        </Card>
-        <Card className="shadow-sm border">
-          <CardContent className="p-3 sm:p-4">
-            <p className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">GROSS PROFIT</p>
-            <p className={`text-2xl font-extrabold mt-1 ${stats.grossProfit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
-              {formatCurrency(stats.grossProfit, currency)}
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">
-              {stats.avgMargin.toFixed(1)}% margin
-            </p>
-          </CardContent>
-        </Card>
-        <Card className="shadow-sm border">
-          <CardContent className="p-3 sm:p-4">
-            <p className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">NET PROFIT</p>
-            <p className={`text-2xl font-extrabold mt-1 ${stats.netProfit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
-              {formatCurrency(stats.netProfit, currency)}
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">After all expenses</p>
-          </CardContent>
-        </Card>
-      </div>
-
       {/* Toolbar */}
       <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
         <div className="flex flex-col sm:flex-row gap-2 flex-1 max-w-xl">

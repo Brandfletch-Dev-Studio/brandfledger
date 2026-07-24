@@ -21,7 +21,7 @@ const moreNav = [
   { href: "/expenses", label: "Expenses", icon: Receipt },
   { href: "/reports", label: "Reports", icon: BarChart3 },
   { href: "/team", label: "Team", icon: UserCircle2 },
-  { href: "/subscription", label: "Subscription", icon: Crown },
+  { href: "/subscription", label: "Pricing", icon: Crown },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
