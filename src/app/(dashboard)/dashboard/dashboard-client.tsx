@@ -47,7 +47,7 @@ interface Props {
   business: { name: string; currency: string; id?: string; usd_exchange_rate?: number } | null;
   stats: {
     totalRevenue: number;
-    totalAdCost: number;
+    totalCost: number;
     grossProfit: number;
     netProfit: number;
     outstandingAmount: number;
@@ -300,7 +300,7 @@ export default function DashboardClient({ business, stats, recentInvoices = [], 
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
           <StatCard label="Total Revenue" value={fmt(stats.totalRevenue)} icon={TrendingUp} tone="emerald" />
-          <StatCard label="Total Cost" value={fmt(stats.totalAdCost)} icon={TrendingDown} tone="rose" />
+          <StatCard label="Total Cost" value={fmt(stats.totalCost)} icon={TrendingDown} tone="rose" />
           <StatCard label="Gross Profit" value={fmt(stats.grossProfit)} icon={DollarSign} tone={stats.grossProfit >= 0 ? "emerald" : "rose"} />
           <StatCard label="Net Profit" value={fmt(stats.netProfit)} icon={DollarSign} tone={stats.netProfit >= 0 ? "emerald" : "rose"} />
           <StatCard label="Outstanding Invoices" value={fmt(stats.outstandingAmount)} sub={`${stats.outstandingCount} invoice${stats.outstandingCount !== 1 ? "s" : ""}`} icon={Clock} tone="amber" />

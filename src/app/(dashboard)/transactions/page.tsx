@@ -253,7 +253,7 @@ export default function TransactionsPage() {
 
   return (
     <div className="space-y-6">
-      <Header title="Transactions" subtitle="Log income & expenses with automatic profit tracking" />
+      <Header title="Transactions" description="Log income & expenses with automatic profit tracking" />
 
       {/* Summary Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
