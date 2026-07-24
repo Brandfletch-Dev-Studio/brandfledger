@@ -5,10 +5,6 @@ export const runtime = "nodejs";
 
 const PROJECT_REF = "qgsaycsdoclsiwrsfaco";
 const PASSWORD = encodeURIComponent("Arthur@472003Chibondo");
-const POOLER_REGIONS = [
-  "eu-central-1", "us-east-1", "eu-west-1", "ap-southeast-1",
-  "ap-northeast-1", "us-west-1", "sa-east-1", "ap-south-1",
-];
 
 const MIGRATION_SQL = `
 -- Create platform_settings table if not exists
@@ -59,105 +55,113 @@ CREATE POLICY "Users can manage own transactions" ON transactions
     EXISTS (SELECT 1 FROM businesses WHERE businesses.id = transactions.business_id AND businesses.owner_id = auth.uid())
   );
 
--- Enable RLS on products
-ALTER TABLE products ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Users can manage own products" ON products;
-CREATE POLICY "Users can manage own products" ON products
-  FOR ALL USING (
-    EXISTS (SELECT 1 FROM businesses WHERE businesses.id = products.business_id AND businesses.owner_id = auth.uid())
-  ) WITH CHECK (
-    EXISTS (SELECT 1 FROM businesses WHERE businesses.id = products.business_id AND businesses.owner_id = auth.uid())
-  );
+-- Enable RLS on products (only if table exists)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'products') THEN
+    ALTER TABLE products ENABLE ROW LEVEL SECURITY;
+    DROP POLICY IF EXISTS "Users can manage own products" ON products;
+    CREATE POLICY "Users can manage own products" ON products
+      FOR ALL USING (
+        EXISTS (SELECT 1 FROM businesses WHERE businesses.id = products.business_id AND businesses.owner_id = auth.uid())
+      ) WITH CHECK (
+        EXISTS (SELECT 1 FROM businesses WHERE businesses.id = products.business_id AND businesses.owner_id = auth.uid())
+      );
+  END IF;
+END $$;
 
--- Enable RLS on categories
-ALTER TABLE categories ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Users can manage own categories" ON categories;
-CREATE POLICY "Users can manage own categories" ON categories
-  FOR ALL USING (
-    EXISTS (SELECT 1 FROM businesses WHERE businesses.id = categories.business_id AND businesses.owner_id = auth.uid())
-  ) WITH CHECK (
-    EXISTS (SELECT 1 FROM businesses WHERE businesses.id = categories.business_id AND businesses.owner_id = auth.uid())
-  );
+-- Enable RLS on categories (only if table exists)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'categories') THEN
+    ALTER TABLE categories ENABLE ROW LEVEL SECURITY;
+    DROP POLICY IF EXISTS "Users can manage own categories" ON categories;
+    CREATE POLICY "Users can manage own categories" ON categories
+      FOR ALL USING (
+        EXISTS (SELECT 1 FROM businesses WHERE businesses.id = categories.business_id AND businesses.owner_id = auth.uid())
+      ) WITH CHECK (
+        EXISTS (SELECT 1 FROM businesses WHERE businesses.id = categories.business_id AND businesses.owner_id = auth.uid())
+      );
+  END IF;
+END $$;
 
--- Enable RLS on invoices
-ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Users can manage own invoices" ON invoices;
-CREATE POLICY "Users can manage own invoices" ON invoices
-  FOR ALL USING (
-    EXISTS (SELECT 1 FROM businesses WHERE businesses.id = invoices.business_id AND businesses.owner_id = auth.uid())
-  ) WITH CHECK (
-    EXISTS (SELECT 1 FROM businesses WHERE businesses.id = invoices.business_id AND businesses.owner_id = auth.uid())
-  );
+-- Enable RLS on invoices (only if table exists)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'invoices') THEN
+    ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;
+    DROP POLICY IF EXISTS "Users can manage own invoices" ON invoices;
+    CREATE POLICY "Users can manage own invoices" ON invoices
+      FOR ALL USING (
+        EXISTS (SELECT 1 FROM businesses WHERE businesses.id = invoices.business_id AND businesses.owner_id = auth.uid())
+      ) WITH CHECK (
+        EXISTS (SELECT 1 FROM businesses WHERE businesses.id = invoices.business_id AND businesses.owner_id = auth.uid())
+      );
+  END IF;
+END $$;
 
--- Enable RLS on customers
-ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Users can manage own customers" ON customers;
-CREATE POLICY "Users can manage own customers" ON customers
-  FOR ALL USING (
-    EXISTS (SELECT 1 FROM businesses WHERE businesses.id = customers.business_id AND businesses.owner_id = auth.uid())
-  ) WITH CHECK (
-    EXISTS (SELECT 1 FROM businesses WHERE businesses.id = customers.business_id AND businesses.owner_id = auth.uid())
-  );
+-- Enable RLS on customers (only if table exists)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'customers') THEN
+    ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
+    DROP POLICY IF EXISTS "Users can manage own customers" ON customers;
+    CREATE POLICY "Users can manage own customers" ON customers
+      FOR ALL USING (
+        EXISTS (SELECT 1 FROM businesses WHERE businesses.id = customers.business_id AND businesses.owner_id = auth.uid())
+      ) WITH CHECK (
+        EXISTS (SELECT 1 FROM businesses WHERE businesses.id = customers.business_id AND businesses.owner_id = auth.uid())
+      );
+  END IF;
+END $$;
 
--- Enable RLS on team_members
-ALTER TABLE team_members ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Users can manage own team" ON team_members;
-CREATE POLICY "Users can manage own team" ON team_members
-  FOR ALL USING (
-    EXISTS (SELECT 1 FROM businesses WHERE businesses.id = team_members.business_id AND businesses.owner_id = auth.uid())
-  ) WITH CHECK (
-    EXISTS (SELECT 1 FROM businesses WHERE businesses.id = team_members.business_id AND businesses.owner_id = auth.uid())
-  );
+-- Enable RLS on team_members (only if table exists)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'team_members') THEN
+    ALTER TABLE team_members ENABLE ROW LEVEL SECURITY;
+    DROP POLICY IF EXISTS "Users can manage own team" ON team_members;
+    CREATE POLICY "Users can manage own team" ON team_members
+      FOR ALL USING (
+        EXISTS (SELECT 1 FROM businesses WHERE businesses.id = team_members.business_id AND businesses.owner_id = auth.uid())
+      ) WITH CHECK (
+        EXISTS (SELECT 1 FROM businesses WHERE businesses.id = team_members.business_id AND businesses.owner_id = auth.uid())
+      );
+  END IF;
+END $$;
 `;
 
 export async function POST() {
   const pg = await import("pg");
   const Client = pg.Client;
 
-  const errors: Record<string, string> = {};
+  // eu-west-1 is the correct region
+  const connStr = `postgresql://postgres.${PROJECT_REF}:${PASSWORD}@aws-0-eu-west-1.pooler.supabase.com:6543/postgres`;
+  const client = new (Client as any)({
+    connectionString: connStr,
+    ssl: { rejectUnauthorized: false },
+    connectionTimeoutMillis: 15000,
+  });
 
-  // Try each pooler region until one works
-  for (const region of POOLER_REGIONS) {
-    // Try both port 6543 (transaction mode) and 5432 (session mode)
-    for (const port of [6543, 5432]) {
-      const connStr = `postgresql://postgres.${PROJECT_REF}:${PASSWORD}@aws-0-${region}.pooler.supabase.com:${port}/postgres`;
-      const client = new (Client as any)({
-        connectionString: connStr,
-        ssl: { rejectUnauthorized: false },
-        connectionTimeoutMillis: 10000,
-      });
+  try {
+    await client.connect();
+    console.log("Connected via eu-west-1 pooler");
+    
+    await client.query(MIGRATION_SQL);
+    
+    // Verify
+    const { rows } = await client.query("SELECT key FROM platform_settings");
+    const { rows: bizRows } = await client.query("SELECT id, name, owner_id FROM businesses LIMIT 5");
+    const { rows: tableList } = await client.query(
+      "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name"
+    );
+    await client.end();
 
-      try {
-        await client.connect();
-        console.log(`Connected via pooler: ${region}:${port}`);
-        
-        await client.query(MIGRATION_SQL);
-        
-        // Verify
-        const { rows } = await client.query("SELECT key FROM platform_settings");
-        const { rows: bizRows } = await client.query("SELECT id, name, owner_id FROM businesses LIMIT 5");
-        await client.end();
-
-        return NextResponse.json({
-          success: true,
-          region,
-          port,
-          message: "Migration complete",
-          platformSettings: rows.map((r: any) => r.key),
-          businesses: bizRows,
-        });
-      } catch (err: any) {
-        const msg = err.message.substring(0, 200);
-        errors[`${region}:${port}`] = msg;
-        console.log(`Pooler ${region}:${port} failed:`, msg);
-        try { await client.end(); } catch {}
-      }
-    }
+    return NextResponse.json({
+      success: true,
+      message: "Migration complete",
+      platformSettings: rows.map((r: any) => r.key),
+      businesses: bizRows,
+      tables: tableList.map((r: any) => r.table_name),
+    });
+  } catch (err: any) {
+    console.log("Migration failed:", err.message);
+    try { await client.end(); } catch {}
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
-
-  return NextResponse.json({
-    error: "Could not connect to database via any pooler region",
-    tried: Object.keys(errors),
-    errors,
-  }, { status: 500 });
 }
