@@ -188,10 +188,10 @@ export default function ProductsPage() {
                     <p className="text-base sm:text-lg font-bold text-primary mt-2 sm:mt-3">{formatCurrency(p.price, business?.currency)}</p>
                     {Number(p.cost ?? 0) > 0 ? (
                       <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1 font-medium">
-                        profit {formatCurrency(profit, business?.currency)} · {margin.toFixed(0)}%
+                        {formatCurrency(profit, business?.currency)} · {margin.toFixed(0)}%
                       </p>
                     ) : (
-                      <p className="text-xs text-muted-foreground mt-1">profit {formatCurrency(p.price, business?.currency)}</p>
+                      <p className="text-xs text-muted-foreground mt-1">{formatCurrency(p.price, business?.currency)}</p>
                     )}
                     <div className="absolute top-1 right-1 sm:top-2 sm:right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
                       <button onClick={() => openEdit(p)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground">
