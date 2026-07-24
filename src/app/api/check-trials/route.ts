@@ -5,9 +5,9 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 // This endpoint checks all businesses for trial status and creates notifications
-// Can be called by a cron job or manually
+// Called by Vercel cron daily, or manually via POST/GET
 
-export async function POST() {
+async function runTrialCheck() {
   try {
     // Find businesses in trial with 5, 3, or 1 days left that haven't been notified
     const businesses = await query(`
@@ -93,4 +93,12 @@ export async function POST() {
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
+}
+
+export async function POST() {
+  return runTrialCheck();
+}
+
+export async function GET() {
+  return runTrialCheck();
 }
