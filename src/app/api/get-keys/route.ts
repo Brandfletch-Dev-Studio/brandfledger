@@ -28,30 +28,84 @@ export async function GET() {
   try {
     await client.connect();
     
-    // Get JWT secret from auth.config
-    const { rows } = await client.query("SELECT secret FROM auth.config WHERE id = 'jwt'");
-    const jwtSecret: string = rows[0]?.secret;
+    // List all schemas
+    const { rows: schemas } = await client.query(
+      "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('pg_catalog', 'information_schema', 'pg_toast') ORDER BY schema_name"
+    );
     
-    // Get API keys from vault (Supabase stores them here)
+    // List all auth tables
+    let authTables: any[] = [];
+    try {
+      const { rows } = await client.query(
+        "SELECT table_name FROM information_schema.tables WHERE table_schema = 'auth' ORDER BY table_name"
+      );
+      authTables = rows;
+    } catch (e: any) {
+      authTables = [{ error: e.message }];
+    }
+    
+    // Try to get JWT secret from various places
+    let jwtSecret: string | null = null;
+    const secretAttempts: string[] = [];
+    
+    // Try auth.config
+    try {
+      const { rows } = await client.query("SELECT secret FROM auth.config WHERE id = 'jwt'");
+      if (rows[0]?.secret) {
+        jwtSecret = rows[0].secret;
+        secretAttempts.push("Found in auth.config");
+      }
+    } catch (e: any) {
+      secretAttempts.push(`auth.config: ${e.message}`);
+    }
+    
+    // Try vault.decrypted_secrets
+    try {
+      const { rows } = await client.query("SELECT name, value FROM vault.decrypted_secrets WHERE name LIKE '%jwt%' OR name LIKE '%secret%' OR name LIKE '%key%'");
+      if (rows.length > 0) {
+        for (const row of rows) {
+          secretAttempts.push(`vault: ${row.name} = ${String(row.value).substring(0, 30)}...`);
+          if (row.name.includes('jwt') || row.name.includes('secret')) {
+            jwtSecret = row.value;
+          }
+        }
+      } else {
+        secretAttempts.push("vault: no secrets found");
+      }
+    } catch (e: any) {
+      secretAttempts.push(`vault: ${e.message}`);
+    }
+    
+    // Try pg_extension to see if GoTrue is installed
+    let extensions: any[] = [];
+    try {
+      const { rows } = await client.query("SELECT extname FROM pg_extension ORDER BY extname");
+      extensions = rows;
+    } catch (e: any) {
+      extensions = [{ error: e.message }];
+    }
+    
+    // List public tables
+    const { rows: publicTables } = await client.query(
+      "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name"
+    );
+    
+    // Try to get auth users
+    let authUsers: any[] = [];
+    try {
+      const { rows } = await client.query("SELECT id, email, created_at FROM auth.users ORDER BY created_at DESC LIMIT 5");
+      authUsers = rows.map((r: any) => ({ email: r.email, created: r.created_at }));
+    } catch (e: any) {
+      authUsers = [{ error: e.message }];
+    }
+    
+    // Generate keys from JWT secret if found
     let anonKey: string | null = null;
     let serviceRoleKey: string | null = null;
-    try {
-      const { rows: vaultRows } = await client.query(`
-        SELECT name, value FROM vault.decrypted_secrets 
-        WHERE name IN ('anon_key', 'service_role_key')
-      `);
-      for (const row of vaultRows) {
-        if (row.name === 'anon_key') anonKey = row.value;
-        if (row.name === 'service_role_key') serviceRoleKey = row.value;
-      }
-    } catch {
-      // vault might not have the keys, try another approach
-    }
-
-    // If we don't have keys from vault, generate them from the JWT secret
-    if (!anonKey || !serviceRoleKey) {
+    
+    if (jwtSecret) {
       const now = Math.floor(Date.now() / 1000);
-      const exp = now + (10 * 365 * 24 * 60 * 60); // 10 years
+      const exp = now + (10 * 365 * 24 * 60 * 60);
       
       anonKey = createJWT({
         role: "anon",
@@ -70,25 +124,20 @@ export async function GET() {
       }, jwtSecret);
     }
     
-    // Also check what tables exist
-    const { rows: tables } = await client.query(
-      "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name"
-    );
-    
-    // Check if user exists in auth
-    const { rows: users } = await client.query(
-      "SELECT id, email, created_at FROM auth.users ORDER BY created_at DESC LIMIT 5"
-    );
-    
     await client.end();
 
     return NextResponse.json({
       success: true,
-      jwtSecret: jwtSecret?.substring(0, 20) + "...",
+      schemas: schemas.map((r: any) => r.schema_name),
+      authTables: authTables.map((r: any) => r.table_name || r.error),
+      publicTables: publicTables.map((r: any) => r.table_name),
+      extensions: extensions.map((r: any) => r.extname || r.error),
+      authUsers,
+      jwtSecretFound: !!jwtSecret,
+      jwtSecretPreview: jwtSecret?.substring(0, 20) + "...",
       anonKey,
       serviceRoleKey,
-      tables: tables.map((r: any) => r.table_name),
-      users: users.map((r: any) => ({ email: r.email, created: r.created_at })),
+      secretAttempts,
     });
   } catch (err: any) {
     try { await client.end(); } catch {}
