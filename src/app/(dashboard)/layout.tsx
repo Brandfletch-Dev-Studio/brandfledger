@@ -11,16 +11,20 @@ export const dynamic = "force-dynamic";
 const ADMIN_EMAILS = ["geniuspulse22@gmail.com"];
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const user = getDbUser();
   let businessName: string | undefined;
   let userEmail: string | undefined;
   let isAdmin = false;
 
-  if (user) {
-    userEmail = user.email;
-    isAdmin = ADMIN_EMAILS.includes(user.email.toLowerCase());
-    const businesses = await query("SELECT name FROM businesses WHERE owner_id = $1 ORDER BY created_at LIMIT 1", [user.userId]);
-    businessName = businesses[0]?.name;
+  try {
+    const user = getDbUser();
+    if (user) {
+      userEmail = user.email;
+      isAdmin = ADMIN_EMAILS.includes(user.email.toLowerCase());
+      const businesses = await query("SELECT name FROM businesses WHERE owner_id = $1 ORDER BY created_at LIMIT 1", [user.userId]);
+      businessName = businesses[0]?.name;
+    }
+  } catch (err) {
+    console.error("Layout error:", err);
   }
 
   return (

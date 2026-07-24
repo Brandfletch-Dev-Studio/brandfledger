@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing invoiceId" }, { status: 400 });
     }
 
-    const supabase = await createClient();
+    const supabase = createClient();
 
     const { data: invoice, error: invErr } = await supabase
       .from("invoices")

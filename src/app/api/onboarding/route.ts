@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const step = body?.step as string | undefined;
-    const supabase = await createClient();
+    const supabase = createClient();
 
     if (step === "business") {
       const { name, email, currency, invoice_prefix } = body?.data ?? {};

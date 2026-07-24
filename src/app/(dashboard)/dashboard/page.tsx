@@ -32,127 +32,147 @@ function getPeriodRange(period: string) {
 
 export default async function DashboardPage({ searchParams }: { searchParams: { period?: string } }) {
   const period = searchParams?.period ?? "this_month";
-  const user = getDbUser();
+  let user: { userId: string; email: string } | null = null;
+
+  try {
+    user = getDbUser();
+  } catch (e) {
+    console.error("getDbUser error:", e);
+  }
 
   if (!user) {
     return <DashboardClient business={null} stats={null} setupStatus={{ hasBusiness: false, hasCustomer: false, hasProduct: false, hasInvoice: false }} period={period} />;
   }
 
-  // Get user's businesses
-  const businesses = await query("SELECT id, name, currency, invoice_prefix, address, phone, email, logo_url FROM businesses WHERE owner_id = $1 ORDER BY created_at", [user.userId]);
-  
-  const business = businesses[0] || null;
+  try {
+    // Get user's businesses
+    const businesses = await query("SELECT id, name, currency, invoice_prefix, address, phone, email, logo_url FROM businesses WHERE owner_id = $1 ORDER BY created_at", [user.userId]);
+    
+    const business = businesses[0] || null;
 
-  if (!business) {
-    return <DashboardClient business={null} stats={null} setupStatus={{ hasBusiness: false, hasCustomer: false, hasProduct: false, hasInvoice: false }} period={period} />;
-  }
-
-  // Fetch all data in parallel
-  const [invoices, transactions, customers, hasCustomer, hasProduct, hasInvoice] = await Promise.all([
-    query("SELECT total, status, issue_date, created_at, id, invoice_number, customer_id FROM invoices WHERE business_id = $1 ORDER BY created_at DESC LIMIT 500", [business.id]),
-    query("SELECT * FROM transactions WHERE business_id = $1 ORDER BY date DESC", [business.id]),
-    query("SELECT id FROM customers WHERE business_id = $1", [business.id]),
-    query("SELECT id FROM customers WHERE business_id = $1 LIMIT 1", [business.id]),
-    query("SELECT id FROM products WHERE business_id = $1 LIMIT 1", [business.id]),
-    query("SELECT id FROM invoices WHERE business_id = $1 LIMIT 1", [business.id]),
-  ]);
-
-  // Get customer names for invoices
-  const customerIds = Array.from(new Set(invoices.map((i: any) => i.customer_id).filter(Boolean))) as string[];
-  let customerMap: Record<string, string> = {};
-  if (customerIds.length > 0) {
-    const customersData = await query("SELECT id, name FROM customers WHERE id = ANY($1)", [customerIds]);
-    customerMap = Object.fromEntries(customersData.map((c: any) => [c.id, c.name]));
-  }
-
-  const allInvoices = invoices.map((i: any) => ({ ...i, customers: { name: customerMap[i.customer_id] ?? "Unknown" } }));
-  const allTransactions = transactions;
-
-  // Period-scoped slices
-  const { start, end } = getPeriodRange(period);
-  const inRange = (dateStr: string | null | undefined) => {
-    if (!dateStr) return false;
-    const d = new Date(dateStr);
-    return d >= start && d <= end;
-  };
-
-  const periodTransactions = allTransactions.filter((t: any) => inRange(t.date));
-  const incomeTransactions = periodTransactions.filter((t: any) => t.type === "income");
-  const expenseTransactions = periodTransactions.filter((t: any) => t.type === "expense");
-
-  const totalRevenue = incomeTransactions.reduce((sum: number, t: any) => sum + Number(t.amount || 0), 0);
-  const totalCost = incomeTransactions.reduce((sum: number, t: any) => sum + Number(t.cost_amount || 0), 0);
-  const grossProfit = totalRevenue - totalCost;
-  const totalExpenses = expenseTransactions.reduce((sum: number, t: any) => sum + Number(t.amount || 0), 0);
-  const netProfit = grossProfit - totalExpenses;
-
-  const outstandingInvoices = allInvoices.filter((i: any) => i.status === "sent" || i.status === "overdue");
-  const outstandingAmount = outstandingInvoices.reduce((s: number, i: any) => s + i.total, 0);
-
-  // Monthly trend
-  const monthMap: Record<string, { month: string; revenue: number; expenses: number; profit: number }> = {};
-  for (let i = 0; i < 6; i++) {
-    const d = new Date();
-    d.setMonth(d.getMonth() - (5 - i));
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-    monthMap[key] = { month: d.toLocaleDateString("en-US", { month: "short" }), revenue: 0, expenses: 0, profit: 0 };
-  }
-
-  allTransactions.forEach((tx: any) => {
-    if (!tx.date) return;
-    const key = tx.date.slice(0, 7);
-    if (monthMap[key]) {
-      if (tx.type === "income") {
-        monthMap[key].revenue += Number(tx.amount || 0);
-        monthMap[key].expenses += Number(tx.cost_amount || 0);
-      } else if (tx.type === "expense") {
-        monthMap[key].expenses += Number(tx.amount || 0);
-      }
+    if (!business) {
+      return <DashboardClient business={null} stats={null} setupStatus={{ hasBusiness: false, hasCustomer: false, hasProduct: false, hasInvoice: false }} period={period} />;
     }
-  });
 
-  Object.keys(monthMap).forEach(key => {
-    monthMap[key].profit = monthMap[key].revenue - monthMap[key].expenses;
-  });
+    // Fetch all data in parallel
+    const [invoices, transactions, customers, hasCustomer, hasProduct, hasInvoice] = await Promise.all([
+      query("SELECT total, status, issue_date, created_at, id, invoice_number, customer_id FROM invoices WHERE business_id = $1 ORDER BY created_at DESC LIMIT 500", [business.id]),
+      query("SELECT * FROM transactions WHERE business_id = $1 ORDER BY date DESC", [business.id]),
+      query("SELECT id FROM customers WHERE business_id = $1", [business.id]),
+      query("SELECT id FROM customers WHERE business_id = $1 LIMIT 1", [business.id]),
+      query("SELECT id FROM products WHERE business_id = $1 LIMIT 1", [business.id]),
+      query("SELECT id FROM invoices WHERE business_id = $1 LIMIT 1", [business.id]),
+    ]);
 
-  const monthlyTrend = Object.values(monthMap);
+    // Get customer names for invoices
+    const customerIds = Array.from(new Set(invoices.map((i: any) => i.customer_id).filter(Boolean))) as string[];
+    let customerMap: Record<string, string> = {};
+    if (customerIds.length > 0) {
+      const customersData = await query("SELECT id, name FROM customers WHERE id = ANY($1)", [customerIds]);
+      customerMap = Object.fromEntries(customersData.map((c: any) => [c.id, c.name]));
+    }
 
-  // Top customers
-  const customerTotals: Record<string, { name: string; total: number; invoiceCount: number }> = {};
-  allInvoices.filter((i: any) => i.status !== "draft").forEach((inv: any) => {
-    const name = inv.customers?.name ?? "Unknown customer";
-    const key = inv.customer_id ?? name;
-    if (!customerTotals[key]) customerTotals[key] = { name, total: 0, invoiceCount: 0 };
-    customerTotals[key].total += inv.total;
-    customerTotals[key].invoiceCount += 1;
-  });
-  const topCustomers = Object.values(customerTotals).sort((a, b) => b.total - a.total).slice(0, 5);
+    const allInvoices = invoices.map((i: any) => ({ ...i, customers: { name: customerMap[i.customer_id] ?? "Unknown" } }));
+    const allTransactions = transactions;
 
-  const recentIncome = allTransactions.filter((t: any) => t.type === "income").slice(0, 5);
+    // Period-scoped slices
+    const { start, end } = getPeriodRange(period);
+    const inRange = (dateStr: string | null | undefined) => {
+      if (!dateStr) return false;
+      const d = new Date(dateStr);
+      return d >= start && d <= end;
+    };
 
-  return (
-    <DashboardClient
-      business={business}
-      period={period}
-      stats={{
-        totalRevenue,
-        totalCost,
-        grossProfit,
-        netProfit,
-        outstandingAmount,
-        outstandingCount: outstandingInvoices.length,
-        customerCount: customers.length,
-      }}
-      setupStatus={{
-        hasBusiness: true,
-        hasCustomer: hasCustomer.length > 0,
-        hasProduct: hasProduct.length > 0,
-        hasInvoice: hasInvoice.length > 0,
-      }}
-      recentInvoices={allInvoices.slice(0, 5)}
-      recentIncome={recentIncome}
-      monthlyTrend={monthlyTrend}
-      topCustomers={topCustomers}
-    />
-  );
+    const periodTransactions = allTransactions.filter((t: any) => inRange(t.date));
+    const incomeTransactions = periodTransactions.filter((t: any) => t.type === "income");
+    const expenseTransactions = periodTransactions.filter((t: any) => t.type === "expense");
+
+    const totalRevenue = incomeTransactions.reduce((sum: number, t: any) => sum + Number(t.amount || 0), 0);
+    const totalCost = incomeTransactions.reduce((sum: number, t: any) => sum + Number(t.cost_amount || 0), 0);
+    const grossProfit = totalRevenue - totalCost;
+    const totalExpenses = expenseTransactions.reduce((sum: number, t: any) => sum + Number(t.amount || 0), 0);
+    const netProfit = grossProfit - totalExpenses;
+
+    const outstandingInvoices = allInvoices.filter((i: any) => i.status === "sent" || i.status === "overdue");
+    const outstandingAmount = outstandingInvoices.reduce((s: number, i: any) => s + i.total, 0);
+
+    // Monthly trend
+    const monthMap: Record<string, { month: string; revenue: number; expenses: number; profit: number }> = {};
+    for (let i = 0; i < 6; i++) {
+      const d = new Date();
+      d.setMonth(d.getMonth() - (5 - i));
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      monthMap[key] = { month: d.toLocaleDateString("en-US", { month: "short" }), revenue: 0, expenses: 0, profit: 0 };
+    }
+
+    allTransactions.forEach((tx: any) => {
+      if (!tx.date) return;
+      const key = tx.date.slice(0, 7);
+      if (monthMap[key]) {
+        if (tx.type === "income") {
+          monthMap[key].revenue += Number(tx.amount || 0);
+          monthMap[key].expenses += Number(tx.cost_amount || 0);
+        } else if (tx.type === "expense") {
+          monthMap[key].expenses += Number(tx.amount || 0);
+        }
+      }
+    });
+
+    Object.keys(monthMap).forEach(key => {
+      monthMap[key].profit = monthMap[key].revenue - monthMap[key].expenses;
+    });
+
+    const monthlyTrend = Object.values(monthMap);
+
+    // Top customers
+    const customerTotals: Record<string, { name: string; total: number; invoiceCount: number }> = {};
+    allInvoices.filter((i: any) => i.status !== "draft").forEach((inv: any) => {
+      const name = inv.customers?.name ?? "Unknown customer";
+      const key = inv.customer_id ?? name;
+      if (!customerTotals[key]) customerTotals[key] = { name, total: 0, invoiceCount: 0 };
+      customerTotals[key].total += inv.total;
+      customerTotals[key].invoiceCount += 1;
+    });
+    const topCustomers = Object.values(customerTotals).sort((a, b) => b.total - a.total).slice(0, 5);
+
+    const recentIncome = allTransactions.filter((t: any) => t.type === "income").slice(0, 5);
+
+    return (
+      <DashboardClient
+        business={business}
+        period={period}
+        stats={{
+          totalRevenue,
+          totalCost,
+          grossProfit,
+          netProfit,
+          outstandingAmount,
+          outstandingCount: outstandingInvoices.length,
+          customerCount: customers.length,
+        }}
+        setupStatus={{
+          hasBusiness: true,
+          hasCustomer: hasCustomer.length > 0,
+          hasProduct: hasProduct.length > 0,
+          hasInvoice: hasInvoice.length > 0,
+        }}
+        recentInvoices={allInvoices.slice(0, 5)}
+        recentIncome={recentIncome}
+        monthlyTrend={monthlyTrend}
+        topCustomers={topCustomers}
+      />
+    );
+  } catch (err: any) {
+    console.error("Dashboard page error:", err?.message || err);
+    // Return a minimal dashboard with the error shown
+    return (
+      <div className="p-6 max-w-2xl mx-auto">
+        <h2 className="text-lg font-bold mb-2">Dashboard loading error</h2>
+        <p className="text-sm text-muted-foreground mb-4">
+          There was a problem loading your data. This is usually a temporary database connectivity issue.
+        </p>
+        <pre className="text-xs bg-muted p-3 rounded-lg overflow-auto">{err?.message || String(err)}</pre>
+      </div>
+    );
+  }
 }

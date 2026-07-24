@@ -13,7 +13,7 @@ interface InvoiceItem {
 }
 
 export default async function PublicInvoiceView({ params }: { params: { id: string } }) {
-  const sb = await createClient();
+  const sb = createClient();
   const { data: invoice } = await sb
     .from("invoices")
     .select("*")
