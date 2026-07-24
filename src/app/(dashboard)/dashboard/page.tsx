@@ -67,8 +67,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
   const expenseTransactions = periodTransactions.filter(t => t.type === "expense");
 
   const totalRevenue = incomeTransactions.reduce((sum, t) => sum + Number(t.amount || 0), 0);
-  const totalAdCost = incomeTransactions.reduce((sum, t) => sum + Number(t.ad_cost || 0), 0);
-  const grossProfit = totalRevenue - totalAdCost;
+  const totalCost = incomeTransactions.reduce((sum, t) => sum + Number(t.cost_amount || 0), 0);
+  const grossProfit = totalRevenue - totalCost;
   const totalExpenses = expenseTransactions.reduce((sum, t) => sum + Number(t.amount || 0), 0);
   const netProfit = grossProfit - totalExpenses;
 
@@ -95,7 +95,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
     if (monthMap[key]) {
       if (tx.type === "income") {
         monthMap[key].revenue += Number(tx.amount || 0);
-        monthMap[key].expenses += Number(tx.ad_cost || 0);
+        monthMap[key].expenses += Number(tx.cost_amount || 0);
       } else if (tx.type === "expense") {
         monthMap[key].expenses += Number(tx.amount || 0);
       }
@@ -129,7 +129,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
       period={period}
       stats={{
         totalRevenue,
-        totalAdCost,
+        totalCost,
         grossProfit,
         netProfit,
         outstandingAmount,

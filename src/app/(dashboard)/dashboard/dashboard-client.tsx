@@ -35,8 +35,8 @@ interface Transaction {
   client_name: string | null;
   description: string;
   amount: number;
-  ad_usd: number;
-  ad_cost: number;
+  cost_qty: number;
+  cost_amount: number;
   profit: number;
   margin: number;
   date: string;
@@ -300,7 +300,7 @@ export default function DashboardClient({ business, stats, recentInvoices = [], 
         {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
           <StatCard label="Total Revenue" value={fmt(stats.totalRevenue)} icon={TrendingUp} tone="emerald" />
-          <StatCard label="Total Ad Cost" value={fmt(stats.totalAdCost)} icon={TrendingDown} tone="rose" />
+          <StatCard label="Total Cost" value={fmt(stats.totalAdCost)} icon={TrendingDown} tone="rose" />
           <StatCard label="Gross Profit" value={fmt(stats.grossProfit)} icon={DollarSign} tone={stats.grossProfit >= 0 ? "emerald" : "rose"} />
           <StatCard label="Net Profit" value={fmt(stats.netProfit)} icon={DollarSign} tone={stats.netProfit >= 0 ? "emerald" : "rose"} />
           <StatCard label="Outstanding Invoices" value={fmt(stats.outstandingAmount)} sub={`${stats.outstandingCount} invoice${stats.outstandingCount !== 1 ? "s" : ""}`} icon={Clock} tone="amber" />
@@ -415,7 +415,7 @@ export default function DashboardClient({ business, stats, recentInvoices = [], 
             <CardHeader className="flex flex-row items-center justify-between pb-3">
               <div>
                 <CardTitle className="text-base">Profit per Sale</CardTitle>
-                <CardDescription className="text-xs mt-0.5">Recent income transactions, ad costs, and margins</CardDescription>
+                <CardDescription className="text-xs mt-0.5">Recent income transactions, costs, and margins</CardDescription>
               </div>
               <Link href="/transactions" className="text-xs text-primary hover:underline flex items-center gap-1">View all <ArrowRight className="h-3 w-3" /></Link>
             </CardHeader>
@@ -435,7 +435,7 @@ export default function DashboardClient({ business, stats, recentInvoices = [], 
                       <tr className="border-b bg-muted/30 text-muted-foreground text-[10px] font-semibold uppercase tracking-wider">
                         <th className="py-2.5 px-4">Client / Date</th>
                         <th className="py-2.5 px-4 text-right">Sale Amount</th>
-                        <th className="py-2.5 px-4 text-right">Ad Cost</th>
+                        <th className="py-2.5 px-4 text-right">Cost of Sales</th>
                         <th className="py-2.5 px-4 text-right">Net Profit</th>
                         <th className="py-2.5 px-4 text-right">Margin</th>
                       </tr>
@@ -453,12 +453,12 @@ export default function DashboardClient({ business, stats, recentInvoices = [], 
                             {fmt(Number(tx.amount))}
                           </td>
                           <td className="py-3 px-4 text-right text-muted-foreground text-xs">
-                            {Number(tx.ad_cost) > 0 ? (
+                            {Number(tx.cost_amount) > 0 ? (
                               <>
-                                <span>{fmt(Number(tx.ad_cost))}</span>
-                                {Number(tx.ad_usd) > 0 && (
+                                <span>{fmt(Number(tx.cost_amount))}</span>
+                                {Number(tx.cost_qty) > 0 && (
                                   <span className="block text-[10px] text-muted-foreground/70">
-                                    (${Number(tx.ad_usd).toFixed(2)} USD)
+                                    ({Number(tx.cost_qty).toFixed(2)} {tx.cost_qty > 0 ? "qty" : ""})
                                   </span>
                                 )}
                               </>
