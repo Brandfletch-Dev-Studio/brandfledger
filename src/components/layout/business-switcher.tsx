@@ -6,6 +6,7 @@ import { ChevronDown, Plus, Building2, Check, Loader2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/hooks/use-toast";
 
+import { clearAllCaches } from '@/hooks/use-cached-fetch';
 const currencies = ["USD", "MWK", "ZAR", "NGN", "KES", "GHS", "EUR", "GBP", "CAD", "AUD"];
 
 interface Business {
@@ -52,6 +53,7 @@ export function BusinessSwitcher({ currentName }: BusinessSwitcherProps) {
   }
 
   function switchBusiness(id: string) {
+    clearAllCaches();
     setActiveBusinessId(id);
     setActiveId(id);
     setOpen(false);
@@ -76,6 +78,7 @@ export function BusinessSwitcher({ currentName }: BusinessSwitcherProps) {
 
     toast({ title: "Business created", description: form.name });
     setBusinesses(prev => [...prev, data]);
+    clearAllCaches();
     setActiveBusinessId(data.id);
     setActiveId(data.id);
     setForm({ name: "", currency: "MWK", invoice_prefix: "INV" });

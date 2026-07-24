@@ -59,7 +59,7 @@ export async function POST() {
     return NextResponse.json({ 
       success: true, 
       message: "Migration complete",
-      tables: rows.map(r => r.key),
+      tables: rows.map((r: any) => r.key),
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

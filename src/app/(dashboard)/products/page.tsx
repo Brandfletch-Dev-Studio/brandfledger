@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { getDefaultBusiness } from "@/lib/default-business";
 import { Header } from "@/components/layout/header";
@@ -8,40 +8,37 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Plus, Search, Pencil, Trash2, Package, Loader2 } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, Package, Loader2, RefreshCw } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+import { useCachedFetch, clearCache } from "@/hooks/use-cached-fetch";
 
 const BLANK_FORM = { name: "", description: "", price: "", cost: "", category: "", unit: "" };
 
 export default function ProductsPage() {
   const { toast } = useToast();
-  const [products, setProducts] = useState<any[]>([]);
   const [business, setBusiness] = useState<any>(null);
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<any>(null);
   const [loading, setLoading] = useState(false);
-  const [pageLoading, setPageLoading] = useState(true);
   const [form, setForm] = useState(BLANK_FORM);
 
-  useEffect(() => { loadData(); }, []);
+  const bizId = typeof window !== "undefined" ? localStorage.getItem("activeBusinessId") : null;
+  const { data: pageData, loading: pageLoading, refreshing, refetch } = useCachedFetch({
+    key: `products:${bizId ?? "default"}`,
+    fetcher: async () => {
+      const sb = createClient();
+      const { data: biz, error: bizError } = await getDefaultBusiness(sb);
+      if (bizError || !biz) throw new Error("No business found");
+      setBusiness(biz);
+      const { data, error } = await sb.from("products").select("*").eq("business_id", biz.id).order("name");
+      if (error) throw error;
+      return { products: data ?? [] };
+    },
+  });
 
-  async function loadData() {
-    setPageLoading(true);
-    const sb = createClient();
-    const { data: biz, error: bizError } = await getDefaultBusiness(sb);
-    if (bizError) {
-      toast({ title: "Couldn't load business", description: bizError.message, variant: "destructive" });
-      setPageLoading(false); return;
-    }
-    if (!biz) { setPageLoading(false); return; }
-    setBusiness(biz);
-    const { data, error } = await sb.from("products").select("*").eq("business_id", biz.id).order("name");
-    if (error) toast({ title: "Couldn't load products", description: error.message, variant: "destructive" });
-    setProducts(data ?? []);
-    setPageLoading(false);
-  }
+  const products = pageData?.products ?? [];
 
   function openAdd() { setEditing(null); setForm(BLANK_FORM); setOpen(true); }
   function openEdit(p: any) {
@@ -81,7 +78,10 @@ export default function ProductsPage() {
       if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
       else toast({ title: "Product added" });
     }
-    setOpen(false); setLoading(false); loadData();
+    setOpen(false); setLoading(false);
+    clearCache(`products:${bizId ?? "default"}`);
+    clearCache(`transactions:${bizId ?? "default"}`);
+    refetch();
   }
 
   async function handleDelete(id: string) {
@@ -90,15 +90,15 @@ export default function ProductsPage() {
     const { error } = await sb.from("products").delete().eq("id", id);
     if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
     else toast({ title: "Product deleted" });
-    loadData();
+    clearCache(`products:${bizId ?? "default"}`);
+    refetch();
   }
 
-  const filtered = products.filter(p =>
+  const filtered = products.filter((p: any) =>
     p.name.toLowerCase().includes(search.toLowerCase()) ||
     p.category?.toLowerCase().includes(search.toLowerCase())
   );
 
-  // Icon color rotation based on category
   const iconColors = ["bg-indigo-100 dark:bg-indigo-500/10", "bg-emerald-100 dark:bg-emerald-500/10", "bg-amber-100 dark:bg-amber-500/10", "bg-pink-100 dark:bg-pink-500/10", "bg-sky-100 dark:bg-sky-500/10"];
   function iconColor(idx: number) { return iconColors[idx % iconColors.length]; }
 
@@ -113,48 +113,51 @@ export default function ProductsPage() {
 
   return (
     <div>
-      <Header title="Products & Services" description="Your product and service catalog"
+      <Header title="Products & Services" description="Your product and service catalog" icon={Package}
         actions={
-          <Dialog open={open} onOpenChange={handleOpenChange}>
-            <DialogTrigger asChild><Button onClick={openAdd}><Plus className="mr-2 h-4 w-4" />Add Product</Button></DialogTrigger>
-            <DialogContent>
-              <DialogHeader><DialogTitle>{editing ? "Edit Product" : "Add Product"}</DialogTitle></DialogHeader>
-              <div className="space-y-4 py-2">
-                <div className="space-y-2">
-                  <Label>Name *</Label>
-                  <Input placeholder="Web Design Package" value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
+          <div className="flex items-center gap-2">
+            {refreshing && <RefreshCw className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+            <Dialog open={open} onOpenChange={handleOpenChange}>
+              <DialogTrigger asChild><Button onClick={openAdd} size="sm"><Plus className="mr-1.5 h-4 w-4" />Add Product</Button></DialogTrigger>
+              <DialogContent>
+                <DialogHeader><DialogTitle>{editing ? "Edit Product" : "Add Product"}</DialogTitle></DialogHeader>
+                <div className="space-y-4 py-2">
                   <div className="space-y-2">
-                    <Label>Price ({business?.currency ?? "USD"})</Label>
-                    <Input type="number" min="0" step="0.01" placeholder="0.00" value={form.price} onChange={e => setForm(p => ({ ...p, price: e.target.value }))} />
+                    <Label>Name *</Label>
+                    <Input placeholder="Web Design Package" value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label>Price ({business?.currency ?? "USD"})</Label>
+                      <Input type="number" min="0" step="0.01" placeholder="0.00" value={form.price} onChange={e => setForm(p => ({ ...p, price: e.target.value }))} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Cost ({business?.currency ?? "USD"})</Label>
+                      <Input type="number" min="0" step="0.01" placeholder="0.00" value={form.cost} onChange={e => setForm(p => ({ ...p, cost: e.target.value }))} />
+                      <p className="text-xs text-muted-foreground">Cost to deliver this product/service</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label>Category</Label>
+                      <Input placeholder="Service, Product..." value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Unit</Label>
+                      <Input placeholder="hour, item, month..." value={form.unit} onChange={e => setForm(p => ({ ...p, unit: e.target.value }))} />
+                    </div>
                   </div>
                   <div className="space-y-2">
-                    <Label>Cost ({business?.currency ?? "USD"})</Label>
-                    <Input type="number" min="0" step="0.01" placeholder="0.00" value={form.cost} onChange={e => setForm(p => ({ ...p, cost: e.target.value }))} />
-                    <p className="text-xs text-muted-foreground">Cost to deliver this product/service</p>
+                    <Label>Description</Label>
+                    <Input placeholder="Brief description" value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} />
                   </div>
+                  <Button onClick={handleSave} disabled={loading || !form.name.trim()} className="w-full">
+                    {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Saving...</> : editing ? "Update Product" : "Add Product"}
+                  </Button>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-2">
-                    <Label>Category</Label>
-                    <Input placeholder="Service, Product..." value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Unit</Label>
-                    <Input placeholder="hour, item, month..." value={form.unit} onChange={e => setForm(p => ({ ...p, unit: e.target.value }))} />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label>Description</Label>
-                  <Input placeholder="Brief description" value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} />
-                </div>
-                <Button onClick={handleSave} disabled={loading || !form.name.trim()} className="w-full">
-                  {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Saving...</> : editing ? "Update Product" : "Add Product"}
-                </Button>
-              </div>
-            </DialogContent>
-          </Dialog>
+              </DialogContent>
+            </Dialog>
+          </div>
         }
       />
       <div className="p-3 sm:p-6 space-y-4">
@@ -169,24 +172,20 @@ export default function ProductsPage() {
           </CardContent></Card>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-4">
-            {filtered.map((p, idx) => {
+            {filtered.map((p: any, idx: number) => {
               const profit = Number(p.price) - Number(p.cost ?? 0);
               const margin = Number(p.price) > 0 ? (profit / Number(p.price) * 100) : 0;
               return (
                 <Card key={p.id} className="group relative hover:shadow-md transition-shadow">
                   <CardContent className="p-2.5 sm:p-5 text-center">
-                    {/* Icon */}
                     <div className={`w-9 h-9 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center mx-auto mb-2 sm:mb-3 ${iconColor(idx)}`}>
-                      <Package className="h-5 w-5 text-primary" />
+                      <Package className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
                     </div>
-                    {/* Name + category */}
                     <p className="text-xs sm:text-sm font-semibold truncate">{p.name}</p>
                     <p className="text-xs text-muted-foreground mt-0.5">
                       {[p.category, p.unit ? `per ${p.unit}` : null].filter(Boolean).join(" · ") || "No category"}
                     </p>
-                    {/* Price */}
                     <p className="text-base sm:text-lg font-bold text-primary mt-2 sm:mt-3">{formatCurrency(p.price, business?.currency)}</p>
-                    {/* Cost + profit */}
                     {Number(p.cost ?? 0) > 0 ? (
                       <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1 font-medium">
                         profit {formatCurrency(profit, business?.currency)} · {margin.toFixed(0)}%
@@ -194,14 +193,13 @@ export default function ProductsPage() {
                     ) : (
                       <p className="text-xs text-muted-foreground mt-1">profit {formatCurrency(p.price, business?.currency)}</p>
                     )}
-                    {/* Hover actions */}
-                    <div className="flex justify-center gap-2 mt-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Button variant="outline" size="sm" className="h-7" onClick={() => openEdit(p)}>
-                        <Pencil className="h-3 w-3 mr-1" /> Edit
-                      </Button>
-                      <Button variant="outline" size="sm" className="h-7 text-destructive hover:text-destructive" onClick={() => handleDelete(p.id)}>
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
+                    <div className="absolute top-1 right-1 sm:top-2 sm:right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                      <button onClick={() => openEdit(p)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground">
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <button onClick={() => handleDelete(p.id)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-destructive">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
                     </div>
                   </CardContent>
                 </Card>

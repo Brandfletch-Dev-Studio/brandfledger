@@ -5,6 +5,7 @@ import { AppMenu } from "./app-menu";
 import { BusinessSwitcher } from "./business-switcher";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { clearAllCaches } from "@/hooks/use-cached-fetch";
 
 interface TopBarProps {
   businessName?: string | null;
@@ -20,6 +21,7 @@ export function TopBar({ businessName, userEmail }: TopBarProps) {
   async function handleSignOut() {
     const sb = createClient();
     await sb.auth.signOut();
+    clearAllCaches();
     localStorage.removeItem("activeBusinessId");
     router.push("/auth");
   }
