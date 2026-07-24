@@ -34,10 +34,8 @@ DROP POLICY IF EXISTS "Authenticated users can read platform settings" ON platfo
 CREATE POLICY "Authenticated users can read platform settings" ON platform_settings
   FOR SELECT USING (auth.uid() IS NOT NULL);
 
--- Enable RLS on businesses if not already
+-- Enable RLS on businesses
 ALTER TABLE businesses ENABLE ROW LEVEL SECURITY;
-
--- Businesses policies
 DROP POLICY IF EXISTS "Users can view own businesses" ON businesses;
 CREATE POLICY "Users can view own businesses" ON businesses
   FOR SELECT USING (auth.uid() = owner_id OR owner_id IS NULL);
@@ -113,49 +111,53 @@ CREATE POLICY "Users can manage own team" ON team_members
 `;
 
 export async function POST() {
-  const { Client } = await import("pg");
+  const pg = await import("pg");
+  const Client = pg.Client;
+
+  const errors: Record<string, string> = {};
 
   // Try each pooler region until one works
   for (const region of POOLER_REGIONS) {
-    const connStr = `postgresql://postgres.${PROJECT_REF}:${PASSWORD}@aws-0-${region}.pooler.supabase.com:6543/postgres`;
-    const client = new Client({
-      connectionString: connStr,
-      ssl: { rejectUnauthorized: false },
-      connectionTimeoutMillis: 10000,
-    });
-
-    try {
-      await client.connect();
-      console.log(`Connected via pooler region: ${region}`);
-      
-      await client.query(MIGRATION_SQL);
-      
-      // Verify
-      const { rows } = await client.query("SELECT key FROM platform_settings");
-      const { rows: bizRows } = await client.query("SELECT id, name, owner_id FROM businesses LIMIT 5");
-      await client.end();
-
-      return NextResponse.json({
-        success: true,
-        region,
-        message: "Migration complete",
-        platformSettings: rows.map((r: any) => r.key),
-        businesses: bizRows,
+    // Try both port 6543 (transaction mode) and 5432 (session mode)
+    for (const port of [6543, 5432]) {
+      const connStr = `postgresql://postgres.${PROJECT_REF}:${PASSWORD}@aws-0-${region}.pooler.supabase.com:${port}/postgres`;
+      const client = new (Client as any)({
+        connectionString: connStr,
+        ssl: { rejectUnauthorized: false },
+        connectionTimeoutMillis: 10000,
       });
-    } catch (err: any) {
-      console.log(`Pooler ${region} failed:`, err.message);
-      try { await client.end(); } catch {}
-      // Continue to next region
-      if (err.code === "ENOTFOUND" || err.message.includes("tenant") || err.message.includes("not found")) {
-        continue;
+
+      try {
+        await client.connect();
+        console.log(`Connected via pooler: ${region}:${port}`);
+        
+        await client.query(MIGRATION_SQL);
+        
+        // Verify
+        const { rows } = await client.query("SELECT key FROM platform_settings");
+        const { rows: bizRows } = await client.query("SELECT id, name, owner_id FROM businesses LIMIT 5");
+        await client.end();
+
+        return NextResponse.json({
+          success: true,
+          region,
+          port,
+          message: "Migration complete",
+          platformSettings: rows.map((r: any) => r.key),
+          businesses: bizRows,
+        });
+      } catch (err: any) {
+        const msg = err.message.substring(0, 200);
+        errors[`${region}:${port}`] = msg;
+        console.log(`Pooler ${region}:${port} failed:`, msg);
+        try { await client.end(); } catch {}
       }
-      // For other errors, also try next region
-      continue;
     }
   }
 
   return NextResponse.json({
     error: "Could not connect to database via any pooler region",
-    tried: POOLER_REGIONS,
+    tried: Object.keys(errors),
+    errors,
   }, { status: 500 });
 }
