@@ -27,7 +27,7 @@ export function AppMenu({ open, onClose, isAdmin = false }: AppMenuProps) {
   if (!open) return null;
 
   const allItems = isAdmin
-    ? [...navItems, { href: "/admin", label: "Admin", icon: Shield }]
+    ? [...navItems, { href: "/admin", label: "Admin Panel", icon: Shield }]
     : navItems;
 
   return (
@@ -42,7 +42,9 @@ export function AppMenu({ open, onClose, isAdmin = false }: AppMenuProps) {
         </div>
         <div className="grid grid-cols-2 gap-2">
           {allItems.map((item) => {
-            const active = pathname === item.href || pathname.startsWith(item.href + "/");
+            const active = item.href === "/admin"
+              ? pathname.startsWith("/admin")
+              : pathname === item.href || pathname.startsWith(item.href + "/");
             return (
               <Link
                 key={item.href}

@@ -6,12 +6,14 @@ import { Header } from "@/components/layout/header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Plus, Search, Pencil, Trash2, Users, Loader2, RefreshCw } from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import { Plus, Search, Pencil, Trash2, Users, Loader2, RefreshCw, Phone, Mail, MapPin, FileText, ArrowLeft, TrendingUp, ShoppingBag, Calendar } from "lucide-react";
+import { formatCurrency, formatDate } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useCachedFetch, clearCache } from "@/hooks/use-cached-fetch";
+import { useRouter } from "next/navigation";
 
 const BLANK_FORM = { name: "", email: "", phone: "", address: "", notes: "" };
 
@@ -31,6 +33,7 @@ function getPalette(name: string) {
 
 export default function CustomersPage() {
   const { toast } = useToast();
+  const router = useRouter();
   const [business, setBusiness] = useState<any>(null);
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
@@ -46,17 +49,15 @@ export default function CustomersPage() {
       const { data: biz, error: bizError } = await getDefaultBusiness(sb);
       if (bizError || !biz) throw new Error("No business found");
       setBusiness(biz);
-      const [custRes, invRes, txRes] = await Promise.all([
+      const [custRes, txRes] = await Promise.all([
         sb.from("customers").select("*").eq("business_id", biz.id).order("name"),
-        sb.from("invoices").select("id, customer_id, total, status").eq("business_id", biz.id),
-        sb.from("transactions").select("client_name, amount, cost_amount").eq("business_id", biz.id).eq("type", "income"),
+        sb.from("transactions").select("id, client_name, amount, cost_amount, profit, date, description, type, payment_method, product_id").eq("business_id", biz.id).eq("type", "income").order("date", { ascending: false }),
       ]);
-      return { customers: custRes.data ?? [], invoices: invRes.data ?? [], incomeTx: txRes.data ?? [] };
+      return { customers: custRes.data ?? [], incomeTx: txRes.data ?? [] };
     },
   });
 
   const customers = pageData?.customers ?? [];
-  const invoices = pageData?.invoices ?? [];
   const incomeTx = pageData?.incomeTx ?? [];
 
   function openAdd() { setEditing(null); setForm(BLANK_FORM); setOpen(true); }
@@ -110,6 +111,8 @@ export default function CustomersPage() {
     </div>
   );
 
+  const currency = business?.currency ?? "USD";
+
   return (
     <div>
       <Header title="Clients" description="Manage your client database" icon={Users}
@@ -158,8 +161,9 @@ export default function CustomersPage() {
               const customerTx = incomeTx.filter((t: any) => t.client_name?.toLowerCase() === c.name.toLowerCase());
               const txCount = customerTx.length;
               const totalRevenue = customerTx.reduce((s: number, t: any) => s + Number(t.amount), 0);
+              const totalProfit = customerTx.reduce((s: number, t: any) => s + Number(t.profit || (Number(t.amount) - Number(t.cost_amount || 0))), 0);
               return (
-                <Card key={c.id} className="hover:bg-muted/50 transition-colors group">
+                <Card key={c.id} className="hover:shadow-md transition-shadow cursor-pointer group" onClick={() => router.push(`/customers/${c.id}`)}>
                   <CardContent className="flex items-center justify-between p-4 gap-4">
                     <div className="flex items-center gap-3 min-w-0 flex-1">
                       <div className={`h-10 w-10 rounded-full flex items-center justify-center font-semibold text-sm shrink-0 ${palette.bg}`}>
@@ -168,11 +172,16 @@ export default function CustomersPage() {
                       <div className="min-w-0">
                         <p className="font-medium truncate">{c.name}</p>
                         <p className="text-xs text-muted-foreground truncate">
-                          {txCount > 0 ? `${txCount} transaction${txCount !== 1 ? "s" : ""} · ${formatCurrency(totalRevenue, business?.currency)}` : c.email || "No transactions yet"}
+                          {txCount > 0 ? `${txCount} order${txCount !== 1 ? "s" : ""} · ${formatCurrency(totalRevenue, currency)}` : c.email || "No orders yet"}
                         </p>
+                        {txCount > 0 && (
+                          <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+                            {formatCurrency(totalProfit, currency)} profit
+                          </p>
+                        )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
                       <button onClick={() => openEdit(c)} className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground">
                         <Pencil className="h-4 w-4" />
                       </button>
