@@ -13,9 +13,9 @@ const tabs = [
   { href: "/customers", label: "Clients", icon: Users },
 ];
 
-const moreRoutes = ["/expenses", "/reports", "/settings", "/subscription"];
+const moreRoutes = ["/expenses", "/reports", "/settings", "/subscription", "/admin"];
 
-export function BottomNav() {
+export function BottomNav({ isAdmin = false }: { isAdmin?: boolean }) {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
   const isMoreActive = moreRoutes.some(r => pathname.startsWith(r));
@@ -54,7 +54,7 @@ export function BottomNav() {
           More
         </button>
       </nav>
-      <AppMenu open={menuOpen} onClose={() => setMenuOpen(false)} />
+      <AppMenu open={menuOpen} onClose={() => setMenuOpen(false)} isAdmin={isAdmin} />
     </>
   );
 }

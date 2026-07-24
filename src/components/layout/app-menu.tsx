@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Users, Package, Settings, BarChart3, Receipt, Crown, X, ArrowLeftRight } from "lucide-react";
+import { LayoutDashboard, Users, Package, Settings, BarChart3, Receipt, Crown, X, ArrowLeftRight, Shield } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -18,12 +18,17 @@ const navItems = [
 interface AppMenuProps {
   open: boolean;
   onClose: () => void;
+  isAdmin?: boolean;
 }
 
-export function AppMenu({ open, onClose }: AppMenuProps) {
+export function AppMenu({ open, onClose, isAdmin = false }: AppMenuProps) {
   const pathname = usePathname();
 
   if (!open) return null;
+
+  const allItems = isAdmin
+    ? [...navItems, { href: "/admin", label: "Admin", icon: Shield }]
+    : navItems;
 
   return (
     <div className="fixed inset-0 z-50">
@@ -36,7 +41,7 @@ export function AppMenu({ open, onClose }: AppMenuProps) {
           </button>
         </div>
         <div className="grid grid-cols-2 gap-2">
-          {navItems.map((item) => {
+          {allItems.map((item) => {
             const active = pathname === item.href || pathname.startsWith(item.href + "/");
             return (
               <Link

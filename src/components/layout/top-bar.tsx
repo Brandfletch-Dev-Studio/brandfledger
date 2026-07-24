@@ -10,9 +10,10 @@ import { clearAllCaches } from "@/hooks/use-cached-fetch";
 interface TopBarProps {
   businessName?: string | null;
   userEmail?: string | null;
+  isAdmin?: boolean;
 }
 
-export function TopBar({ businessName, userEmail }: TopBarProps) {
+export function TopBar({ businessName, userEmail, isAdmin = false }: TopBarProps) {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
@@ -90,7 +91,7 @@ export function TopBar({ businessName, userEmail }: TopBarProps) {
           </div>
         </div>
       </header>
-      <AppMenu open={menuOpen} onClose={() => setMenuOpen(false)} />
+      <AppMenu open={menuOpen} onClose={() => setMenuOpen(false)} isAdmin={isAdmin} />
     </>
   );
 }
