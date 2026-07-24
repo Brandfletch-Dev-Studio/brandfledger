@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Save, Building2, DollarSign } from "lucide-react";
+import { Loader2, Save, Building2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const currencies = ["USD", "EUR", "GBP", "CAD", "AUD", "MWK", "ZAR", "NGN", "KES", "GHS", "INR", "PKR", "TZS", "UGX", "RWF"];
@@ -33,7 +33,6 @@ export default function SettingsPage() {
   const [bizForm, setBizForm] = useState({
     name: "", email: "", phone: "", address: "", website: "",
     currency: "USD", invoice_prefix: "INV", business_type: "other", tax_id: "",
-    cost_rate: "1", cost_rate_label: "Cost Rate", cost_rate_unit: "",
   });
 
   useEffect(() => { load(); }, []);
@@ -52,9 +51,6 @@ export default function SettingsPage() {
         address: biz.address ?? "", website: biz.website ?? "",
         currency: biz.currency, invoice_prefix: biz.invoice_prefix,
         business_type: biz.business_type ?? "other", tax_id: biz.tax_id ?? "",
-        cost_rate: String(biz.cost_rate ?? 1),
-        cost_rate_label: biz.cost_rate_label ?? "Cost Rate",
-        cost_rate_unit: biz.cost_rate_unit ?? "",
       });
     }
   }
@@ -68,9 +64,6 @@ export default function SettingsPage() {
       address: bizForm.address, website: bizForm.website,
       currency: bizForm.currency, invoice_prefix: bizForm.invoice_prefix,
       business_type: bizForm.business_type, tax_id: bizForm.tax_id,
-      cost_rate: parseFloat(bizForm.cost_rate) || 1,
-      cost_rate_label: bizForm.cost_rate_label,
-      cost_rate_unit: bizForm.cost_rate_unit,
       updated_at: new Date().toISOString(),
     }).eq("id", business.id);
     if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -96,36 +89,6 @@ export default function SettingsPage() {
               <div className="col-span-2 space-y-2"><Label>Address</Label><Input value={bizForm.address} onChange={e => setBizForm(p => ({ ...p, address: e.target.value }))} /></div>
               <div className="space-y-2"><Label>Website</Label><Input placeholder="https://" value={bizForm.website} onChange={e => setBizForm(p => ({ ...p, website: e.target.value }))} /></div>
               <div className="space-y-2"><Label>Tax ID</Label><Input placeholder="Tax registration number" value={bizForm.tax_id} onChange={e => setBizForm(p => ({ ...p, tax_id: e.target.value }))} /></div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Profit Tracking Settings */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2"><DollarSign className="h-5 w-5 text-muted-foreground" /><CardTitle className="text-base">Profit Tracking</CardTitle></div>
-            <CardDescription>Configure how cost is calculated for your sales</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label>Cost Rate Label</Label>
-                <Input placeholder="USD Rate" value={bizForm.cost_rate_label} onChange={e => setBizForm(p => ({ ...p, cost_rate_label: e.target.value }))} />
-                <p className="text-xs text-muted-foreground">What this rate means (e.g. "USD Rate", "Cost per unit")</p>
-              </div>
-              <div className="space-y-2">
-                <Label>Cost Rate Value</Label>
-                <Input type="number" placeholder="1" value={bizForm.cost_rate} onChange={e => setBizForm(p => ({ ...p, cost_rate: e.target.value }))} />
-                <p className="text-xs text-muted-foreground">Multiplier used for cost calculation</p>
-              </div>
-              <div className="space-y-2">
-                <Label>Cost Rate Unit</Label>
-                <Input placeholder="USD, hrs, kg..." value={bizForm.cost_rate_unit} onChange={e => setBizForm(p => ({ ...p, cost_rate_unit: e.target.value }))} />
-                <p className="text-xs text-muted-foreground">Unit symbol for cost quantity</p>
-              </div>
-            </div>
-            <div className="rounded-lg border bg-muted/50 p-3 text-sm">
-              <span className="text-muted-foreground">Example: If you sell ad space at MK 6,000 per $1 and your cost rate is 4,300 (USD exchange rate), set cost rate label to "USD Rate", value to "4300", unit to "USD". Profit = sale amount - (qty × rate).</span>
             </div>
           </CardContent>
         </Card>

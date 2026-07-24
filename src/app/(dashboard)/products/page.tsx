@@ -12,7 +12,7 @@ import { Plus, Search, Pencil, Trash2, Package, Loader2 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 
-const BLANK_FORM = { name: "", description: "", price: "", category: "", unit: "" };
+const BLANK_FORM = { name: "", description: "", price: "", cost: "", category: "", unit: "" };
 
 export default function ProductsPage() {
   const { toast } = useToast();
@@ -46,7 +46,7 @@ export default function ProductsPage() {
   function openAdd() { setEditing(null); setForm(BLANK_FORM); setOpen(true); }
   function openEdit(p: any) {
     setEditing(p);
-    setForm({ name: p.name, description: p.description ?? "", price: String(p.price), category: p.category ?? "", unit: p.unit ?? "" });
+    setForm({ name: p.name, description: p.description ?? "", price: String(p.price), cost: String(p.cost ?? 0), category: p.category ?? "", unit: p.unit ?? "" });
     setOpen(true);
   }
   function handleOpenChange(v: boolean) {
@@ -57,13 +57,21 @@ export default function ProductsPage() {
   async function handleSave() {
     if (!form.name.trim() || !business) return;
     const parsedPrice = parseFloat(form.price);
+    const parsedCost = parseFloat(form.cost);
     if (form.price && (isNaN(parsedPrice) || parsedPrice < 0)) {
       toast({ title: "Invalid price", description: "Price must be a positive number.", variant: "destructive" });
       return;
     }
     setLoading(true);
     const sb = createClient();
-    const data = { name: form.name.trim(), description: form.description, price: isNaN(parsedPrice) ? 0 : parsedPrice, category: form.category, unit: form.unit };
+    const data = {
+      name: form.name.trim(),
+      description: form.description,
+      price: isNaN(parsedPrice) ? 0 : parsedPrice,
+      cost: isNaN(parsedCost) ? 0 : parsedCost,
+      category: form.category,
+      unit: form.unit,
+    };
     if (editing) {
       const { error } = await sb.from("products").update(data).eq("id", editing.id);
       if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -112,9 +120,16 @@ export default function ProductsPage() {
                   <Label>Name *</Label>
                   <Input placeholder="Web Design Package" value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} />
                 </div>
-                <div className="space-y-2">
-                  <Label>Price ({business?.currency ?? "USD"})</Label>
-                  <Input type="number" min="0" step="0.01" placeholder="0.00" value={form.price} onChange={e => setForm(p => ({ ...p, price: e.target.value }))} />
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label>Price ({business?.currency ?? "USD"})</Label>
+                    <Input type="number" min="0" step="0.01" placeholder="0.00" value={form.price} onChange={e => setForm(p => ({ ...p, price: e.target.value }))} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Cost ({business?.currency ?? "USD"})</Label>
+                    <Input type="number" min="0" step="0.01" placeholder="0.00" value={form.cost} onChange={e => setForm(p => ({ ...p, cost: e.target.value }))} />
+                    <p className="text-xs text-muted-foreground">Cost to deliver this product/service</p>
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
@@ -151,28 +166,38 @@ export default function ProductsPage() {
         ) : (
           <Card>
             <div className="divide-y">
-              {filtered.map(p => (
-                <div key={p.id} className="flex items-center justify-between p-4 hover:bg-muted/30 transition-colors">
-                  <div className="flex items-center gap-4">
-                    <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                      <Package className="h-4 w-4 text-primary" />
+              {filtered.map(p => {
+                const profit = Number(p.price) - Number(p.cost ?? 0);
+                return (
+                  <div key={p.id} className="flex items-center justify-between p-4 hover:bg-muted/30 transition-colors">
+                    <div className="flex items-center gap-4">
+                      <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                        <Package className="h-4 w-4 text-primary" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium">{p.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {[p.category, p.unit ? `per ${p.unit}` : null].filter(Boolean).join(" · ")}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-sm font-medium">{p.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {[p.category, p.unit ? `per ${p.unit}` : null].filter(Boolean).join(" · ")}
-                      </p>
+                    <div className="flex items-center gap-4">
+                      <div className="text-right">
+                        <p className="text-sm font-semibold">{formatCurrency(p.price, business?.currency)}</p>
+                        {Number(p.cost ?? 0) > 0 && (
+                          <p className="text-xs text-muted-foreground">
+                            cost {formatCurrency(p.cost, business?.currency)} · profit {formatCurrency(profit, business?.currency)}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex gap-1">
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(p)}><Pencil className="h-3.5 w-3.5" /></Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleDelete(p.id)}><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
+                      </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-4">
-                    <p className="text-sm font-semibold">{formatCurrency(p.price, business?.currency)}</p>
-                    <div className="flex gap-1">
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(p)}><Pencil className="h-3.5 w-3.5" /></Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleDelete(p.id)}><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
-                    </div>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </Card>
         )}

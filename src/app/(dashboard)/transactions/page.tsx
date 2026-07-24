@@ -22,7 +22,6 @@ const BLANK_INCOME = {
   description: "",
   amount: "",
   cost_amount: "",
-  cost_qty: "",
   category_id: "",
   product_id: "",
   payment_method: "cash",
@@ -87,16 +86,11 @@ export default function TransactionsPage() {
   // Profit preview for income form
   const profitPreview = useMemo(() => {
     const amount = parseFloat(incomeForm.amount) || 0;
-    let cost = parseFloat(incomeForm.cost_amount) || 0;
-    const qty = parseFloat(incomeForm.cost_qty) || 0;
-    // If qty is set and cost is 0, auto-calc from business cost_rate
-    if (qty > 0 && cost === 0 && business?.cost_rate) {
-      cost = qty * business.cost_rate;
-    }
+    const cost = parseFloat(incomeForm.cost_amount) || 0;
     const profit = amount - cost;
     const margin = amount > 0 ? (profit / amount * 100) : 0;
     return { cost, profit, margin };
-  }, [incomeForm.amount, incomeForm.cost_amount, incomeForm.cost_qty, business]);
+  }, [incomeForm.amount, incomeForm.cost_amount]);
 
   // When product is selected, auto-fill price & cost
   function onProductChange(productId: string) {
@@ -143,11 +137,7 @@ export default function TransactionsPage() {
     setLoading(true);
     const sb = createClient();
     const amount = parseFloat(incomeForm.amount);
-    let costAmount = parseFloat(incomeForm.cost_amount) || 0;
-    const costQty = parseFloat(incomeForm.cost_qty) || 0;
-    if (costQty > 0 && costAmount === 0 && business.cost_rate) {
-      costAmount = costQty * business.cost_rate;
-    }
+    const costAmount = parseFloat(incomeForm.cost_amount) || 0;
     const cat = categories.find(c => c.id === incomeForm.category_id);
 
     const { error } = await sb.from("transactions").insert({
@@ -159,7 +149,6 @@ export default function TransactionsPage() {
       description: incomeForm.description || `${incomeForm.client_name}`,
       amount,
       cost_amount: costAmount,
-      cost_qty: costQty,
       product_id: incomeForm.product_id || null,
       payment_method: incomeForm.payment_method,
       date: incomeForm.date,
@@ -240,8 +229,6 @@ export default function TransactionsPage() {
   }
 
   const currency = business?.currency ?? "USD";
-  const costRateLabel = business?.cost_rate_label ?? "Cost";
-  const costRateUnit = business?.cost_rate_unit ?? "";
 
   if (pageLoading) {
     return (
@@ -256,53 +243,38 @@ export default function TransactionsPage() {
       <Header title="Transactions" description="Log income & expenses with automatic profit tracking" />
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Card className="shadow-sm">
-          <CardContent className="p-4 sm:p-5">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-semibold text-muted-foreground uppercase">Revenue</span>
-              <div className="h-8 w-8 rounded-lg flex items-center justify-center bg-emerald-100 dark:bg-emerald-500/10">
-                <TrendingUp className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-              </div>
-            </div>
-            <div className="text-xl font-bold text-emerald-600 dark:text-emerald-400">{formatCurrency(stats.totalRevenue, currency)}</div>
-            <p className="text-xs text-muted-foreground mt-1">{stats.salesCount} sales</p>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Revenue</p>
+            <p className="text-xl font-bold text-emerald-600 dark:text-emerald-400 mt-1">{formatCurrency(stats.totalRevenue, currency)}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{stats.salesCount} sale{stats.salesCount !== 1 ? "s" : ""}</p>
           </CardContent>
         </Card>
         <Card className="shadow-sm">
-          <CardContent className="p-4 sm:p-5">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-semibold text-muted-foreground uppercase">Cost of Sales</span>
-              <div className="h-8 w-8 rounded-lg flex items-center justify-center bg-blue-100 dark:bg-blue-500/10">
-                <Receipt className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-              </div>
-            </div>
-            <div className="text-xl font-bold text-blue-600 dark:text-blue-400">{formatCurrency(stats.totalCost, currency)}</div>
-            <p className="text-xs text-muted-foreground mt-1">{costRateLabel}</p>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Cost of Sales</p>
+            <p className="text-xl font-bold text-rose-600 dark:text-rose-400 mt-1">{formatCurrency(stats.totalCost, currency)}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">From products sold</p>
           </CardContent>
         </Card>
         <Card className="shadow-sm">
-          <CardContent className="p-4 sm:p-5">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-semibold text-muted-foreground uppercase">Gross Profit</span>
-              <div className="h-8 w-8 rounded-lg flex items-center justify-center bg-primary/10">
-                <TrendingUp className="h-4 w-4 text-primary" />
-              </div>
-            </div>
-            <div className="text-xl font-bold">{formatCurrency(stats.grossProfit, currency)}</div>
-            <p className="text-xs text-muted-foreground mt-1">{stats.avgMargin.toFixed(1)}% margin</p>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Gross Profit</p>
+            <p className={`text-xl font-bold mt-1 ${stats.grossProfit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>{formatCurrency(stats.grossProfit, currency)}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{stats.avgMargin.toFixed(1)}% margin</p>
           </CardContent>
         </Card>
         <Card className="shadow-sm">
-          <CardContent className="p-4 sm:p-5">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-semibold text-muted-foreground uppercase">Net Profit</span>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Net Profit</p>
+            <div className="flex items-center gap-2 mt-1">
               <div className="h-8 w-8 rounded-lg flex items-center justify-center bg-rose-100 dark:bg-rose-500/10">
                 <TrendingDown className="h-4 w-4 text-rose-600 dark:text-rose-400" />
               </div>
-            </div>
-            <div className={`text-xl font-bold ${stats.netProfit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
-              {formatCurrency(stats.netProfit, currency)}
+              <p className={`text-xl font-bold ${stats.netProfit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
+                {formatCurrency(stats.netProfit, currency)}
+              </p>
             </div>
             <p className="text-xs text-muted-foreground mt-1">After all expenses</p>
           </CardContent>
@@ -419,30 +391,23 @@ export default function TransactionsPage() {
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
-                      <Label className="text-sm">Cost Qty {costRateUnit && `(${costRateUnit})`}</Label>
-                      <Input type="number" placeholder="0" value={incomeForm.cost_qty} onChange={e => setIncomeForm(p => ({ ...p, cost_qty: e.target.value }))} />
-                      <p className="text-xs text-muted-foreground">× {costRateLabel} ({business?.cost_rate ?? 1}) auto-calculates cost</p>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-sm">Or Cost Amount ({currency})</Label>
+                      <Label className="text-sm">Cost ({currency})</Label>
                       <Input type="number" placeholder="0" value={incomeForm.cost_amount} onChange={e => setIncomeForm(p => ({ ...p, cost_amount: e.target.value }))} />
-                      <p className="text-xs text-muted-foreground">Manual override</p>
+                      <p className="text-xs text-muted-foreground">Auto-filled from product, or enter manually</p>
                     </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
                       <Label className="text-sm">Date</Label>
                       <Input type="date" value={incomeForm.date} onChange={e => setIncomeForm(p => ({ ...p, date: e.target.value }))} />
                     </div>
-                    <div className="space-y-1">
-                      <Label className="text-sm">Payment Method</Label>
-                      <Select value={incomeForm.payment_method} onValueChange={v => setIncomeForm(p => ({ ...p, payment_method: v }))}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {PAYMENT_METHODS.map(m => <SelectItem key={m} value={m}>{m.replace("_", " ").replace(/\b\w/g, l => l.toUpperCase())}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-sm">Payment Method</Label>
+                    <Select value={incomeForm.payment_method} onValueChange={v => setIncomeForm(p => ({ ...p, payment_method: v }))}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {PAYMENT_METHODS.map(m => <SelectItem key={m} value={m}>{m.replace("_", " ").replace(/\b\w/g, l => l.toUpperCase())}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="space-y-1">
                     <Label className="text-sm">Description (optional)</Label>
@@ -458,23 +423,21 @@ export default function TransactionsPage() {
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Cost</span>
-                        <span className="font-medium">{formatCurrency(profitPreview.cost, currency)}</span>
+                        <span className="font-medium text-rose-600 dark:text-rose-400">-{formatCurrency(profitPreview.cost, currency)}</span>
                       </div>
-                      <div className="flex justify-between text-sm border-t pt-1.5">
+                      <div className="border-t pt-1.5 flex justify-between text-sm">
                         <span className="font-medium">Profit</span>
-                        <span className="font-bold text-emerald-600 dark:text-emerald-400">{formatCurrency(profitPreview.profit, currency)}</span>
+                        <span className={`font-bold ${profitPreview.profit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>{formatCurrency(profitPreview.profit, currency)}</span>
                       </div>
-                      <div className="flex justify-between text-sm">
+                      <div className="flex justify-between text-xs">
                         <span className="text-muted-foreground">Margin</span>
-                        <Badge variant={profitPreview.margin >= 25 ? "default" : profitPreview.margin >= 10 ? "secondary" : "destructive"}>
-                          {profitPreview.margin.toFixed(1)}%
-                        </Badge>
+                        <span className="font-medium">{profitPreview.margin.toFixed(1)}%</span>
                       </div>
                     </div>
                   )}
 
                   <Button className="w-full" disabled={loading || !incomeForm.client_name || !incomeForm.amount} onClick={handleAddIncome}>
-                    {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                    {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <TrendingUp className="h-4 w-4 mr-2" />}
                     Add Income
                   </Button>
                 </TabsContent>
@@ -500,11 +463,11 @@ export default function TransactionsPage() {
                       </Select>
                     </div>
                   </div>
+                  <div className="space-y-1">
+                    <Label className="text-sm">Vendor / Payee</Label>
+                    <Input placeholder="Who was this paid to?" value={expenseForm.vendor_name} onChange={e => setExpenseForm(p => ({ ...p, vendor_name: e.target.value }))} />
+                  </div>
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <Label className="text-sm">Vendor / Payee</Label>
-                      <Input placeholder="Who did you pay?" value={expenseForm.vendor_name} onChange={e => setExpenseForm(p => ({ ...p, vendor_name: e.target.value }))} />
-                    </div>
                     <div className="space-y-1">
                       <Label className="text-sm">Payment Method</Label>
                       <Select value={expenseForm.payment_method} onValueChange={v => setExpenseForm(p => ({ ...p, payment_method: v }))}>
@@ -514,10 +477,10 @@ export default function TransactionsPage() {
                         </SelectContent>
                       </Select>
                     </div>
+                    <div className="space-y-1">
+                      <Label className="text-sm">Date</Label>
+                      <Input type="date" value={expenseForm.date} onChange={e => setExpenseForm(p => ({ ...p, date: e.target.value }))} />
                   </div>
-                  <div className="space-y-1">
-                    <Label className="text-sm">Date</Label>
-                    <Input type="date" value={expenseForm.date} onChange={e => setExpenseForm(p => ({ ...p, date: e.target.value }))} />
                   </div>
                   <Button className="w-full" disabled={loading || !expenseForm.description || !expenseForm.amount} onClick={handleAddExpense}>
                     {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
