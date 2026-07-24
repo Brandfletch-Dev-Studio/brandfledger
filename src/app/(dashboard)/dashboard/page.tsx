@@ -79,7 +79,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
     const { start, end } = getPeriodRange(period);
     const inRange = (dateStr: string | null | undefined) => {
       if (!dateStr) return false;
-      const d = new Date(dateStr);
+      const d = typeof dateStr === "string" ? new Date(dateStr) : dateStr;
       return d >= start && d <= end;
     };
 
@@ -106,8 +106,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
     }
 
     allTransactions.forEach((tx: any) => {
-      if (!tx.date) return;
-      const key = tx.date.slice(0, 7);
+      if (!tx.date) return; const txDate = typeof tx.date === "string" ? tx.date : new Date(tx.date).toISOString();
+      const key = txDate.slice(0, 7);
       if (monthMap[key]) {
         if (tx.type === "income") {
           monthMap[key].revenue += Number(tx.amount || 0);
