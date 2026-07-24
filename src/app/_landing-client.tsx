@@ -35,7 +35,7 @@ export default function LandingClient() {
           {/* Get Started Button on Right */}
           <div>
             <Link
-              href="/dashboard"
+              href="/auth"
               className="inline-flex items-center justify-center px-3 sm:px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs sm:text-sm font-semibold transition-colors shadow-sm"
             >
               Get Started
@@ -69,7 +69,7 @@ export default function LandingClient() {
           {/* Centered CTA Buttons */}
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4 w-full sm:w-auto">
             <Link
-              href="/dashboard"
+              href="/auth"
               className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-6 py-3 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-sm transition-colors text-base"
             >
               Start Free <ArrowRight className="w-4 h-4" />

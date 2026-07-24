@@ -1,6 +1,5 @@
 // Multi-tenant business selection helper.
-// On the server: returns the first business (or the one set via cookie).
-// On the client: checks localStorage for the active business ID first.
+// Scopes businesses by the authenticated user's ID.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -15,6 +14,7 @@ export function setActiveBusinessId(id: string) {
 }
 
 export async function getDefaultBusiness(supabase: SupabaseClient) {
+  // Check localStorage for active business (client-side only)
   const activeId = getActiveBusinessId();
   if (activeId) {
     const result = await supabase
@@ -24,6 +24,22 @@ export async function getDefaultBusiness(supabase: SupabaseClient) {
       .maybeSingle();
     if (result.data) return result;
   }
+
+  // Fall back to the first business the user owns
+  // If RLS is enabled, this will only return the user's businesses
+  const { data: session } = await supabase.auth.getSession();
+  if (session?.session?.user?.id) {
+    const result = await supabase
+      .from("businesses")
+      .select("*")
+      .eq("owner_id", session.session.user.id)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (result.data) return result;
+  }
+
+  // No auth — return first business (legacy fallback)
   return supabase
     .from("businesses")
     .select("*")
@@ -33,6 +49,15 @@ export async function getDefaultBusiness(supabase: SupabaseClient) {
 }
 
 export async function getAllBusinesses(supabase: SupabaseClient) {
+  const { data: session } = await supabase.auth.getSession();
+  if (session?.session?.user?.id) {
+    return supabase
+      .from("businesses")
+      .select("id, name, currency, invoice_prefix")
+      .eq("owner_id", session.session.user.id)
+      .order("created_at", { ascending: true });
+  }
+  // No auth — return all (legacy)
   return supabase
     .from("businesses")
     .select("id, name, currency, invoice_prefix")

@@ -168,24 +168,24 @@ export default function ProductsPage() {
             <p className="text-muted-foreground text-sm">{search ? "No products match your search." : "No products yet. Add your first product or service!"}</p>
           </CardContent></Card>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-4">
             {filtered.map((p, idx) => {
               const profit = Number(p.price) - Number(p.cost ?? 0);
               const margin = Number(p.price) > 0 ? (profit / Number(p.price) * 100) : 0;
               return (
                 <Card key={p.id} className="group relative hover:shadow-md transition-shadow">
-                  <CardContent className="p-5 text-center">
+                  <CardContent className="p-2.5 sm:p-5 text-center">
                     {/* Icon */}
-                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center mx-auto mb-3 ${iconColor(idx)}`}>
+                    <div className={`w-9 h-9 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center mx-auto mb-2 sm:mb-3 ${iconColor(idx)}`}>
                       <Package className="h-5 w-5 text-primary" />
                     </div>
                     {/* Name + category */}
-                    <p className="text-sm font-semibold truncate">{p.name}</p>
+                    <p className="text-xs sm:text-sm font-semibold truncate">{p.name}</p>
                     <p className="text-xs text-muted-foreground mt-0.5">
                       {[p.category, p.unit ? `per ${p.unit}` : null].filter(Boolean).join(" · ") || "No category"}
                     </p>
                     {/* Price */}
-                    <p className="text-lg font-bold text-primary mt-3">{formatCurrency(p.price, business?.currency)}</p>
+                    <p className="text-base sm:text-lg font-bold text-primary mt-2 sm:mt-3">{formatCurrency(p.price, business?.currency)}</p>
                     {/* Cost + profit */}
                     {Number(p.cost ?? 0) > 0 ? (
                       <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1 font-medium">
