@@ -1,4 +1,5 @@
 "use client";
+
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { getDefaultBusiness } from "@/lib/default-business";
@@ -11,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Search, TrendingUp, TrendingDown, Loader2, Receipt, Trash2, Tag } from "lucide-react";
+import { Plus, Search, TrendingUp, TrendingDown, Loader2, Trash2, Tag } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import type { Transaction, Category, Product } from "@/types";
@@ -126,7 +127,12 @@ export default function TransactionsPage() {
       if (typeFilter !== "all" && t.type !== typeFilter) return false;
       if (search) {
         const q = search.toLowerCase();
-        return (t.client_name?.toLowerCase().includes(q) || t.description.toLowerCase().includes(q) || t.category_name?.toLowerCase().includes(q) || t.vendor_name?.toLowerCase().includes(q));
+        return (
+          t.client_name?.toLowerCase().includes(q) ||
+          t.description.toLowerCase().includes(q) ||
+          t.category_name?.toLowerCase().includes(q) ||
+          t.vendor_name?.toLowerCase().includes(q)
+        );
       }
       return true;
     });
@@ -243,53 +249,65 @@ export default function TransactionsPage() {
       <Header title="Transactions" description="Log income & expenses with automatic profit tracking" />
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Card className="shadow-sm">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card className="shadow-sm border">
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Revenue</p>
-            <p className="text-xl font-bold text-emerald-600 dark:text-emerald-400 mt-1">{formatCurrency(stats.totalRevenue, currency)}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">{stats.salesCount} sale{stats.salesCount !== 1 ? "s" : ""}</p>
+            <p className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">REVENUE</p>
+            <p className="text-2xl font-extrabold text-emerald-600 dark:text-emerald-400 mt-1">
+              {formatCurrency(stats.totalRevenue, currency)}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {stats.salesCount} sale{stats.salesCount !== 1 ? "s" : ""}
+            </p>
           </CardContent>
         </Card>
-        <Card className="shadow-sm">
+        <Card className="shadow-sm border">
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Cost of Sales</p>
-            <p className="text-xl font-bold text-rose-600 dark:text-rose-400 mt-1">{formatCurrency(stats.totalCost, currency)}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">From products sold</p>
+            <p className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">COST OF SALES</p>
+            <p className="text-2xl font-extrabold text-rose-600 dark:text-rose-400 mt-1">
+              {formatCurrency(stats.totalCost, currency)}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">From products sold</p>
           </CardContent>
         </Card>
-        <Card className="shadow-sm">
+        <Card className="shadow-sm border">
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Gross Profit</p>
-            <p className={`text-xl font-bold mt-1 ${stats.grossProfit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>{formatCurrency(stats.grossProfit, currency)}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">{stats.avgMargin.toFixed(1)}% margin</p>
+            <p className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">GROSS PROFIT</p>
+            <p className={`text-2xl font-extrabold mt-1 ${stats.grossProfit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
+              {formatCurrency(stats.grossProfit, currency)}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {stats.avgMargin.toFixed(1)}% margin
+            </p>
           </CardContent>
         </Card>
-        <Card className="shadow-sm">
+        <Card className="shadow-sm border">
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Net Profit</p>
-            <div className="flex items-center gap-2 mt-1">
-              <div className="h-8 w-8 rounded-lg flex items-center justify-center bg-rose-100 dark:bg-rose-500/10">
-                <TrendingDown className="h-4 w-4 text-rose-600 dark:text-rose-400" />
-              </div>
-              <p className={`text-xl font-bold ${stats.netProfit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
-                {formatCurrency(stats.netProfit, currency)}
-              </p>
-            </div>
+            <p className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">NET PROFIT</p>
+            <p className={`text-2xl font-extrabold mt-1 ${stats.netProfit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
+              {formatCurrency(stats.netProfit, currency)}
+            </p>
             <p className="text-xs text-muted-foreground mt-1">After all expenses</p>
           </CardContent>
         </Card>
       </div>
 
       {/* Toolbar */}
-      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-        <div className="flex gap-2 flex-1 w-full">
-          <div className="relative flex-1 max-w-sm">
+      <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
+        <div className="flex flex-col sm:flex-row gap-2 flex-1 max-w-xl">
+          <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input placeholder="Search client, description, vendor..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9 h-9" />
+            <Input 
+              placeholder="Search client, description, vendor..." 
+              value={search} 
+              onChange={e => setSearch(e.target.value)} 
+              className="pl-9 h-9" 
+            />
           </div>
           <Select value={typeFilter} onValueChange={setTypeFilter}>
-            <SelectTrigger className="w-28 h-9"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-full sm:w-32 h-9">
+              <SelectValue placeholder="All" />
+            </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All</SelectItem>
               <SelectItem value="income">Income</SelectItem>
@@ -297,7 +315,8 @@ export default function TransactionsPage() {
             </SelectContent>
           </Select>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 justify-end">
+          {/* Categories Dialog */}
           <Dialog open={catOpen} onOpenChange={setCatOpen}>
             <DialogTrigger asChild>
               <Button size="sm" variant="outline" className="h-9">
@@ -305,36 +324,62 @@ export default function TransactionsPage() {
               </Button>
             </DialogTrigger>
             <DialogContent className="max-w-md">
-              <DialogHeader><DialogTitle>Manage Categories</DialogTitle></DialogHeader>
-              <div className="space-y-3 mt-2">
+              <DialogHeader>
+                <DialogTitle>Manage Categories</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 mt-2">
                 {/* Existing categories */}
                 {categories.length > 0 && (
-                  <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                  <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
                     {categories.map(c => (
-                      <div key={c.id} className="flex items-center justify-between rounded-lg border px-3 py-2">
+                      <div key={c.id} className="flex items-center justify-between rounded-lg border px-3 py-2 bg-muted/30">
                         <div className="flex items-center gap-2">
-                          <Badge variant={c.type === "income" ? "default" : "secondary"} className="text-xs">{c.type}</Badge>
-                          <span className="text-sm">{c.name}</span>
+                          <Badge variant={c.type === "income" ? "default" : "secondary"} className="text-xs">
+                            {c.type === "income" ? "Income" : "Expense"}
+                          </Badge>
+                          <span className="text-sm font-medium">{c.name}</span>
                         </div>
                       </div>
                     ))}
                   </div>
                 )}
-                {categories.length > 0 && <div className="border-t pt-3" />}
+                {categories.length > 0 && <div className="border-t" />}
                 {/* Add new category */}
-                <div className="space-y-2">
-                  <Input placeholder="Category name (e.g. Ad Sales, Materials, Fuel)" value={catForm.name} onChange={e => setCatForm(p => ({ ...p, name: e.target.value }))} />
-                  <div className="grid grid-cols-2 gap-2">
-                    <Select value={catForm.type} onValueChange={v => setCatForm(p => ({ ...p, type: v as any }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="income">Income</SelectItem>
-                        <SelectItem value="expense">Expense</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Input placeholder="Color (optional)" value={catForm.color} onChange={e => setCatForm(p => ({ ...p, color: e.target.value }))} />
+                <div className="space-y-3">
+                  <p className="text-sm font-semibold">Add New Category</p>
+                  <div className="space-y-2">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Category Name *</Label>
+                      <Input 
+                        placeholder="Category name (e.g. Ad Sales, Fuel)" 
+                        value={catForm.name} 
+                        onChange={e => setCatForm(p => ({ ...p, name: e.target.value }))} 
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Type</Label>
+                        <Select value={catForm.type} onValueChange={v => setCatForm(p => ({ ...p, type: v as any }))}>
+                          <SelectTrigger className="h-9">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="income">Income</SelectItem>
+                            <SelectItem value="expense">Expense</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Color (optional)</Label>
+                        <Input 
+                          placeholder="#FF0000" 
+                          value={catForm.color} 
+                          onChange={e => setCatForm(p => ({ ...p, color: e.target.value }))} 
+                        />
+                      </div>
+                    </div>
                   </div>
-                  <Button className="w-full" disabled={loading || !catForm.name} onClick={handleAddCategory}>
+                  <Button className="w-full h-9" disabled={loading || !catForm.name} onClick={handleAddCategory}>
                     {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-1" />}
                     Add Category
                   </Button>
@@ -342,47 +387,73 @@ export default function TransactionsPage() {
               </div>
             </DialogContent>
           </Dialog>
+
+          {/* Quick Add Dialog */}
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
-              <Button size="sm" className="h-9"><Plus className="h-4 w-4 mr-1" /> Quick Add</Button>
+              <Button size="sm" className="h-9">
+                <Plus className="h-4 w-4 mr-1" /> Quick Add
+              </Button>
             </DialogTrigger>
             <DialogContent className="max-w-lg">
-              <DialogHeader><DialogTitle>Add Transaction</DialogTitle></DialogHeader>
-              <Tabs value={activeTab} onValueChange={setActiveTab}>
-                <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="income"><TrendingUp className="h-4 w-4 mr-1" /> Income</TabsTrigger>
-                  <TabsTrigger value="expense"><TrendingDown className="h-4 w-4 mr-1" /> Expense</TabsTrigger>
+              <DialogHeader>
+                <DialogTitle>Add Transaction</DialogTitle>
+              </DialogHeader>
+              <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-2">
+                <TabsList className="grid w-full grid-cols-2 h-9">
+                  <TabsTrigger value="income" className="h-8">
+                    <TrendingUp className="h-4 w-4 mr-1.5 text-emerald-600" /> Income
+                  </TabsTrigger>
+                  <TabsTrigger value="expense" className="h-8">
+                    <TrendingDown className="h-4 w-4 mr-1.5 text-rose-600" /> Expense
+                  </TabsTrigger>
                 </TabsList>
 
                 {/* INCOME TAB */}
                 <TabsContent value="income" className="space-y-3 mt-4">
-                  {/* Product quick-select (optional) */}
+                  {/* Product select (optional, auto-fills price+cost) */}
                   {products.length > 0 && (
                     <div className="space-y-1">
-                      <Label className="text-sm">Select Product (optional — auto-fills price & cost)</Label>
+                      <Label className="text-xs">Select Product (optional — auto-fills price & cost)</Label>
                       <Select value={incomeForm.product_id} onValueChange={onProductChange}>
-                        <SelectTrigger><SelectValue placeholder="Choose a product..." /></SelectTrigger>
+                        <SelectTrigger className="h-9">
+                          <SelectValue placeholder="Choose a product..." />
+                        </SelectTrigger>
                         <SelectContent>
                           {products.map(p => (
-                            <SelectItem key={p.id} value={p.id}>{p.name} — {formatCurrency(p.price, currency)}</SelectItem>
+                            <SelectItem key={p.id} value={p.id}>
+                              {p.name} — {formatCurrency(p.price, currency)}
+                            </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     </div>
                   )}
                   <div className="space-y-1">
-                    <Label className="text-sm">Client Name *</Label>
-                    <Input placeholder="Customer name" value={incomeForm.client_name} onChange={e => setIncomeForm(p => ({ ...p, client_name: e.target.value }))} />
+                    <Label className="text-xs">Client Name *</Label>
+                    <Input 
+                      placeholder="Customer name" 
+                      value={incomeForm.client_name} 
+                      onChange={e => setIncomeForm(p => ({ ...p, client_name: e.target.value }))} 
+                    />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
-                      <Label className="text-sm">Amount ({currency}) *</Label>
-                      <Input type="number" placeholder="0" value={incomeForm.amount} onChange={e => setIncomeForm(p => ({ ...p, amount: e.target.value }))} />
+                      <Label className="text-xs">Amount ({currency}) *</Label>
+                      <Input 
+                        type="number" 
+                        step="any"
+                        placeholder="0.00" 
+                        value={incomeForm.amount} 
+                        onChange={e => setIncomeForm(p => ({ ...p, amount: e.target.value }))} 
+                      />
                     </div>
                     <div className="space-y-1">
-                      <Label className="text-sm">Category</Label>
+                      <Label className="text-xs">Category</Label>
                       <Select value={incomeForm.category_id} onValueChange={v => setIncomeForm(p => ({ ...p, category_id: v }))}>
-                        <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
+                        <SelectTrigger className="h-9">
+                          <SelectValue placeholder="Select category" />
+                        </SelectTrigger>
                         <SelectContent>
                           {incomeCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
                         </SelectContent>
@@ -391,52 +462,75 @@ export default function TransactionsPage() {
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
-                      <Label className="text-sm">Cost ({currency})</Label>
-                      <Input type="number" placeholder="0" value={incomeForm.cost_amount} onChange={e => setIncomeForm(p => ({ ...p, cost_amount: e.target.value }))} />
-                      <p className="text-xs text-muted-foreground">Auto-filled from product, or enter manually</p>
+                      <Label className="text-xs">Cost ({currency})</Label>
+                      <Input 
+                        type="number" 
+                        step="any"
+                        placeholder="0.00" 
+                        value={incomeForm.cost_amount} 
+                        onChange={e => setIncomeForm(p => ({ ...p, cost_amount: e.target.value }))} 
+                      />
+                      <p className="text-[10px] text-muted-foreground mt-0.5 font-normal">Auto-filled or entered manually</p>
                     </div>
                     <div className="space-y-1">
-                      <Label className="text-sm">Date</Label>
-                      <Input type="date" value={incomeForm.date} onChange={e => setIncomeForm(p => ({ ...p, date: e.target.value }))} />
+                      <Label className="text-xs">Date</Label>
+                      <Input 
+                        type="date" 
+                        value={incomeForm.date} 
+                        onChange={e => setIncomeForm(p => ({ ...p, date: e.target.value }))} 
+                      />
                     </div>
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-sm">Payment Method</Label>
+                    <Label className="text-xs">Payment Method</Label>
                     <Select value={incomeForm.payment_method} onValueChange={v => setIncomeForm(p => ({ ...p, payment_method: v }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-9">
+                        <SelectValue />
+                      </SelectTrigger>
                       <SelectContent>
-                        {PAYMENT_METHODS.map(m => <SelectItem key={m} value={m}>{m.replace("_", " ").replace(/\b\w/g, l => l.toUpperCase())}</SelectItem>)}
+                        {PAYMENT_METHODS.map(m => (
+                          <SelectItem key={m} value={m}>
+                            {m.replace("_", " ").replace(/\b\w/g, l => l.toUpperCase())}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-sm">Description (optional)</Label>
-                    <Input placeholder="What was this for?" value={incomeForm.description} onChange={e => setIncomeForm(p => ({ ...p, description: e.target.value }))} />
+                    <Label className="text-xs">Description (optional)</Label>
+                    <Input 
+                      placeholder="What was this for?" 
+                      value={incomeForm.description} 
+                      onChange={e => setIncomeForm(p => ({ ...p, description: e.target.value }))} 
+                    />
                   </div>
 
                   {/* Profit Preview */}
                   {incomeForm.amount && (
-                    <div className="rounded-lg border bg-muted/50 p-3 space-y-1.5">
+                    <div className="rounded-lg border bg-muted/50 p-3 space-y-1.5 mt-2">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Profit Preview</p>
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Revenue</span>
-                        <span className="font-medium">{formatCurrency(parseFloat(incomeForm.amount) || 0, currency)}</span>
+                        <span className="font-semibold">{formatCurrency(parseFloat(incomeForm.amount) || 0, currency)}</span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Cost</span>
-                        <span className="font-medium text-rose-600 dark:text-rose-400">-{formatCurrency(profitPreview.cost, currency)}</span>
+                        <span className="font-semibold text-rose-600 dark:text-rose-400">-{formatCurrency(profitPreview.cost, currency)}</span>
                       </div>
                       <div className="border-t pt-1.5 flex justify-between text-sm">
-                        <span className="font-medium">Profit</span>
-                        <span className={`font-bold ${profitPreview.profit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>{formatCurrency(profitPreview.profit, currency)}</span>
+                        <span className="font-semibold">Profit</span>
+                        <span className={`font-bold ${profitPreview.profit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
+                          {formatCurrency(profitPreview.profit, currency)}
+                        </span>
                       </div>
                       <div className="flex justify-between text-xs">
                         <span className="text-muted-foreground">Margin</span>
-                        <span className="font-medium">{profitPreview.margin.toFixed(1)}%</span>
+                        <span className="font-semibold">{profitPreview.margin.toFixed(1)}%</span>
                       </div>
                     </div>
                   )}
 
-                  <Button className="w-full" disabled={loading || !incomeForm.client_name || !incomeForm.amount} onClick={handleAddIncome}>
+                  <Button className="w-full h-9 mt-2" disabled={loading || !incomeForm.client_name || !incomeForm.amount} onClick={handleAddIncome}>
                     {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <TrendingUp className="h-4 w-4 mr-2" />}
                     Add Income
                   </Button>
@@ -445,18 +539,30 @@ export default function TransactionsPage() {
                 {/* EXPENSE TAB */}
                 <TabsContent value="expense" className="space-y-3 mt-4">
                   <div className="space-y-1">
-                    <Label className="text-sm">Description *</Label>
-                    <Input placeholder="What was this expense for?" value={expenseForm.description} onChange={e => setExpenseForm(p => ({ ...p, description: e.target.value }))} />
+                    <Label className="text-xs">Description *</Label>
+                    <Input 
+                      placeholder="What was this expense for?" 
+                      value={expenseForm.description} 
+                      onChange={e => setExpenseForm(p => ({ ...p, description: e.target.value }))} 
+                    />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
-                      <Label className="text-sm">Amount ({currency}) *</Label>
-                      <Input type="number" placeholder="0" value={expenseForm.amount} onChange={e => setExpenseForm(p => ({ ...p, amount: e.target.value }))} />
+                      <Label className="text-xs">Amount ({currency}) *</Label>
+                      <Input 
+                        type="number" 
+                        step="any"
+                        placeholder="0.00" 
+                        value={expenseForm.amount} 
+                        onChange={e => setExpenseForm(p => ({ ...p, amount: e.target.value }))} 
+                      />
                     </div>
                     <div className="space-y-1">
-                      <Label className="text-sm">Category</Label>
+                      <Label className="text-xs">Category</Label>
                       <Select value={expenseForm.category_id} onValueChange={v => setExpenseForm(p => ({ ...p, category_id: v }))}>
-                        <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
+                        <SelectTrigger className="h-9">
+                          <SelectValue placeholder="Select category" />
+                        </SelectTrigger>
                         <SelectContent>
                           {expenseCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
                         </SelectContent>
@@ -464,26 +570,40 @@ export default function TransactionsPage() {
                     </div>
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-sm">Vendor / Payee</Label>
-                    <Input placeholder="Who was this paid to?" value={expenseForm.vendor_name} onChange={e => setExpenseForm(p => ({ ...p, vendor_name: e.target.value }))} />
+                    <Label className="text-xs">Vendor / Payee</Label>
+                    <Input 
+                      placeholder="Who was this paid to?" 
+                      value={expenseForm.vendor_name} 
+                      onChange={e => setExpenseForm(p => ({ ...p, vendor_name: e.target.value }))} 
+                    />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
-                      <Label className="text-sm">Payment Method</Label>
+                      <Label className="text-xs">Payment Method</Label>
                       <Select value={expenseForm.payment_method} onValueChange={v => setExpenseForm(p => ({ ...p, payment_method: v }))}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectTrigger className="h-9">
+                          <SelectValue />
+                        </SelectTrigger>
                         <SelectContent>
-                          {PAYMENT_METHODS.map(m => <SelectItem key={m} value={m}>{m.replace("_", " ").replace(/\b\w/g, l => l.toUpperCase())}</SelectItem>)}
+                          {PAYMENT_METHODS.map(m => (
+                            <SelectItem key={m} value={m}>
+                              {m.replace("_", " ").replace(/\b\w/g, l => l.toUpperCase())}
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>
                     <div className="space-y-1">
-                      <Label className="text-sm">Date</Label>
-                      <Input type="date" value={expenseForm.date} onChange={e => setExpenseForm(p => ({ ...p, date: e.target.value }))} />
+                      <Label className="text-xs">Date</Label>
+                      <Input 
+                        type="date" 
+                        value={expenseForm.date} 
+                        onChange={e => setExpenseForm(p => ({ ...p, date: e.target.value }))} 
+                      />
+                    </div>
                   </div>
-                  </div>
-                  <Button className="w-full" disabled={loading || !expenseForm.description || !expenseForm.amount} onClick={handleAddExpense}>
-                    {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                  <Button className="w-full h-9 mt-4" disabled={loading || !expenseForm.description || !expenseForm.amount} onClick={handleAddExpense}>
+                    {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <TrendingDown className="h-4 w-4 mr-2 text-rose-500" />}
                     Add Expense
                   </Button>
                 </TabsContent>
@@ -494,69 +614,98 @@ export default function TransactionsPage() {
       </div>
 
       {/* Transactions Table */}
-      <Card className="shadow-sm">
+      <Card className="shadow-sm border">
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/50">
-                  <th className="text-left p-3 font-semibold text-muted-foreground">Date</th>
+                  <th className="text-left p-3 font-semibold text-muted-foreground whitespace-nowrap">Date</th>
                   <th className="text-left p-3 font-semibold text-muted-foreground">Description</th>
-                  <th className="text-left p-3 font-semibold text-muted-foreground hidden md:table-cell">Category</th>
+                  <th className="text-left p-3 font-semibold text-muted-foreground hidden sm:table-cell">Category</th>
                   <th className="text-right p-3 font-semibold text-muted-foreground">Amount</th>
                   <th className="text-right p-3 font-semibold text-muted-foreground hidden sm:table-cell">Cost</th>
                   <th className="text-right p-3 font-semibold text-muted-foreground">Profit</th>
                   <th className="text-right p-3 font-semibold text-muted-foreground hidden sm:table-cell">Margin</th>
-                  <th className="p-3"></th>
+                  <th className="p-3 w-10"></th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 && (
                   <tr>
                     <td colSpan={8} className="text-center p-8 text-muted-foreground">
-                      No transactions yet. Click "Quick Add" to log your first one.
+                      No transactions yet. Click Quick Add to log your first one.
                     </td>
                   </tr>
                 )}
-                {filtered.map(t => (
-                  <tr key={t.id} className="border-b hover:bg-muted/30 transition-colors">
-                    <td className="p-3 whitespace-nowrap text-muted-foreground">{formatDate(t.date)}</td>
-                    <td className="p-3">
-                      <div className="font-medium">
-                        {t.type === "income" ? t.client_name || "—" : t.vendor_name || t.description}
-                      </div>
-                      <div className="text-xs text-muted-foreground">{t.description}</div>
-                    </td>
-                    <td className="p-3 hidden md:table-cell">
-                      {t.category_name && <Badge variant="outline" className="text-xs">{t.category_name}</Badge>}
-                    </td>
-                    <td className={`p-3 text-right font-medium whitespace-nowrap ${t.type === "income" ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
-                      {t.type === "income" ? "+" : "-"}{formatCurrency(Number(t.amount), currency)}
-                    </td>
-                    <td className="p-3 text-right text-muted-foreground hidden sm:table-cell whitespace-nowrap">
-                      {t.type === "income" && Number(t.cost_amount) > 0 ? formatCurrency(Number(t.cost_amount), currency) : "—"}
-                    </td>
-                    <td className="p-3 text-right font-medium whitespace-nowrap">
-                      {t.type === "income" ? (
-                        <span className={Number(t.profit) >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}>
-                          {formatCurrency(Number(t.profit), currency)}
-                        </span>
-                      ) : "—"}
-                    </td>
-                    <td className="p-3 text-right hidden sm:table-cell">
-                      {t.type === "income" && Number(t.amount) > 0 ? (
-                        <Badge variant={Number(t.margin) >= 25 ? "default" : Number(t.margin) >= 10 ? "secondary" : "destructive"} className="text-xs">
-                          {Number(t.margin).toFixed(1)}%
-                        </Badge>
-                      ) : "—"}
-                    </td>
-                    <td className="p-3">
-                      <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleDelete(t.id)}>
-                        <Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
+                {filtered.map(t => {
+                  const isIncome = t.type === "income";
+                  const amt = Number(t.amount);
+                  const cost = isIncome ? Number(t.cost_amount || 0) : 0;
+                  const profit = isIncome ? (amt - cost) : 0;
+                  const marginPercent = (isIncome && amt > 0) ? (profit / amt * 100) : null;
+
+                  return (
+                    <tr key={t.id} className="border-b hover:bg-muted/40 transition-colors">
+                      <td className="p-3 whitespace-nowrap text-muted-foreground">{formatDate(t.date)}</td>
+                      <td className="p-3">
+                        <div className="font-semibold text-foreground">
+                          {isIncome ? (t.client_name || "—") : (t.vendor_name || t.description || "Expense")}
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-0.5">
+                          {isIncome ? (t.description || "Income transaction") : (t.vendor_name ? t.description : "Expense transaction")}
+                        </div>
+                      </td>
+                      <td className="p-3 hidden sm:table-cell">
+                        {t.category_name && (
+                          <Badge variant="outline" className="text-xs font-normal">
+                            {t.category_name}
+                          </Badge>
+                        )}
+                      </td>
+                      <td className={`p-3 text-right font-semibold whitespace-nowrap ${isIncome ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
+                        {isIncome ? "+" : "-"}{formatCurrency(amt, currency)}
+                      </td>
+                      <td className="p-3 text-right text-muted-foreground hidden sm:table-cell whitespace-nowrap">
+                        {isIncome && cost > 0 ? formatCurrency(cost, currency) : "—"}
+                      </td>
+                      <td className="p-3 text-right font-medium whitespace-nowrap">
+                        {isIncome ? (
+                          <span className={profit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}>
+                            {formatCurrency(profit, currency)}
+                          </span>
+                        ) : "—"}
+                      </td>
+                      <td className="p-3 text-right hidden sm:table-cell whitespace-nowrap">
+                        {marginPercent !== null ? (
+                          marginPercent >= 25 ? (
+                            <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-400 hover:bg-emerald-100 border-none">
+                              {marginPercent.toFixed(1)}%
+                            </Badge>
+                          ) : marginPercent >= 10 ? (
+                            <Badge variant="secondary" className="hover:bg-secondary">
+                              {marginPercent.toFixed(1)}%
+                            </Badge>
+                          ) : (
+                            <Badge className="bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-400 hover:bg-rose-100 border-none">
+                              {marginPercent.toFixed(1)}%
+                            </Badge>
+                          )
+                        ) : "—"}
+                      </td>
+                      <td className="p-3 text-right">
+                        <Button 
+                          size="icon" 
+                          variant="ghost" 
+                          className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10" 
+                          onClick={() => handleDelete(t.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

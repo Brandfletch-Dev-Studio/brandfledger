@@ -11,7 +11,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Search, FileText, Trash2, Printer, Mail, Loader2 } from "lucide-react";
+import { Plus, Search, FileText, Trash2, Printer, Mail, Loader2, TrendingUp, TrendingDown } from "lucide-react";
 import { formatCurrency, formatDate, calculateInvoiceTotals } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import type { Invoice, Customer, Product, Business, InvoiceItem } from "@/types";
@@ -213,11 +213,34 @@ function InvoicesPageInner() {
     (inv as any).customers?.name?.toLowerCase().includes(search.toLowerCase())
   );
 
-  const statusColors: Record<string, string> = {
-    draft: "bg-muted text-muted-foreground border",
-    sent: "bg-blue-100 text-blue-700 border-blue-200",
-    paid: "bg-green-100 text-green-700 border-green-200",
-    overdue: "bg-red-100 text-red-700 border-red-200",
+  // Stat Calculations from loaded invoices data
+  const totalAmount = invoices.reduce((sum, inv) => sum + (inv.total || 0), 0);
+  
+  const paidInvoices = invoices.filter(inv => inv.status === "paid");
+  const paidAmount = paidInvoices.reduce((sum, inv) => sum + (inv.total || 0), 0);
+  
+  const outstandingInvoices = invoices.filter(inv => inv.status === "sent" || inv.status === "overdue");
+  const outstandingAmount = outstandingInvoices.reduce((sum, inv) => sum + (inv.total || 0), 0);
+
+  // Style helper for Status Badge / SelectTrigger
+  const statusBadgeClass = (status: string) => {
+    switch (status) {
+      case "paid":
+        return "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 hover:bg-green-200/80";
+      case "sent":
+      case "pending":
+        return "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 hover:bg-amber-200/80";
+      case "overdue":
+        return "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400 hover:bg-red-200/80";
+      case "draft":
+      default:
+        return "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-400 hover:bg-gray-200/80";
+    }
+  };
+
+  const getStatusLabel = (status: string) => {
+    if (status === "sent") return "Pending/Sent";
+    return status.charAt(0).toUpperCase() + status.slice(1);
   };
 
   if (pageLoading) return (
@@ -232,7 +255,54 @@ function InvoicesPageInner() {
   return (
     <div>
       <Header title="Invoices" description="Create and manage invoices" />
-      <div className="p-6 space-y-4">
+      
+      <div className="p-6 space-y-6">
+        {/* Stat Cards Row */}
+        <div className="grid gap-4 sm:grid-cols-3">
+          {/* TOTAL CARD */}
+          <Card className="shadow-sm hover:shadow-md transition-shadow border-border">
+            <CardContent className="p-5 sm:p-6">
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Total</span>
+                <div className="h-9 w-9 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                  <FileText className="h-4 w-4 text-primary" />
+                </div>
+              </div>
+              <div className="text-2xl font-bold tracking-tight text-foreground">{formatCurrency(totalAmount, business?.currency)}</div>
+              <p className="text-xs text-muted-foreground mt-1.5">{invoices.length} invoice{invoices.length !== 1 ? "s" : ""} total</p>
+            </CardContent>
+          </Card>
+
+          {/* PAID CARD */}
+          <Card className="shadow-sm hover:shadow-md transition-shadow border-emerald-100 dark:border-emerald-500/15">
+            <CardContent className="p-5 sm:p-6">
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">Paid</span>
+                <div className="h-9 w-9 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 flex items-center justify-center shrink-0">
+                  <TrendingUp className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                </div>
+              </div>
+              <div className="text-2xl font-bold tracking-tight text-emerald-600 dark:text-emerald-400">{formatCurrency(paidAmount, business?.currency)}</div>
+              <p className="text-xs text-muted-foreground mt-1.5">{paidInvoices.length} paid invoice{paidInvoices.length !== 1 ? "s" : ""}</p>
+            </CardContent>
+          </Card>
+
+          {/* OUTSTANDING CARD */}
+          <Card className="shadow-sm hover:shadow-md transition-shadow border-amber-100 dark:border-amber-500/15">
+            <CardContent className="p-5 sm:p-6">
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-xs font-semibold text-amber-600 dark:text-amber-400 uppercase tracking-wide">Outstanding</span>
+                <div className="h-9 w-9 rounded-xl bg-amber-50 dark:bg-amber-500/10 flex items-center justify-center shrink-0">
+                  <TrendingDown className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                </div>
+              </div>
+              <div className="text-2xl font-bold tracking-tight text-amber-600 dark:text-amber-400">{formatCurrency(outstandingAmount, business?.currency)}</div>
+              <p className="text-xs text-muted-foreground mt-1.5">{outstandingInvoices.length} unpaid invoice{outstandingInvoices.length !== 1 ? "s" : ""}</p>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Toolbar Row */}
         <div className="flex items-center justify-between gap-4">
           <div className="relative flex-1 max-w-sm">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -322,46 +392,63 @@ function InvoicesPageInner() {
           </Dialog>
         </div>
 
+        {/* Invoice List (Full-Width Status Table Option A) */}
         {filtered.length === 0 ? (
           <Card>
-            <CardContent className="flex flex-col items-center justify-center py-16 gap-3">
-              <FileText className="h-12 w-12 text-muted-foreground/50" />
-              <p className="text-muted-foreground text-sm">{search ? "No invoices match your search." : "No invoices yet. Create your first one!"}</p>
+            <CardContent className="flex flex-col items-center justify-center py-20 gap-3 text-center">
+              <FileText className="h-12 w-12 text-muted-foreground/30" />
+              <p className="text-muted-foreground text-sm font-medium">No invoices yet. Click New Invoice to create one.</p>
             </CardContent>
           </Card>
         ) : (
-          <Card>
-            <div className="divide-y">
-              {filtered.map(inv => (
-                <div key={inv.id} className="flex items-center justify-between p-4 hover:bg-muted/30 transition-colors">
-                  <div className="flex items-center gap-4">
-                    <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                      <FileText className="h-4 w-4 text-primary" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium">{inv.invoice_number}</p>
-                      <p className="text-xs text-muted-foreground">{(inv as any).customers?.name ?? "—"} · {formatDate(inv.issue_date)}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm font-semibold">{formatCurrency(inv.total, business?.currency)}</span>
-                    <Select value={inv.status} onValueChange={v => updateStatus(inv.id, v)}>
-                      <SelectTrigger className="h-7 w-28 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {statuses.map(s => <SelectItem key={s} value={s} className="text-xs">{s.charAt(0).toUpperCase() + s.slice(1)}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEmailDialog(inv)} title="Email invoice">
-                      <Mail className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleDelete(inv.id)} title="Delete">
-                      <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
+          <Card className="overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-left border-collapse">
+                <thead className="bg-muted/40 text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b border-border">
+                  <tr>
+                    <th className="px-6 py-4">#</th>
+                    <th className="px-6 py-4">Client</th>
+                    <th className="px-6 py-4">Date</th>
+                    <th className="px-6 py-4">Amount</th>
+                    <th className="px-6 py-4">Status</th>
+                    <th className="px-6 py-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {filtered.map(inv => (
+                    <tr key={inv.id} className="hover:bg-muted/30 dark:hover:bg-muted/10 transition-colors">
+                      <td className="px-6 py-4 font-medium text-foreground">{inv.invoice_number}</td>
+                      <td className="px-6 py-4 text-muted-foreground">{(inv as any).customers?.name ?? "—"}</td>
+                      <td className="px-6 py-4 text-muted-foreground">{formatDate(inv.issue_date)}</td>
+                      <td className="px-6 py-4 font-semibold text-foreground">{formatCurrency(inv.total, business?.currency)}</td>
+                      <td className="px-6 py-4">
+                        <Select value={inv.status} onValueChange={v => updateStatus(inv.id, v)}>
+                          <SelectTrigger className={`h-7 w-28 text-xs border-none shadow-none font-medium rounded-full py-1 px-3 cursor-pointer outline-none ${statusBadgeClass(inv.status)}`}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {statuses.map(s => (
+                              <SelectItem key={s} value={s} className="text-xs">
+                                {getStatusLabel(s)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-muted" onClick={() => openEmailDialog(inv)} title="Email invoice">
+                            <Mail className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:bg-destructive/10" onClick={() => handleDelete(inv.id)} title="Delete">
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </Card>
         )}
