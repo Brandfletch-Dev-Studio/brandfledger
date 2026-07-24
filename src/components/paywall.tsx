@@ -1,7 +1,5 @@
 "use client";
 import { useState, useEffect } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { getDefaultBusiness } from "@/lib/default-business";
 import { Lock, Crown, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
@@ -17,8 +15,12 @@ export function Paywall({ children }: { children: React.ReactNode }) {
 
   async function checkAccess() {
     try {
-      const sb = createClient();
-      const { data: biz } = await getDefaultBusiness(sb);
+      const bizId = localStorage.getItem("activeBusinessId");
+      const url = bizId ? `/api/data/transactions?business_id=${bizId}` : "/api/data/transactions";
+      const res = await fetch(url);
+      if (!res.ok) { setStatus("trial"); return; }
+      const data = await res.json();
+      const biz = data.business;
       if (!biz) { setStatus("trial"); return; }
 
       const subStatus = biz.subscription_status || "trial";
@@ -27,12 +29,10 @@ export function Paywall({ children }: { children: React.ReactNode }) {
       if (subStatus === "active") {
         if (biz.subscription_ends_at && new Date(biz.subscription_ends_at) > new Date()) {
           setStatus("active");
+        } else if (!biz.subscription_ends_at) {
+          setStatus("active"); // lifetime / no expiry
         } else {
-          if (trialEndsAt && new Date(trialEndsAt) > new Date()) {
-            setStatus("trial");
-          } else {
-            setStatus("expired");
-          }
+          setStatus("expired");
         }
       } else if (subStatus === "trial") {
         if (trialEndsAt && new Date(trialEndsAt) > new Date()) {
@@ -44,25 +44,34 @@ export function Paywall({ children }: { children: React.ReactNode }) {
         setStatus("expired");
       }
     } catch {
-      setStatus("trial"); // Fail open during errors
+      setStatus("trial"); // fallback — allow access on error
     }
   }
 
-  if (status === "loading" || status === "trial" || status === "active") return <>{children}</>;
+  if (status === "loading") {
+    return <div className="flex-1">{children}</div>;
+  }
 
-  // Expired — allow viewing data but show a dismissible upsell banner
-  return (
-    <div>
-      <div className="px-3 py-2 flex items-center justify-between gap-2 text-sm bg-rose-500/10 text-rose-700 dark:text-rose-300">
-        <div className="flex items-center gap-2 min-w-0">
-          <Lock className="h-4 w-4 shrink-0" />
-          <span className="truncate font-medium">Free trial ended — upgrade to add new entries</span>
-        </div>
-        <Button size="sm" className="h-7 text-xs shrink-0" onClick={() => router.push("/subscription")}>
-          <Crown className="h-3 w-3 mr-1" /> Subscribe
-        </Button>
+  if (status === "expired") {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh] p-6">
+        <Card className="max-w-sm w-full shadow-lg border-red-100">
+          <CardContent className="flex flex-col items-center text-center gap-4 py-10">
+            <div className="w-14 h-14 rounded-full bg-red-50 flex items-center justify-center">
+              <Lock className="h-7 w-7 text-red-500" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold mb-1">Subscription expired</h2>
+              <p className="text-sm text-muted-foreground">Your trial or subscription has ended. Upgrade to continue using Brandfledger.</p>
+            </div>
+            <Button className="gap-1.5" onClick={() => router.push("/subscription")}>
+              <Crown className="h-4 w-4" /> Upgrade Now <ArrowRight className="h-4 w-4" />
+            </Button>
+          </CardContent>
+        </Card>
       </div>
-      <div className="opacity-60 pointer-events-none">{children}</div>
-    </div>
-  );
+    );
+  }
+
+  return <>{children}</>;
 }
