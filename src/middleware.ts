@@ -1,16 +1,36 @@
 import { NextResponse, type NextRequest } from "next/server";
-import crypto from "crypto";
 
 const SESSION_SECRET = "brandfledger-session-secret-2026";
-const PROJECT_REF = "qgsaycsdoclsiwrsfaco";
-const DB_PASSWORD = encodeURIComponent("Arthur@472003Chibondo");
 
-function verifySessionToken(token: string): { userId: string; email: string } | null {
+// Middleware runs on Edge runtime — use Web Crypto API instead of Node's crypto
+async function verifySessionToken(token: string): Promise<{ userId: string; email: string } | null> {
   try {
     const [body, signature] = token.split(".");
-    const expectedSig = crypto.createHmac("sha256", SESSION_SECRET).update(body).digest("base64url");
-    if (signature !== expectedSig) return null;
-    const payload = JSON.parse(Buffer.from(body, "base64url").toString());
+    if (!body || !signature) return null;
+
+    // Use Web Crypto API (available in Edge runtime)
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      "raw",
+      encoder.encode(SESSION_SECRET),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"]
+    );
+    const sig = await crypto.subtle.sign("HMAC", key, encoder.encode(body));
+
+    // Convert to base64url to compare
+    const sigBytes = new Uint8Array(sig);
+    let sigBase64 = "";
+    for (let i = 0; i < sigBytes.length; i++) {
+      sigBase64 += String.fromCharCode(sigBytes[i]);
+    }
+    sigBase64 = btoa(sigBase64).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
+    if (sigBase64 !== signature) return null;
+
+    // Decode payload
+    const payload = JSON.parse(atob(body.replace(/-/g, "+").replace(/_/g, "/")));
     return { userId: payload.userId, email: payload.email };
   } catch {
     return null;
@@ -34,20 +54,13 @@ export async function middleware(request: NextRequest) {
 
   // Check for our custom session cookie
   const sessionCookie = request.cookies.get("brandfledger_session")?.value;
-  
+
   if (sessionCookie) {
-    const session = verifySessionToken(sessionCookie);
+    const session = await verifySessionToken(sessionCookie);
     if (session) {
       // Valid session - allow through
       return NextResponse.next();
     }
-  }
-
-  // Also check for Supabase auth cookie (backward compat)
-  const sbCookie = request.cookies.get("sb-access-token")?.value;
-  if (sbCookie) {
-    // Let the page handle Supabase auth
-    return NextResponse.next();
   }
 
   // No valid session - redirect to auth
