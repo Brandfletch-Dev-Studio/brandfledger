@@ -1,0 +1,338 @@
+import { NextResponse } from "next/server";
+import { query } from "@/lib/db";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+const BUSINESS_ID = "7ef9b060-7679-46ce-a17e-9c6aefa84320";
+const EXCHANGE_RATE = 4300;
+
+interface TxEntry {
+  type: "income" | "expense";
+  date: string;
+  client_name?: string;
+  vendor_name?: string;
+  description: string;
+  amount: number;
+  cost_qty?: number;
+  category_name?: string;
+}
+
+interface InvoiceEntry {
+  date: string;
+  customer_name: string;
+  total: number;
+  description: string;
+  cost_qty?: number;
+}
+
+// All income transactions (paid entries)
+const incomeEntries: TxEntry[] = [
+  // July 1
+  { type: "income", date: "2026-07-01", client_name: "Radiant Son", description: "$2 ad", amount: 12000, cost_qty: 2, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-01", client_name: "Smart Poultry Farming", description: "$1 ad", amount: 6000, cost_qty: 1, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-01", client_name: "Hamaz Boreholes Ltd", description: "$7 ad", amount: 39500, cost_qty: 7, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-01", client_name: "Tryv", description: "$1 ad", amount: 6000, cost_qty: 1, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-01", client_name: "Brandfletch Designs", description: "Company profile", amount: 92000, cost_qty: 0, category_name: "Design" },
+  { type: "income", date: "2026-07-01", client_name: "RJ Car Dealers", description: "$6 ads (plus 20k credit)", amount: 30000, cost_qty: 6, category_name: "Ad Sales" },
+  // July 2
+  { type: "income", date: "2026-07-02", client_name: "Sanna K", description: "Poster + $7 ad (balance 12k)", amount: 42000, cost_qty: 7, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-02", client_name: "Best Steel", description: "$7 ad", amount: 40000, cost_qty: 7, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-02", client_name: "Quick Mind", description: "$2 ad", amount: 12000, cost_qty: 2, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-02", client_name: "Ngwazi Motors", description: "$7 ad", amount: 40000, cost_qty: 7, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-02", client_name: "Naomi Glam Hub", description: "$1 ad + poster design", amount: 26000, cost_qty: 1, category_name: "Ad Sales" },
+  // July 3
+  { type: "income", date: "2026-07-03", client_name: "Tapiwa Bridal", description: "$5 ad", amount: 30000, cost_qty: 5, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-03", client_name: "Mapalo Banda", description: "$10 ad + poster + video design (balance 55k)", amount: 70000, cost_qty: 10, category_name: "Ad Sales" },
+  // July 4
+  { type: "income", date: "2026-07-04", client_name: "Naomi", description: "$3 ad", amount: 18000, cost_qty: 3, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-04", client_name: "Bemeza Security", description: "$4 ad", amount: 24000, cost_qty: 4, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-04", client_name: "Smart Poultry", description: "$1 ad", amount: 6000, cost_qty: 1, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-04", client_name: "Radiant Son", description: "$2 ad", amount: 12000, cost_qty: 2, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-04", client_name: "ZCS Screen Printing", description: "$7 ad + design", amount: 49000, cost_qty: 7, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-04", client_name: "Quick Mind", description: "$3 ad", amount: 18000, cost_qty: 3, category_name: "Ad Sales" },
+  // July 5
+  { type: "income", date: "2026-07-05", client_name: "Naomi", description: "$1 ad", amount: 6000, cost_qty: 1, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-05", client_name: "Naomi", description: "$1 ad", amount: 6000, cost_qty: 1, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-05", client_name: "Sishy Collection", description: "$7 ad", amount: 39000, cost_qty: 7, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-05", client_name: "Naomi", description: "$1 ad", amount: 6000, cost_qty: 1, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-05", client_name: "Radiant Son", description: "$3 ad", amount: 18000, cost_qty: 3, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-05", client_name: "Africabrief", description: "$7 ad", amount: 39000, cost_qty: 7, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-05", client_name: "Bemeza Security", description: "$4 ad", amount: 24000, cost_qty: 4, category_name: "Ad Sales" },
+  // July 6
+  { type: "income", date: "2026-07-06", client_name: "Humble Bridal", description: "$5 ad + design", amount: 49000, cost_qty: 5, category_name: "Ad Sales" },
+  // July 7
+  { type: "income", date: "2026-07-07", client_name: "Sanna K", description: "$7 ad", amount: 39000, cost_qty: 7, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-07", client_name: "Vinda", description: "$16 ad", amount: 80000, cost_qty: 16, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-07", client_name: "Annet (Opulent Boutique)", description: "Poster design", amount: 20000, cost_qty: 0, category_name: "Design" },
+  { type: "income", date: "2026-07-07", client_name: "Mapalo Banda", description: "Balance payment", amount: 55000, cost_qty: 0, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-07", client_name: "Goba", description: "$7 ad", amount: 39000, cost_qty: 7, category_name: "Ad Sales" },
+  // July 8
+  { type: "income", date: "2026-07-07", client_name: "Naomi", description: "$1 ad (logged on Jul 8 for previous day)", amount: 6000, cost_qty: 1, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-08", client_name: "Tryv", description: "$1 ad", amount: 6000, cost_qty: 1, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-08", client_name: "Prisca", description: "$2 ad", amount: 12000, cost_qty: 2, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-08", client_name: "Dream Catcher", description: "$21 ad", amount: 105000, cost_qty: 21, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-08", client_name: "Smart Poultry", description: "$1 ad", amount: 6000, cost_qty: 1, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-08", client_name: "Rora", description: "$7 ad", amount: 39000, cost_qty: 7, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-08", client_name: "Bemeza Security", description: "$6 ad", amount: 36000, cost_qty: 6, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-08", client_name: "Pastor Khuwayo", description: "$4 ad", amount: 20000, cost_qty: 4, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-08", client_name: "Tryv", description: "$1 ad", amount: 6000, cost_qty: 1, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-08", client_name: "JC Cakes", description: "$5 ad", amount: 30000, cost_qty: 5, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-08", client_name: "Novexa", description: "$1 ad", amount: 6000, cost_qty: 1, category_name: "Ad Sales" },
+  // July 9
+  { type: "income", date: "2026-07-09", client_name: "Ngwazi", description: "$7 ad", amount: 39000, cost_qty: 7, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-09", client_name: "Quick Mind", description: "$3 ad", amount: 18000, cost_qty: 3, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-09", client_name: "Radiant Son", description: "$2 ad", amount: 12000, cost_qty: 2, category_name: "Ad Sales" },
+  // July 10
+  { type: "income", date: "2026-07-10", client_name: "Harry", description: "Annual fees at ACA", amount: 80000, cost_qty: 0, category_name: "Services" },
+  { type: "income", date: "2026-07-10", client_name: "Vinda", description: "$16 ad", amount: 80000, cost_qty: 16, category_name: "Ad Sales" },
+  // July 11
+  { type: "income", date: "2026-07-11", client_name: "Kayira", description: "$2 ad", amount: 12000, cost_qty: 2, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-11", client_name: "Zomba College", description: "$1 ad", amount: 6000, cost_qty: 1, category_name: "Ad Sales" },
+  // July 12
+  { type: "income", date: "2026-07-12", client_name: "Radiant Son", description: "$2 ad", amount: 12000, cost_qty: 2, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-12", client_name: "Naomi", description: "$1 ad", amount: 5000, cost_qty: 1, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-12", client_name: "Smart Poultry", description: "$1 ad", amount: 6000, cost_qty: 1, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-12", client_name: "OD Appliances", description: "$21 ad", amount: 105000, cost_qty: 21, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-12", client_name: "Akonzi Furniture", description: "$7 ad", amount: 39000, cost_qty: 7, category_name: "Ad Sales" },
+  // July 13
+  { type: "income", date: "2026-07-13", client_name: "Quick Mind", description: "$7 ad", amount: 42000, cost_qty: 7, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-13", client_name: "Bemeza", description: "$2 ad", amount: 12000, cost_qty: 2, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-13", client_name: "Stardom Printers", description: "$1 ad", amount: 6000, cost_qty: 1, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-13", client_name: "Cymac", description: "$7 ad", amount: 39000, cost_qty: 7, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-13", client_name: "Naomi", description: "$1 ad", amount: 7000, cost_qty: 1, category_name: "Ad Sales" },
+  // July 14
+  { type: "income", date: "2026-07-14", client_name: "Quick Mind", description: "$7 ad", amount: 42000, cost_qty: 7, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-14", client_name: "Lettie", description: "$1 ad", amount: 6000, cost_qty: 1, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-14", client_name: "Sanna K", description: "$5 ad", amount: 30000, cost_qty: 5, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-14", client_name: "Naomi", description: "$1 ad", amount: 6000, cost_qty: 1, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-14", client_name: "Quick Mind", description: "$3 ad", amount: 18000, cost_qty: 3, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-14", client_name: "Goba", description: "$7 ad", amount: 39000, cost_qty: 7, category_name: "Ad Sales" },
+  // July 15
+  { type: "income", date: "2026-07-15", client_name: "Naomi", description: "$1 ad", amount: 6000, cost_qty: 1, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-15", client_name: "Pasca", description: "$6 ad", amount: 30000, cost_qty: 6, category_name: "Ad Sales" },
+  // July 16
+  { type: "income", date: "2026-07-16", client_name: "Stardom", description: "$1 ad", amount: 6000, cost_qty: 1, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-16", client_name: "Tryv", description: "$1 ad", amount: 6000, cost_qty: 1, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-16", client_name: "Dream Catcher", description: "$21 ad", amount: 105000, cost_qty: 21, category_name: "Ad Sales" },
+  // July 17
+  { type: "income", date: "2026-07-17", client_name: "Akonzi Furniture", description: "$7 ad", amount: 39000, cost_qty: 7, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-17", client_name: "Smart Poultry", description: "$1 ad", amount: 6000, cost_qty: 1, category_name: "Ad Sales" },
+  // July 18
+  { type: "income", date: "2026-07-18", client_name: "Prisca Importer", description: "$2 ad", amount: 12000, cost_qty: 2, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-18", client_name: "Little Lullabies", description: "$7 ad", amount: 39000, cost_qty: 7, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-18", client_name: "Tapiwa Bridal", description: "$5 ad", amount: 30000, cost_qty: 5, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-18", client_name: "JC Cakes", description: "$5 ad", amount: 30000, cost_qty: 5, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-18", client_name: "Humble Bridal", description: "$5 ad", amount: 30000, cost_qty: 5, category_name: "Ad Sales" },
+  // July 19
+  { type: "income", date: "2026-07-19", client_name: "Quick Mind", description: "$7 ad", amount: 42000, cost_qty: 7, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-19", client_name: "Naomi", description: "$1 ad", amount: 6000, cost_qty: 1, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-19", client_name: "Sishy", description: "$7 ad", amount: 39000, cost_qty: 7, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-19", client_name: "Titan Geoforce Ventures", description: "$5 ad", amount: 30000, cost_qty: 5, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-19", client_name: "Wakulu Mpaganja", description: "$7 ad", amount: 39000, cost_qty: 7, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-19", client_name: "Ma Gusto", description: "Eye drops", amount: 2100, cost_qty: 0, category_name: "Eye Drops" },
+  { type: "income", date: "2026-07-19", client_name: "Ma Bertha", description: "Eye drops", amount: 4000, cost_qty: 0, category_name: "Eye Drops" },
+  { type: "income", date: "2026-07-19", client_name: "Ma Junior", description: "Eye drops", amount: 5000, cost_qty: 0, category_name: "Eye Drops" },
+  { type: "income", date: "2026-07-19", client_name: "Nachisale", description: "Eye drops (paid with chicken)", amount: 4000, cost_qty: 0, category_name: "Eye Drops" },
+  { type: "income", date: "2026-07-19", client_name: "Ummar", description: "$10 ad funding", amount: 50000, cost_qty: 10, category_name: "Ad Sales" },
+  // July 20
+  { type: "income", date: "2026-07-20", client_name: "Radiant Son", description: "$2 ad", amount: 12000, cost_qty: 2, category_name: "Ad Sales" },
+  // July 21
+  { type: "income", date: "2026-07-21", client_name: "Sanna K", description: "$7 ad", amount: 42000, cost_qty: 7, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-21", client_name: "Home Pro", description: "$7 ad", amount: 42000, cost_qty: 7, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-21", client_name: "Gouji", description: "$9 ad", amount: 45000, cost_qty: 9, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-21", client_name: "Nexflux", description: "$1 ad", amount: 6000, cost_qty: 1, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-21", client_name: "Naomi Glam Hub", description: "$1 ad", amount: 6000, cost_qty: 1, category_name: "Ad Sales" },
+  // July 22
+  { type: "income", date: "2026-07-22", client_name: "Dymark", description: "$20 ad", amount: 100000, cost_qty: 20, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-22", client_name: "Bemeza", description: "$1 ad", amount: 6000, cost_qty: 1, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-22", client_name: "Ezra Shopping", description: "$7 ad", amount: 42000, cost_qty: 7, category_name: "Ad Sales" },
+  // July 23
+  { type: "income", date: "2026-07-23", client_name: "Kayira", description: "$2 ad", amount: 12000, cost_qty: 2, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-23", client_name: "Radiant Son", description: "$3 ad", amount: 18000, cost_qty: 3, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-23", client_name: "Prisca Importer", description: "$2 ad", amount: 12000, cost_qty: 2, category_name: "Ad Sales" },
+  { type: "income", date: "2026-07-23", client_name: "Pastor Khuwayo", description: "$7 ad", amount: 42000, cost_qty: 7, category_name: "Ad Sales" },
+];
+
+// All expense transactions
+const expenseEntries: TxEntry[] = [
+  // July 2
+  { type: "expense", date: "2026-07-02", vendor_name: "Asher", description: "Loan repayment", amount: 35000, category_name: "Loan" },
+  { type: "expense", date: "2026-07-02", vendor_name: "Daniel Chidike", description: "Designer fee", amount: 120000, category_name: "Design" },
+  { type: "expense", date: "2026-07-02", vendor_name: "Chim Kalongonda", description: "WiFi router (Airtel agent)", amount: 30000, category_name: "Equipment" },
+  // July 4
+  { type: "expense", date: "2026-07-04", description: "$27 ad purchase", amount: 116100, category_name: "Ad Spend" },
+  // July 5
+  { type: "expense", date: "2026-07-05", description: "$87 ad purchase", amount: 374000, category_name: "Ad Spend" },
+  { type: "expense", date: "2026-07-05", description: "Home usage and phone charge", amount: 36000, category_name: "Personal" },
+  // July 6
+  { type: "expense", date: "2026-07-06", vendor_name: "Asher", description: "Travel fuel", amount: 10000, category_name: "Fuel" },
+  { type: "expense", date: "2026-07-06", vendor_name: "Smart Designs", description: "Airtime bonus", amount: 20000, category_name: "Bonus" },
+  { type: "expense", date: "2026-07-06", description: "53 USDT at 4100", amount: 217000, category_name: "USDT" },
+  // July 7
+  { type: "expense", date: "2026-07-07", vendor_name: "Asher", description: "Lunch", amount: 4200, category_name: "Meals" },
+  { type: "expense", date: "2026-07-07", description: "40 USDT purchase", amount: 172000, category_name: "USDT" },
+  // July 8
+  { type: "expense", date: "2026-07-08", description: "Gnuts topup", amount: 32000, category_name: "Supplies" },
+  { type: "expense", date: "2026-07-08", description: "Google developer account reg ($25)", amount: 107500, category_name: "Software" },
+  { type: "expense", date: "2026-07-08", description: "Nyasadesk.com registration at Hostinger ($10.2)", amount: 43860, category_name: "Software" },
+  { type: "expense", date: "2026-07-08", vendor_name: "Asher", description: "Internet bundle", amount: 2500, category_name: "Internet" },
+  { type: "expense", date: "2026-07-08", description: "Internet bundle", amount: 2500, category_name: "Internet" },
+  { type: "expense", date: "2026-07-08", description: "Mom upkeep", amount: 4500, category_name: "Personal" },
+  { type: "expense", date: "2026-07-08", vendor_name: "Jonathan Richard", description: "Physics lessons", amount: 50000, category_name: "Education" },
+  { type: "expense", date: "2026-07-08", vendor_name: "Gloria Makina", description: "Language lessons", amount: 50000, category_name: "Education" },
+  { type: "expense", date: "2026-07-08", vendor_name: "Harris", description: "Math lessons", amount: 100000, category_name: "Education" },
+  // July 9
+  { type: "expense", date: "2026-07-09", description: "Fuel", amount: 7000, category_name: "Fuel" },
+  { type: "expense", date: "2026-07-09", vendor_name: "Asher", description: "Lunch", amount: 4000, category_name: "Meals" },
+  { type: "expense", date: "2026-07-09", description: "23 USDT purchase", amount: 99000, category_name: "USDT" },
+  // July 12
+  { type: "expense", date: "2026-07-12", vendor_name: "Asher", description: "Meals upkeep", amount: 17000, category_name: "Meals" },
+  { type: "expense", date: "2026-07-12", description: "Dad fuel", amount: 7000, category_name: "Fuel" },
+  // July 14
+  { type: "expense", date: "2026-07-14", description: "Self-promotion: $8 ad for designs", amount: 34400, category_name: "Ad Spend" },
+  { type: "expense", date: "2026-07-14", description: "Chibondo Academy: $7 ad for enrollment", amount: 30100, category_name: "Ad Spend" },
+  { type: "expense", date: "2026-07-14", description: "Dad fuel", amount: 14000, category_name: "Fuel" },
+  { type: "expense", date: "2026-07-14", description: "Self-promotion: $21 ad for ads", amount: 90300, category_name: "Ad Spend" },
+  { type: "expense", date: "2026-07-14", description: "$45 ad purchase", amount: 193500, category_name: "Ad Spend" },
+  // July 15
+  { type: "expense", date: "2026-07-15", vendor_name: "Jonathan Richard", description: "Video lessons", amount: 54000, category_name: "Education" },
+  // July 16
+  { type: "expense", date: "2026-07-16", vendor_name: "Asher", description: "Loan repayment", amount: 16000, category_name: "Loan" },
+  { type: "expense", date: "2026-07-16", description: "Internet bundle", amount: 40000, category_name: "Internet" },
+  { type: "expense", date: "2026-07-16", description: "USDT purchase", amount: 340000, category_name: "USDT" },
+  // July 19
+  { type: "expense", date: "2026-07-19", description: "Eye chick vaccine", amount: 20000, category_name: "Supplies" },
+];
+
+// All invoices (invoiced/ordered entries — not yet paid)
+const invoiceEntries: InvoiceEntry[] = [
+  { date: "2026-07-03", customer_name: "Pasca", total: 39000, description: "$7 ad", cost_qty: 7 },
+  { date: "2026-07-03", customer_name: "Elim Finance", total: 21500, description: "$5 ad", cost_qty: 5 },
+  { date: "2026-07-10", customer_name: "Vinda", total: 80000, description: "$16 ad", cost_qty: 16 },
+  { date: "2026-07-15", customer_name: "Vinda", total: 80000, description: "$16 ad", cost_qty: 16 },
+  { date: "2026-07-15", customer_name: "Jonathan Richard", total: 54000, description: "Ads plus design", cost_qty: 0 },
+  { date: "2026-07-19", customer_name: "Vinda", total: 80000, description: "$16 ad", cost_qty: 16 },
+  { date: "2026-07-19", customer_name: "John", total: 5800, description: "Eye drops", cost_qty: 0 },
+  { date: "2026-07-19", customer_name: "Obv", total: 10000, description: "Eye drops", cost_qty: 0 },
+  { date: "2026-07-19", customer_name: "Dalia", total: 1000, description: "Eye drops", cost_qty: 0 },
+  { date: "2026-07-19", customer_name: "Guero", total: 800, description: "Eye drops", cost_qty: 0 },
+  { date: "2026-07-19", customer_name: "Binali", total: 2600, description: "Eye drops", cost_qty: 0 },
+  { date: "2026-07-23", customer_name: "Vinda", total: 80000, description: "$16 ad", cost_qty: 16 },
+];
+
+export async function POST() {
+  try {
+    let incomeCount = 0;
+    let expenseCount = 0;
+    let invoiceCount = 0;
+    const errors: string[] = [];
+
+    // 1. Insert all income transactions
+    for (const entry of incomeEntries) {
+      try {
+        await query(
+          `INSERT INTO transactions (business_id, type, client_name, description, amount, cost_qty, category_name, date, payment_method)
+           VALUES ($1, 'income', $2, $3, $4, $5, $6, $7, 'cash')`,
+          [BUSINESS_ID, entry.client_name, entry.description, entry.amount, entry.cost_qty || 0, entry.category_name, entry.date]
+        );
+        incomeCount++;
+      } catch (err: any) {
+        errors.push(`Income ${entry.date} ${entry.client_name}: ${err.message}`);
+      }
+    }
+
+    // 2. Insert all expense transactions
+    for (const entry of expenseEntries) {
+      try {
+        await query(
+          `INSERT INTO transactions (business_id, type, vendor_name, description, amount, category_name, date, payment_method)
+           VALUES ($1, 'expense', $2, $3, $4, $5, $6, 'cash')`,
+          [BUSINESS_ID, entry.vendor_name || null, entry.description, entry.amount, entry.category_name, entry.date]
+        );
+        expenseCount++;
+      } catch (err: any) {
+        errors.push(`Expense ${entry.date} ${entry.description}: ${err.message}`);
+      }
+    }
+
+    // 3. Create invoices for "invoiced" entries
+    // First, get the current max invoice number
+    const maxInv = await query(
+      `SELECT invoice_number FROM invoices WHERE business_id = $1 ORDER BY invoice_number DESC LIMIT 1`,
+      [BUSINESS_ID]
+    );
+    let invNum = 1;
+    if (maxInv.length > 0) {
+      const match = maxInv[0].invoice_number.match(/(\d+)$/);
+      if (match) invNum = parseInt(match[1]) + 1;
+    }
+
+    for (const inv of invoiceEntries) {
+      try {
+        // Find or create customer
+        let customer = await query(
+          `SELECT id FROM customers WHERE business_id = $1 AND name = $2 LIMIT 1`,
+          [BUSINESS_ID, inv.customer_name]
+        );
+        let customerId: string;
+        if (customer.length === 0) {
+          const newCust = await query(
+            `INSERT INTO customers (business_id, name) VALUES ($1, $2) RETURNING id`,
+            [BUSINESS_ID, inv.customer_name]
+          );
+          customerId = newCust[0].id;
+        } else {
+          customerId = customer[0].id;
+        }
+
+        const invoiceNumber = `BFA-${String(invNum).padStart(5, "0")}`;
+        invNum++;
+
+        await query(
+          `INSERT INTO invoices (business_id, customer_id, invoice_number, status, issue_date, due_date, items, subtotal, total)
+           VALUES ($1, $2, $3, 'sent', $4, $5, $6, $7, $7)`,
+          [
+            BUSINESS_ID,
+            customerId,
+            invoiceNumber,
+            inv.date,
+            inv.date,
+            JSON.stringify([{ name: inv.description, total: inv.total, quantity: 1, unit_price: inv.total, description: "" }]),
+            inv.total
+          ]
+        );
+        invoiceCount++;
+      } catch (err: any) {
+        errors.push(`Invoice ${inv.date} ${inv.customer_name}: ${err.message}`);
+      }
+    }
+
+    // Get summary
+    const summary = await query(`
+      SELECT 
+        COUNT(*) as total,
+        COUNT(*) FILTER (WHERE type = 'income') as income_count,
+        COUNT(*) FILTER (WHERE type = 'expense') as expense_count,
+        COALESCE(SUM(amount) FILTER (WHERE type = 'income'), 0) as total_income,
+        COALESCE(SUM(amount) FILTER (WHERE type = 'expense'), 0) as total_expenses,
+        COALESCE(SUM(cost_amount) FILTER (WHERE type = 'income'), 0) as total_cost,
+        COALESCE(SUM(profit) FILTER (WHERE type = 'income'), 0) as total_profit
+      FROM transactions WHERE business_id = $1
+    `, [BUSINESS_ID]);
+
+    return NextResponse.json({
+      success: true,
+      imported: {
+        income: incomeCount,
+        expenses: expenseCount,
+        invoices: invoiceCount,
+        total: incomeCount + expenseCount + invoiceCount,
+      },
+      summary: summary[0],
+      errors: errors.length > 0 ? errors.slice(0, 10) : undefined,
+    });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
