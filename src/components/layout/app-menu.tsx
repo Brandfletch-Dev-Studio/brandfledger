@@ -4,11 +4,13 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, Users, FileText, CreditCard, Receipt,
   Package, BarChart3, Settings, Crown, UserCircle2, X,
+  ArrowLeftRight, TrendingUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const primaryNav = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/transactions", label: "Transactions", icon: ArrowLeftRight },
   { href: "/invoices", label: "Sales / Invoices", icon: FileText },
   { href: "/products", label: "Items", icon: Package },
   { href: "/customers", label: "Customers", icon: Users },
