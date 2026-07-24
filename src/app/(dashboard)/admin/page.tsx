@@ -1,7 +1,6 @@
 "use client";
-import { useState, useEffect } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { useState, useEffect, useCallback } from "react";
+import { Card, CardContent } from "@/components/ui/card";
 import { Loader2, Users, Building2, DollarSign, TrendingUp, ShoppingCart } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 
@@ -9,60 +8,42 @@ export default function AdminOverviewPage() {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
     businesses: 0,
-    users: 0,
     totalRevenue: 0,
     totalTransactions: 0,
     totalProducts: 0,
     totalClients: 0,
+    paidInvoices: 0,
+    totalInvoices: 0,
   });
+  const [businesses, setBusinesses] = useState<any[]>([]);
 
-  useEffect(() => {
-    loadStats();
-  }, []);
-
-  async function loadStats() {
+  const loadData = useCallback(async () => {
     setLoading(true);
-    const sb = createClient();
     try {
-      const [bizRes, userRes, txRes, prodRes, custRes] = await Promise.all([
-        sb.from("businesses").select("id, currency", { count: "exact", head: false }),
-        sb.from("auth_users").select("id", { count: "exact", head: true }),
-        sb.from("transactions").select("amount, type"),
-        sb.from("products").select("id", { count: "exact", head: true }),
-        sb.from("customers").select("id", { count: "exact", head: true }),
-      ]);
-
-      const totalRevenue = (txRes.data ?? [])
-        .filter((t: any) => t.type === "income")
-        .reduce((s: number, t: any) => s + Number(t.amount), 0);
-
-      setStats({
-        businesses: bizRes.data?.length ?? 0,
-        users: userRes.count ?? 0,
-        totalRevenue,
-        totalTransactions: txRes.data?.length ?? 0,
-        totalProducts: prodRes.count ?? 0,
-        totalClients: custRes.count ?? 0,
-      });
+      const res = await fetch("/api/data/admin?section=overview");
+      if (!res.ok) throw new Error("Failed");
+      const data = await res.json();
+      setStats(data.stats);
+      setBusinesses(data.businesses || []);
     } catch {}
     setLoading(false);
-  }
+  }, []);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[40vh]">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
+  useEffect(() => { loadData(); }, [loadData]);
+
+  if (loading) return (
+    <div className="flex items-center justify-center min-h-[40vh]">
+      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+    </div>
+  );
 
   const cards = [
     { label: "Businesses", value: stats.businesses, icon: Building2, color: "text-primary" },
-    { label: "Users", value: stats.users, icon: Users, color: "text-primary" },
     { label: "Total Revenue", value: formatCurrency(stats.totalRevenue, "MWK"), icon: DollarSign, color: "text-emerald-600" },
     { label: "Transactions", value: stats.totalTransactions, icon: TrendingUp, color: "text-primary" },
     { label: "Products", value: stats.totalProducts, icon: ShoppingCart, color: "text-primary" },
     { label: "Clients", value: stats.totalClients, icon: Users, color: "text-primary" },
+    { label: "Paid Invoices", value: formatCurrency(stats.paidInvoices, "MWK"), icon: DollarSign, color: "text-emerald-600" },
   ];
 
   return (
@@ -85,6 +66,25 @@ export default function AdminOverviewPage() {
           </Card>
         ))}
       </div>
+
+      {businesses.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold mb-3">Recent Businesses</h3>
+          <Card>
+            <div className="divide-y">
+              {businesses.slice(0, 10).map((b: any) => (
+                <div key={b.id} className="flex items-center justify-between p-3">
+                  <div>
+                    <p className="text-sm font-medium">{b.name}</p>
+                    <p className="text-xs text-muted-foreground">{b.currency} · {b.subscription_status}</p>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{new Date(b.created_at).toLocaleDateString()}</p>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,10 +1,9 @@
 "use client";
-import { useState, useEffect } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, Building2, Search } from "lucide-react";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { formatDate } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 
 export default function AdminBusinessesPage() {
@@ -12,53 +11,28 @@ export default function AdminBusinessesPage() {
   const [businesses, setBusinesses] = useState<any[]>([]);
   const [search, setSearch] = useState("");
 
-  useEffect(() => {
-    loadBusinesses();
-  }, []);
-
-  async function loadBusinesses() {
+  const loadBusinesses = useCallback(async () => {
     setLoading(true);
-    const sb = createClient();
     try {
-      const { data, error } = await sb
-        .from("businesses")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-
-      // For each business, get transaction count and revenue
-      const enriched = await Promise.all(
-        (data ?? []).map(async (biz) => {
-          const { count, data: txData } = await sb
-            .from("transactions")
-            .select("amount, type")
-            .eq("business_id", biz.id);
-
-          const revenue = (txData ?? [])
-            .filter((t: any) => t.type === "income")
-            .reduce((s: number, t: any) => s + Number(t.amount), 0);
-
-          return { ...biz, txCount: count ?? 0, revenue };
-        })
-      );
-
-      setBusinesses(enriched);
+      const res = await fetch("/api/data/admin?section=businesses");
+      if (!res.ok) throw new Error("Failed");
+      const data = await res.json();
+      setBusinesses(data.businesses || []);
     } catch {}
     setLoading(false);
-  }
+  }, []);
 
-  const filtered = businesses.filter(
-    (b) => b.name.toLowerCase().includes(search.toLowerCase()) || b.email?.toLowerCase().includes(search.toLowerCase())
+  useEffect(() => { loadBusinesses(); }, [loadBusinesses]);
+
+  const filtered = businesses.filter((b) =>
+    b.name?.toLowerCase().includes(search.toLowerCase())
   );
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[40vh]">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
+  if (loading) return (
+    <div className="flex items-center justify-center min-h-[40vh]">
+      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+    </div>
+  );
 
   return (
     <div className="space-y-4 max-w-4xl">
@@ -79,7 +53,7 @@ export default function AdminBusinessesPage() {
         </CardContent></Card>
       ) : (
         <div className="grid gap-3">
-          {filtered.map((biz) => (
+          {filtered.map((biz: any) => (
             <Card key={biz.id}>
               <CardContent className="p-4 flex items-center justify-between gap-4">
                 <div className="flex items-center gap-3 min-w-0">
@@ -88,18 +62,18 @@ export default function AdminBusinessesPage() {
                   </div>
                   <div className="min-w-0">
                     <p className="font-medium truncate">{biz.name}</p>
-                    <div className="flex flex-wrap gap-3 text-xs text-muted-foreground mt-0.5">
-                      <span>{biz.email || "No email"}</span>
+                    <div className="flex flex-wrap gap-2 text-xs text-muted-foreground mt-0.5">
+                      <span>{biz.currency || "MWK"}</span>
                       <span>·</span>
-                      <span>{biz.business_type || "Unknown type"}</span>
+                      <Badge variant="secondary" className="text-[10px]">{biz.subscription_status || "trial"}</Badge>
                       <span>·</span>
                       <span>Joined {formatDate(biz.created_at)}</span>
                     </div>
                   </div>
                 </div>
                 <div className="text-right shrink-0">
-                  <p className="font-bold text-sm">{formatCurrency(biz.revenue, biz.currency || "MWK")}</p>
-                  <p className="text-xs text-muted-foreground">{biz.txCount} transactions</p>
+                  <p className="text-xs text-muted-foreground">{biz.tx_count || 0} transactions</p>
+                  <p className="text-xs text-muted-foreground">{biz.cust_count || 0} clients · {biz.prod_count || 0} products</p>
                 </div>
               </CardContent>
             </Card>

@@ -1,12 +1,9 @@
 "use client";
-import { useState, useEffect } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { getDefaultBusiness } from "@/lib/default-business";
+import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ArrowLeft, Phone, Mail, MapPin, FileText, Pencil, Loader2, TrendingUp, ShoppingBag, Calendar, DollarSign, Receipt } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
@@ -41,61 +38,62 @@ export default function ClientDetailPage() {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ name: "", email: "", phone: "", address: "", notes: "" });
 
-  useEffect(() => {
-    loadData();
-  }, [clientId]);
-
-  async function loadData() {
+  const loadData = useCallback(async () => {
     setLoading(true);
-    const sb = createClient();
-    const { data: biz, error: bizError } = await getDefaultBusiness(sb);
-    if (bizError || !biz) { setLoading(false); return; }
-    setBusiness(biz);
+    try {
+      const res = await fetch("/api/data/customers");
+      if (!res.ok) throw new Error("Failed to load");
+      const data = await res.json();
+      setBusiness(data.business);
 
-    const [custRes, txRes] = await Promise.all([
-      sb.from("customers").select("*").eq("id", clientId).eq("business_id", biz.id).maybeSingle(),
-      sb.from("transactions")
-        .select("*")
-        .eq("business_id", biz.id)
-        .eq("type", "income")
-        .order("date", { ascending: false }),
-    ]);
-
-    if (custRes.data) {
-      setCustomer(custRes.data);
+      const found = (data.customers || []).find((c: any) => c.id === clientId);
+      if (!found) {
+        toast({ title: "Client not found", variant: "destructive" });
+        router.push("/customers");
+        return;
+      }
+      setCustomer(found);
       setForm({
-        name: custRes.data.name || "",
-        email: custRes.data.email || "",
-        phone: custRes.data.phone || "",
-        address: custRes.data.address || "",
-        notes: custRes.data.notes || "",
+        name: found.name || "",
+        email: found.email || "",
+        phone: found.phone || "",
+        address: found.address || "",
+        notes: found.notes || "",
       });
-    }
 
-    // Match transactions by client_name (transactions store client_name, not customer_id)
-    if (custRes.data) {
-      const clientTx = (txRes.data ?? []).filter(
-        (t: any) => t.client_name?.toLowerCase() === custRes.data.name.toLowerCase()
+      // Match transactions by client_name
+      const clientTx = (data.incomeTx || []).filter(
+        (t: any) => t.client_name?.toLowerCase() === found.name.toLowerCase()
       );
       setTransactions(clientTx);
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
     }
+  }, [clientId, router, toast]);
 
-    setLoading(false);
-  }
+  useEffect(() => { loadData(); }, [loadData]);
 
   async function handleSave() {
     if (!form.name.trim() || !customer) return;
     setSaving(true);
-    const sb = createClient();
-    const { error } = await sb.from("customers").update(form).eq("id", customer.id);
-    if (error) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-    } else {
+    try {
+      const res = await fetch("/api/data/customers", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: customer.id, ...form }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to update");
       toast({ title: "Client updated" });
       setEditOpen(false);
       loadData();
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   }
 
   if (loading) {
@@ -115,7 +113,7 @@ export default function ClientDetailPage() {
     );
   }
 
-  const currency = business?.currency ?? "USD";
+  const currency = business?.currency ?? "MWK";
   const palette = getPalette(customer.name);
   const totalRevenue = transactions.reduce((s, t) => s + Number(t.amount), 0);
   const totalCost = transactions.reduce((s, t) => s + Number(t.cost_amount || 0), 0);
@@ -124,10 +122,8 @@ export default function ClientDetailPage() {
 
   return (
     <div className="p-3 sm:p-6 space-y-6">
-      {/* Back button */}
       <button onClick={() => router.push("/customers")} className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
-        <ArrowLeft className="h-4 w-4" />
-        Back to Clients
+        <ArrowLeft className="h-4 w-4" /> Back to Clients
       </button>
 
       {/* Header card */}
@@ -222,34 +218,21 @@ export default function ClientDetailPage() {
                     <th className="text-left font-semibold text-muted-foreground p-3">Description</th>
                     <th className="text-left font-semibold text-muted-foreground p-3 whitespace-nowrap">Method</th>
                     <th className="text-right font-semibold text-muted-foreground p-3 whitespace-nowrap">Amount</th>
-                    <th className="text-right font-semibold text-muted-foreground p-3 whitespace-nowrap">Cost</th>
                     <th className="text-right font-semibold text-muted-foreground p-3 whitespace-nowrap">Profit</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {transactions.map((t) => {
-                    const profit = Number(t.profit || Number(t.amount) - Number(t.cost_amount || 0));
-                    return (
-                      <tr key={t.id} className="border-b hover:bg-muted/30 transition-colors">
-                        <td className="p-3 whitespace-nowrap text-muted-foreground">{formatDate(t.date)}</td>
-                        <td className="p-3">{t.description || "—"}</td>
-                        <td className="p-3 whitespace-nowrap">
-                          {t.payment_method ? (
-                            <Badge variant="secondary" className="text-xs capitalize">{t.payment_method.replace(/_/g, " ")}</Badge>
-                          ) : "—"}
-                        </td>
-                        <td className="p-3 text-right font-semibold text-emerald-600 whitespace-nowrap">
-                          {formatCurrency(Number(t.amount), currency)}
-                        </td>
-                        <td className="p-3 text-right text-muted-foreground whitespace-nowrap">
-                          {t.cost_amount ? formatCurrency(Number(t.cost_amount), currency) : "—"}
-                        </td>
-                        <td className="p-3 text-right font-medium text-emerald-600 whitespace-nowrap">
-                          {t.cost_amount ? formatCurrency(profit, currency) : "—"}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {transactions.map((t: any) => (
+                    <tr key={t.id} className="border-b last:border-0 hover:bg-muted/20">
+                      <td className="p-3 whitespace-nowrap text-muted-foreground">{formatDate(t.date)}</td>
+                      <td className="p-3">{t.description || "—"}</td>
+                      <td className="p-3 whitespace-nowrap text-muted-foreground">{t.payment_method || "—"}</td>
+                      <td className="p-3 text-right font-medium">{formatCurrency(Number(t.amount), currency)}</td>
+                      <td className="p-3 text-right font-medium text-emerald-600">
+                        {formatCurrency(Number(t.profit || Number(t.amount) - Number(t.cost_amount || 0)), currency)}
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -261,14 +244,15 @@ export default function ClientDetailPage() {
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent>
           <DialogHeader><DialogTitle>Edit Client</DialogTitle></DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-2"><Label>Name *</Label><Input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} /></div>
-            <div className="space-y-2"><Label>Email</Label><Input type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} /></div>
-            <div className="space-y-2"><Label>Phone</Label><Input value={form.phone} onChange={e => setForm(p => ({ ...p, phone: e.target.value }))} /></div>
-            <div className="space-y-2"><Label>Address</Label><Input value={form.address} onChange={e => setForm(p => ({ ...p, address: e.target.value }))} /></div>
-            <div className="space-y-2"><Label>Notes</Label><Input value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} /></div>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5"><Label>Name *</Label><Input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} /></div>
+            <div className="space-y-1.5"><Label>Email</Label><Input type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} /></div>
+            <div className="space-y-1.5"><Label>Phone</Label><Input value={form.phone} onChange={e => setForm(p => ({ ...p, phone: e.target.value }))} /></div>
+            <div className="space-y-1.5"><Label>Address</Label><Input value={form.address} onChange={e => setForm(p => ({ ...p, address: e.target.value }))} /></div>
+            <div className="space-y-1.5"><Label>Notes</Label><Input value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} /></div>
             <Button onClick={handleSave} disabled={saving || !form.name.trim()} className="w-full">
-              {saving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Saving...</> : "Save Changes"}
+              {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+              {saving ? "Saving..." : "Save Changes"}
             </Button>
           </div>
         </DialogContent>

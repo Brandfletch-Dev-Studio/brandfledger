@@ -1,7 +1,5 @@
 "use client";
-import { useState, useMemo, useEffect } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { getDefaultBusiness } from "@/lib/default-business";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,10 +18,11 @@ interface LineItem {
   description: string;
   quantity: number;
   unit_price: number;
+  cost: number;
 }
 
 function newLineItem(): LineItem {
-  return { id: crypto.randomUUID(), name: "", description: "", quantity: 1, unit_price: 0 };
+  return { id: crypto.randomUUID(), name: "", description: "", quantity: 1, unit_price: 0, cost: 0 };
 }
 
 export default function CreateInvoicePage() {
@@ -42,36 +41,28 @@ export default function CreateInvoicePage() {
   const [notes, setNotes] = useState("");
   const [items, setItems] = useState<LineItem[]>([newLineItem()]);
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  async function loadData() {
+  const loadData = useCallback(async () => {
     setLoading(true);
-    const sb = createClient();
-    const { data: biz, error } = await getDefaultBusiness(sb);
-    if (error || !biz) { setLoading(false); return; }
-    setBusiness(biz);
+    try {
+      const res = await fetch("/api/data/invoices");
+      if (!res.ok) throw new Error("Failed to load");
+      const data = await res.json();
+      setBusiness(data.business);
+      setCustomers(data.customers ?? []);
+      setProducts(data.products ?? []);
+    } catch (err: any) {
+      toast({ title: "Error loading data", description: err.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  }, [toast]);
 
-    const [custRes, prodRes] = await Promise.all([
-      sb.from("customers").select("*").eq("business_id", biz.id).order("name"),
-      sb.from("products").select("*").eq("business_id", biz.id).eq("is_active", true).order("name"),
-    ]);
-    setCustomers(custRes.data ?? []);
-    setProducts(prodRes.data ?? []);
-    setLoading(false);
-  }
+  useEffect(() => { loadData(); }, [loadData]);
 
   const currency = business?.currency ?? "MWK";
 
-  function addLineItem() {
-    setItems(prev => [...prev, newLineItem()]);
-  }
-
-  function removeLineItem(id: string) {
-    setItems(prev => prev.length > 1 ? prev.filter(i => i.id !== id) : prev);
-  }
-
+  function addLineItem() { setItems(prev => [...prev, newLineItem()]); }
+  function removeLineItem(id: string) { setItems(prev => prev.length > 1 ? prev.filter(i => i.id !== id) : prev); }
   function updateLineItem(id: string, field: keyof LineItem, value: any) {
     setItems(prev => prev.map(i => i.id === id ? { ...i, [field]: value } : i));
   }
@@ -85,18 +76,13 @@ export default function CreateInvoicePage() {
         name: product.name,
         description: product.description ?? "",
         unit_price: Number(product.price),
+        cost: Number(product.cost || 0),
       } : i));
     }
   }
 
-  const subtotal = useMemo(() => {
-    return items.reduce((s, i) => s + i.quantity * i.unit_price, 0);
-  }, [items]);
-
-  const taxAmount = useMemo(() => {
-    return subtotal * (parseFloat(taxRate || "0") / 100);
-  }, [subtotal, taxRate]);
-
+  const subtotal = useMemo(() => items.reduce((s, i) => s + i.quantity * i.unit_price, 0), [items]);
+  const taxAmount = useMemo(() => subtotal * (parseFloat(taxRate || "0") / 100), [subtotal, taxRate]);
   const total = subtotal + taxAmount;
 
   async function saveInvoice(status: "draft" | "sent") {
@@ -110,46 +96,41 @@ export default function CreateInvoicePage() {
     }
 
     setSaving(status === "sent" ? "send" : "draft");
-    const sb = createClient();
+    try {
+      const customer = customers.find(c => c.id === customerId);
+      const validItems = items.filter(i => i.name.trim()).map((i, idx) => ({
+        product_id: i.product_id || null,
+        description: i.name,
+        quantity: i.quantity,
+        price: i.unit_price,
+        cost: i.cost,
+        sort_order: idx,
+      }));
 
-    // Generate invoice number
-    const prefix = business.invoice_prefix || "INV";
-    const year = new Date().getFullYear();
-    const count = await sb.from("invoices").select("id", { count: "exact", head: true }).eq("business_id", business.id);
-    const num = (count.count ?? 0) + 1;
-    const invoiceNumber = `${prefix}-${year}-${String(num).padStart(4, "0")}`;
+      const res = await fetch("/api/data/invoices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customer_id: customerId,
+          customer_name: customer?.name || null,
+          issue_date: issueDate,
+          due_date: dueDate,
+          status,
+          notes,
+          tax_rate: parseFloat(taxRate) || 0,
+          items: validItems,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to save");
 
-    const validItems = items.filter(i => i.name.trim()).map(i => ({
-      product_id: i.product_id || null,
-      name: i.name,
-      description: i.description,
-      quantity: i.quantity,
-      unit_price: i.unit_price,
-      total: i.quantity * i.unit_price,
-    }));
-
-    const { data: inv, error } = await sb.from("invoices").insert({
-      business_id: business.id,
-      customer_id: customerId,
-      invoice_number: invoiceNumber,
-      status,
-      issue_date: issueDate,
-      due_date: dueDate,
-      items: validItems,
-      subtotal,
-      tax_rate: parseFloat(taxRate || "0"),
-      tax_amount: taxAmount,
-      total,
-      notes: notes || null,
-    }).select().single();
-
-    if (error) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-    } else {
       toast({ title: status === "draft" ? "Invoice saved as draft" : "Invoice created & sent" });
-      router.push(`/invoices/${inv.id}`);
+      router.push(`/invoices/${data.invoice.id}`);
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setSaving(null);
     }
-    setSaving(null);
   }
 
   if (loading) return (
@@ -252,47 +233,48 @@ export default function CreateInvoicePage() {
         </CardContent>
       </Card>
 
-      {/* Tax, notes, totals */}
-      <div className="grid sm:grid-cols-2 gap-4">
-        <Card>
-          <CardContent className="p-4 space-y-3">
+      {/* Tax & Notes */}
+      <Card>
+        <CardContent className="p-4 space-y-4">
+          <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Tax rate (%)</Label>
-              <Input type="number" min="0" step="0.01" value={taxRate} onChange={e => setTaxRate(e.target.value)} />
+              <Input type="number" min="0" step="0.01" value={taxRate} onChange={e => setTaxRate(e.target.value)} placeholder="0" />
             </div>
             <div className="space-y-1.5">
               <Label>Notes</Label>
-              <Textarea placeholder="Payment terms, bank details, thank you note..." value={notes} onChange={e => setNotes(e.target.value)} className="min-h-[80px]" />
+              <Textarea placeholder="Payment terms, notes..." value={notes} onChange={e => setNotes(e.target.value)} className="min-h-[38px] text-xs" rows={2} />
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </CardContent>
+      </Card>
 
-        <Card>
-          <CardContent className="p-4 space-y-2">
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Subtotal</span>
-              <span className="font-medium">{formatCurrency(subtotal, currency)}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Tax ({taxRate || "0"}%)</span>
-              <span className="font-medium">{formatCurrency(taxAmount, currency)}</span>
-            </div>
-            <div className="border-t pt-2 flex justify-between">
-              <span className="font-semibold">Total</span>
-              <span className="font-bold text-lg text-primary">{formatCurrency(total, currency)}</span>
-            </div>
-          </CardContent>
-        </Card>
+      {/* Totals */}
+      <div className="rounded-lg border p-4 space-y-2">
+        <div className="flex justify-between text-sm">
+          <span className="text-muted-foreground">Subtotal</span>
+          <span>{formatCurrency(subtotal, currency)}</span>
+        </div>
+        {parseFloat(taxRate) > 0 && (
+          <div className="flex justify-between text-sm">
+            <span className="text-muted-foreground">Tax ({taxRate}%)</span>
+            <span>{formatCurrency(taxAmount, currency)}</span>
+          </div>
+        )}
+        <div className="flex justify-between font-bold text-base pt-2 border-t">
+          <span>Total</span>
+          <span>{formatCurrency(total, currency)}</span>
+        </div>
       </div>
 
       {/* Actions */}
-      <div className="flex gap-3 pb-4">
-        <Button variant="outline" className="flex-1" onClick={() => saveInvoice("draft")} disabled={saving !== null}>
-          {saving === "draft" ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}
+      <div className="flex gap-3 pb-6">
+        <Button variant="outline" className="flex-1" disabled={saving !== null} onClick={() => saveInvoice("draft")}>
+          {saving === "draft" ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
           Save as Draft
         </Button>
-        <Button className="flex-1" onClick={() => saveInvoice("sent")} disabled={saving !== null}>
-          {saving === "send" ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Send className="h-4 w-4 mr-1" />}
+        <Button className="flex-1" disabled={saving !== null} onClick={() => saveInvoice("sent")}>
+          {saving === "send" ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
           Create & Send
         </Button>
       </div>

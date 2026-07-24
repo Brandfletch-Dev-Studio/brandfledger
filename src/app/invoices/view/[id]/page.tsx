@@ -1,53 +1,61 @@
-import { createClient } from "@/lib/supabase/server";
+"use client";
+import { useState, useEffect } from "react";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { FileText, CheckCircle, AlertCircle, Send } from "lucide-react";
+import { FileText } from "lucide-react";
+import { useParams } from "next/navigation";
 
-export const dynamic = "force-dynamic";
+export default function PublicInvoiceView() {
+  const params = useParams();
+  const invoiceId = params.id as string;
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-interface InvoiceItem {
-  name: string;
-  description?: string;
-  quantity: number;
-  unit_price: number;
-  total: number;
-}
+  useEffect(() => {
+    async function load() {
+      try {
+        const res = await fetch(`/api/invoices/view?id=${invoiceId}`);
+        if (!res.ok) {
+          if (res.status === 404) setError("Invoice not found");
+          else setError("Failed to load invoice");
+          return;
+        }
+        const d = await res.json();
+        setData(d);
+      } catch {
+        setError("Network error");
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, [invoiceId]);
 
-export default async function PublicInvoiceView({ params }: { params: { id: string } }) {
-  const sb = createClient();
-  const { data: invoice } = await sb
-    .from("invoices")
-    .select("*")
-    .eq("id", params.id)
-    .maybeSingle();
+  if (loading) return (
+    <div className="min-h-screen flex items-center justify-center bg-muted/30">
+      <div className="animate-pulse text-muted-foreground">Loading invoice...</div>
+    </div>
+  );
 
-  if (!invoice) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-muted/30">
-        <div className="text-center space-y-3">
-          <FileText className="h-12 w-12 text-muted-foreground/50 mx-auto" />
-          <h1 className="text-xl font-semibold">Invoice not found</h1>
-          <p className="text-muted-foreground text-sm">This invoice may have been deleted or the link is invalid.</p>
-        </div>
+  if (error) return (
+    <div className="min-h-screen flex items-center justify-center bg-muted/30">
+      <div className="text-center space-y-3">
+        <FileText className="h-12 w-12 text-muted-foreground/50 mx-auto" />
+        <h1 className="text-xl font-semibold">{error}</h1>
+        <p className="text-muted-foreground text-sm">This invoice may have been deleted or the link is invalid.</p>
       </div>
-    );
-  }
+    </div>
+  );
 
-  // Fetch customer and business
-  const [custRes, bizRes] = await Promise.all([
-    sb.from("customers").select("*").eq("id", invoice.customer_id).maybeSingle(),
-    sb.from("businesses").select("*").eq("id", invoice.business_id).maybeSingle(),
-  ]);
-
-  const customer = custRes.data;
-  const business = bizRes.data;
+  const { invoice, business, customer } = data;
   const currency = business?.currency ?? "MWK";
-  const items = (invoice.items ?? []) as InvoiceItem[];
+  const items = invoice.items || [];
 
-  const statusConfig: Record<string, { label: string; icon: string; color: string }> = {
-    draft: { label: "Draft", icon: "FileText", color: "bg-muted text-muted-foreground" },
-    sent: { label: "Sent", icon: "Send", color: "bg-blue-100 text-blue-700" },
-    paid: { label: "Paid", icon: "CheckCircle", color: "bg-emerald-100 text-emerald-700" },
-    overdue: { label: "Overdue", icon: "AlertCircle", color: "bg-rose-100 text-rose-700" },
+  const statusConfig: Record<string, { label: string; color: string }> = {
+    draft: { label: "Draft", color: "bg-muted text-muted-foreground" },
+    sent: { label: "Sent", color: "bg-blue-100 text-blue-700" },
+    paid: { label: "Paid", color: "bg-emerald-100 text-emerald-700" },
+    overdue: { label: "Overdue", color: "bg-rose-100 text-rose-700" },
   };
   const status = statusConfig[invoice.status] ?? statusConfig.draft;
 
@@ -81,42 +89,44 @@ export default async function PublicInvoiceView({ params }: { params: { id: stri
         <div className="px-6 sm:px-8 py-4 flex flex-col sm:flex-row justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Bill To</p>
-            <p className="font-medium">{customer?.name ?? "Unknown"}</p>
+            <p className="font-medium">{customer?.name ?? invoice.customer_name ?? "Unknown"}</p>
             {customer?.email && <p className="text-sm text-muted-foreground">{customer.email}</p>}
             {customer?.phone && <p className="text-sm text-muted-foreground">{customer.phone}</p>}
             {customer?.address && <p className="text-sm text-muted-foreground">{customer.address}</p>}
           </div>
           <div className="sm:text-right space-y-1">
             <p className="text-sm"><span className="text-muted-foreground">Issued: </span><span className="font-medium">{formatDate(invoice.issue_date)}</span></p>
-            <p className="text-sm"><span className="text-muted-foreground">Due: </span><span className="font-medium">{formatDate(invoice.due_date)}</span></p>
+            <p className="text-sm"><span className="text-muted-foreground">Due: </span><span className="font-medium">{invoice.due_date ? formatDate(invoice.due_date) : "—"}</span></p>
           </div>
         </div>
 
         {/* Items table */}
         <div className="px-6 sm:px-8 pb-4">
-          <table className="w-full text-sm">
-            <thead className="border-b">
-              <tr>
-                <th className="text-left font-semibold text-muted-foreground p-2">Description</th>
-                <th className="text-center font-semibold text-muted-foreground p-2 w-12">Qty</th>
-                <th className="text-right font-semibold text-muted-foreground p-2 w-24">Price</th>
-                <th className="text-right font-semibold text-muted-foreground p-2 w-28">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item, idx) => (
-                <tr key={idx} className="border-b">
-                  <td className="p-2">
-                    <p className="font-medium">{item.name}</p>
-                    {item.description && <p className="text-xs text-muted-foreground mt-0.5">{item.description}</p>}
-                  </td>
-                  <td className="p-2 text-center">{item.quantity}</td>
-                  <td className="p-2 text-right">{formatCurrency(Number(item.unit_price), currency)}</td>
-                  <td className="p-2 text-right font-medium">{formatCurrency(Number(item.total), currency)}</td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="border-b">
+                <tr>
+                  <th className="text-left font-semibold text-muted-foreground p-2">Description</th>
+                  <th className="text-center font-semibold text-muted-foreground p-2 w-12">Qty</th>
+                  <th className="text-right font-semibold text-muted-foreground p-2 w-24">Price</th>
+                  <th className="text-right font-semibold text-muted-foreground p-2 w-28">Total</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {items.map((item: any, idx: number) => (
+                  <tr key={idx} className="border-b">
+                    <td className="p-2">
+                      <p className="font-medium">{item.name}</p>
+                      {item.description && <p className="text-xs text-muted-foreground mt-0.5">{item.description}</p>}
+                    </td>
+                    <td className="p-2 text-center">{item.quantity}</td>
+                    <td className="p-2 text-right">{formatCurrency(Number(item.unit_price), currency)}</td>
+                    <td className="p-2 text-right font-medium">{formatCurrency(Number(item.total), currency)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
 
         {/* Totals */}

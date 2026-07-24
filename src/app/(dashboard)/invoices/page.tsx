@@ -1,7 +1,5 @@
 "use client";
-import { useState, useMemo } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { getDefaultBusiness } from "@/lib/default-business";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { Header } from "@/components/layout/header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,11 +9,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Plus, Search, FileText, Loader2, RefreshCw, Send, CheckCircle, Clock, AlertCircle, Copy } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
-import { useCachedFetch, clearCache } from "@/hooks/use-cached-fetch";
 import { useRouter } from "next/navigation";
-import type { InvoiceStatus } from "@/types";
 
-const statusConfig: Record<InvoiceStatus, { label: string; icon: any; className: string }> = {
+const statusConfig: Record<string, { label: string; icon: any; className: string }> = {
   draft: { label: "Draft", icon: FileText, className: "bg-muted text-muted-foreground" },
   sent: { label: "Sent", icon: Send, className: "bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300" },
   paid: { label: "Paid", icon: CheckCircle, className: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300" },
@@ -26,28 +22,33 @@ export default function InvoicesPage() {
   const { toast } = useToast();
   const router = useRouter();
   const [business, setBusiness] = useState<any>(null);
+  const [invoices, setInvoices] = useState<any[]>([]);
+  const [customers, setCustomers] = useState<any[]>([]);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [pageLoading, setPageLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const bizId = typeof window !== "undefined" ? localStorage.getItem("activeBusinessId") : null;
-  const { data: pageData, loading: pageLoading, refreshing, refetch } = useCachedFetch({
-    key: `invoices:${bizId ?? "default"}`,
-    fetcher: async () => {
-      const sb = createClient();
-      const { data: biz, error: bizError } = await getDefaultBusiness(sb);
-      if (bizError || !biz) throw new Error("No business found");
-      setBusiness(biz);
-      const [invRes, custRes] = await Promise.all([
-        sb.from("invoices").select("*").eq("business_id", biz.id).order("created_at", { ascending: false }),
-        sb.from("customers").select("id, name, email").eq("business_id", biz.id).order("name"),
-      ]);
-      return { invoices: invRes.data ?? [], customers: custRes.data ?? [] };
-    },
-  });
+  const loadData = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setPageLoading(true);
+    try {
+      const res = await fetch("/api/data/invoices");
+      if (!res.ok) throw new Error("Failed to load");
+      const data = await res.json();
+      setBusiness(data.business);
+      setInvoices(data.invoices ?? []);
+      setCustomers(data.customers ?? []);
+    } catch (err: any) {
+      toast({ title: "Couldn't load invoices", description: err.message, variant: "destructive" });
+    } finally {
+      setPageLoading(false);
+      setRefreshing(false);
+    }
+  }, [toast]);
 
-  const invoices = pageData?.invoices ?? [];
-  const customers = pageData?.customers ?? [];
+  useEffect(() => { loadData(); }, [loadData]);
 
   const customerMap = useMemo(() => {
     const m: Record<string, any> = {};
@@ -60,7 +61,7 @@ export default function InvoicesPage() {
       if (statusFilter !== "all" && inv.status !== statusFilter) return false;
       if (search) {
         const q = search.toLowerCase();
-        const custName = customerMap[inv.customer_id]?.name ?? "";
+        const custName = inv.customer_name || customerMap[inv.customer_id]?.name || "";
         return inv.invoice_number?.toLowerCase().includes(q) || custName.toLowerCase().includes(q);
       }
       return true;
@@ -81,16 +82,21 @@ export default function InvoicesPage() {
 
   async function markAsPaid(inv: any) {
     setActionLoading(inv.id);
-    const sb = createClient();
-    const { error } = await sb.from("invoices").update({ status: "paid" }).eq("id", inv.id);
-    if (error) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-    } else {
+    try {
+      const res = await fetch("/api/data/invoices", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: inv.id, status: "paid" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to update");
       toast({ title: "Marked as paid", description: inv.invoice_number });
-      clearCache(`invoices:${bizId ?? "default"}`);
-      refetch();
+      loadData(true);
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setActionLoading(null);
     }
-    setActionLoading(null);
   }
 
   async function copyShareLink(inv: any) {
@@ -121,7 +127,7 @@ export default function InvoicesPage() {
           <div className="flex items-center gap-2">
             {refreshing && <RefreshCw className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
             <Button size="sm" onClick={() => router.push("/invoices/create")}>
-              <Plus className="mr-1.5 h-4 w-4" />Create Invoice
+              <Plus className="mr-1.5 h-4 w-4" />Create
             </Button>
           </div>
         }
@@ -130,7 +136,7 @@ export default function InvoicesPage() {
         {/* Stats */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
           <div className="rounded-lg border bg-card p-2.5 sm:p-3">
-            <p className="text-[10px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wider">Total Invoices</p>
+            <p className="text-[10px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wider">Total</p>
             <p className="text-sm sm:text-lg font-bold">{stats.totalCount}</p>
           </div>
           <div className="rounded-lg border bg-card p-2.5 sm:p-3">
@@ -179,8 +185,8 @@ export default function InvoicesPage() {
         ) : (
           <div className="grid gap-2 sm:gap-3">
             {filtered.map((inv: any) => {
-              const cust = customerMap[inv.customer_id];
-              const status = statusConfig[inv.status as InvoiceStatus] ?? statusConfig.draft;
+              const custName = inv.customer_name || customerMap[inv.customer_id]?.name || "Unknown client";
+              const status = statusConfig[inv.status] ?? statusConfig.draft;
               const StatusIcon = status.icon;
               return (
                 <Card key={inv.id} className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => router.push(`/invoices/${inv.id}`)}>
@@ -195,29 +201,21 @@ export default function InvoicesPage() {
                           <Badge variant="secondary" className={`text-[10px] px-1.5 py-0 ${status.className}`}>{status.label}</Badge>
                         </div>
                         <p className="text-xs text-muted-foreground truncate">
-                          {cust?.name ?? "Unknown client"} · Due {formatDate(inv.due_date)}
+                          {custName} · {formatDate(inv.issue_date)}
                         </p>
                       </div>
                     </div>
-                    <div className="text-right shrink-0">
-                      <p className="font-bold text-sm">{formatCurrency(Number(inv.total), currency)}</p>
-                      <div className="flex items-center gap-1 mt-1" onClick={e => e.stopPropagation()}>
+                    <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+                      <p className="text-sm font-semibold">{formatCurrency(Number(inv.total), currency)}</p>
+                      <div className="flex gap-1" onClick={e => e.stopPropagation()}>
                         {inv.status !== "paid" && (
-                          <button
-                            onClick={() => markAsPaid(inv)}
-                            disabled={actionLoading === inv.id}
-                            className="text-[10px] px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 hover:opacity-80 disabled:opacity-50"
-                          >
-                            {actionLoading === inv.id ? "..." : "Mark paid"}
-                          </button>
+                          <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" disabled={actionLoading === inv.id} onClick={() => markAsPaid(inv)}>
+                            {actionLoading === inv.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Mark Paid"}
+                          </Button>
                         )}
-                        <button
-                          onClick={() => copyShareLink(inv)}
-                          className="p-1 rounded-md hover:bg-muted text-muted-foreground"
-                          title="Copy share link"
-                        >
-                          <Copy className="h-3 w-3" />
-                        </button>
+                        <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => copyShareLink(inv)}>
+                          <Copy className="h-3.5 w-3.5" />
+                        </Button>
                       </div>
                     </div>
                   </CardContent>

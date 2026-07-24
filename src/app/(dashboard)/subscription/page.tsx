@@ -1,15 +1,12 @@
 "use client";
-import { useState, useEffect } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { getDefaultBusiness } from "@/lib/default-business";
+import { useState, useEffect, useCallback } from "react";
 import { Header } from "@/components/layout/header";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Check, Crown, Loader2, Clock, AlertCircle, Lock, PartyPopper, XCircle } from "lucide-react";
+import { Check, Crown, Loader2, Clock, Lock, PartyPopper, XCircle } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
-
 
 interface PricingConfig {
   monthly_rate: number;
@@ -24,14 +21,7 @@ const DEFAULT_PRICING: PricingConfig = {
   annual_rate: 150000,
   currency: "MWK",
   trial_days: 14,
-  features: [
-    "Unlimited invoices",
-    "Unlimited businesses",
-    "Profit tracking",
-    "Team members",
-    "Reports & exports",
-    "Priority support",
-  ],
+  features: ["Unlimited invoices", "Unlimited businesses", "Profit tracking", "Team members", "Reports & exports", "Priority support"],
 };
 
 export default function SubscriptionPage() {
@@ -41,6 +31,21 @@ export default function SubscriptionPage() {
   const [paying, setPaying] = useState<"monthly" | "annual" | null>(null);
   const [trial, setTrial] = useState<any>(null);
   const [paymentStatus, setPaymentStatus] = useState<string | null>(null);
+
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/data/pricing");
+      if (!res.ok) throw new Error("Failed to load");
+      const data = await res.json();
+      if (data.pricing) setPricing({ ...DEFAULT_PRICING, ...data.pricing });
+      if (data.subscription) setTrial(data.subscription);
+    } catch {
+      // use defaults
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -54,31 +59,7 @@ export default function SubscriptionPage() {
       }
     }
     loadData();
-  }, []);
-
-  async function loadData() {
-    setLoading(true);
-    try {
-      const sb = createClient();
-      const [pricingRes, bizRes] = await Promise.all([
-        sb.from("platform_settings").select("value").eq("key", "pricing").maybeSingle(),
-        getDefaultBusiness(sb),
-      ]);
-
-      if (pricingRes.data) setPricing({ ...DEFAULT_PRICING, ...pricingRes.data.value });
-      if (bizRes.data) {
-        const biz = bizRes.data as any;
-        const status = biz.subscription_status || "trial";
-        const trialEndsAt = biz.trial_ends_at;
-        let daysLeft = 0;
-        if (status === "trial" && trialEndsAt) {
-          daysLeft = Math.ceil((new Date(trialEndsAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-        }
-        setTrial({ status, daysLeft, trialEndsAt, subscriptionEndsAt: biz.subscription_ends_at });
-      }
-    } catch {}
-    setLoading(false);
-  }
+  }, [loadData, toast]);
 
   async function handlePay(plan: "monthly" | "annual") {
     setPaying(plan);
@@ -89,7 +70,6 @@ export default function SubscriptionPage() {
         body: JSON.stringify({ plan }),
       });
       const data = await res.json();
-
       if (res.ok && data.checkoutUrl) {
         window.location.href = data.checkoutUrl;
       } else {
@@ -119,7 +99,6 @@ export default function SubscriptionPage() {
     <div>
       <Header title="Pricing" description="Simple, transparent pricing" icon={Crown} />
       <div className="p-3 sm:p-6 space-y-5">
-        {/* Payment status alert */}
         {paymentStatus === "success" && (
           <Card className="border-emerald-500/30 bg-emerald-500/5">
             <CardContent className="p-4 flex items-center gap-3">
@@ -143,28 +122,22 @@ export default function SubscriptionPage() {
           </Card>
         )}
 
-        {/* Trial status */}
         {isTrialActive && (
           <Card className="border-amber-500/30 bg-amber-500/5">
             <CardContent className="p-4 flex items-center gap-3">
               <Clock className="h-5 w-5 text-amber-600 shrink-0" />
               <div className="flex-1">
                 <p className="font-medium text-sm">
-                  {trial.daysLeft <= 3
-                    ? `${trial.daysLeft} day${trial.daysLeft !== 1 ? "s" : ""} left in your free trial`
-                    : `Free trial active`}
+                  {trial.daysLeft <= 3 ? `${trial.daysLeft} day${trial.daysLeft !== 1 ? "s" : ""} left in your free trial` : `Free trial active`}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {trial.daysLeft <= 3
-                    ? "Your trial ends soon — subscribe to keep full access."
-                    : `Trial ends on ${new Date(trial.trialEndsAt).toLocaleDateString()}`}
+                  {trial.daysLeft <= 3 ? "Your trial ends soon — subscribe to keep full access." : `Trial ends on ${new Date(trial.trialEndsAt).toLocaleDateString()}`}
                 </p>
               </div>
             </CardContent>
           </Card>
         )}
 
-        {/* Already subscribed */}
         {isSubscribed && (
           <Card className="border-emerald-500/30 bg-emerald-500/5">
             <CardContent className="p-4 flex items-center gap-3">
@@ -172,16 +145,13 @@ export default function SubscriptionPage() {
               <div className="flex-1">
                 <p className="font-medium text-sm text-emerald-700 dark:text-emerald-300">Subscription active</p>
                 <p className="text-xs text-muted-foreground">
-                  {trial.subscriptionEndsAt
-                    ? `Valid until ${new Date(trial.subscriptionEndsAt).toLocaleDateString()}`
-                    : "Your subscription is active"}
+                  {trial.subscriptionEndsAt ? `Valid until ${new Date(trial.subscriptionEndsAt).toLocaleDateString()}` : "Your subscription is active"}
                 </p>
               </div>
             </CardContent>
           </Card>
         )}
 
-        {/* Expired */}
         {trial?.status === "expired" && (
           <Card className="border-rose-500/30 bg-rose-500/5">
             <CardContent className="p-4 flex items-center gap-3">
@@ -194,7 +164,6 @@ export default function SubscriptionPage() {
           </Card>
         )}
 
-        {/* Pricing card */}
         <div className="max-w-md mx-auto">
           <Card className={`shadow-lg ${!isSubscribed ? "border-primary" : ""}`}>
             <div className="bg-primary text-primary-foreground text-center py-3 rounded-t-lg">
@@ -229,29 +198,11 @@ export default function SubscriptionPage() {
 
               {!isSubscribed ? (
                 <>
-                  <Button
-                    className="w-full"
-                    size="lg"
-                    onClick={() => handlePay("monthly")}
-                    disabled={paying !== null}
-                  >
-                    {paying === "monthly" ? (
-                      <><Loader2 className="h-4 w-4 animate-spin mr-2" />Redirecting to Paychangu...</>
-                    ) : (
-                      <>Pay {formatCurrency(pricing.monthly_rate, pricing.currency)}/month</>
-                    )}
+                  <Button className="w-full" size="lg" onClick={() => handlePay("monthly")} disabled={paying !== null}>
+                    {paying === "monthly" ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Redirecting to Paychangu...</> : <>Pay {formatCurrency(pricing.monthly_rate, pricing.currency)}/month</>}
                   </Button>
-                  <Button
-                    variant="outline"
-                    className="w-full"
-                    onClick={() => handlePay("annual")}
-                    disabled={paying !== null}
-                  >
-                    {paying === "annual" ? (
-                      <><Loader2 className="h-4 w-4 animate-spin mr-2" />Redirecting...</>
-                    ) : (
-                      <>Pay {formatCurrency(pricing.annual_rate, pricing.currency)}/year (save 17%)</>
-                    )}
+                  <Button variant="outline" className="w-full" onClick={() => handlePay("annual")} disabled={paying !== null}>
+                    {paying === "annual" ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Redirecting...</> : <>Pay {formatCurrency(pricing.annual_rate, pricing.currency)}/year (save 17%)</>}
                   </Button>
                 </>
               ) : (
@@ -260,9 +211,7 @@ export default function SubscriptionPage() {
                 </Button>
               )}
 
-              <p className="text-xs text-muted-foreground text-center">
-                Secure payment via Paychangu · Cancel anytime
-              </p>
+              <p className="text-xs text-muted-foreground text-center">Secure payment via Paychangu · Cancel anytime</p>
             </CardContent>
           </Card>
         </div>

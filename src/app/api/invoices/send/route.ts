@@ -1,74 +1,46 @@
-// src/app/api/invoices/send/route.ts
-// Complete rewrite — uses shared createClient() from @/lib/supabase/server
-// No inline Supabase setup, no CookieOptions import needed
-
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { query } from "@/lib/db";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const invoiceId = body?.invoiceId as string | undefined;
+    if (!invoiceId) return NextResponse.json({ error: "Missing invoiceId" }, { status: 400 });
 
-    if (!invoiceId) {
-      return NextResponse.json({ error: "Missing invoiceId" }, { status: 400 });
-    }
+    const invoices = await query("SELECT * FROM invoices WHERE id = $1", [invoiceId]);
+    if (invoices.length === 0) return NextResponse.json({ error: "Invoice not found" }, { status: 404 });
+    const invoice = invoices[0];
 
-    const supabase = createClient();
+    const [businessRows, customerRows, items] = await Promise.all([
+      query("SELECT * FROM businesses WHERE id = $1", [invoice.business_id]),
+      invoice.customer_id ? query("SELECT * FROM customers WHERE id = $1", [invoice.customer_id]) : Promise.resolve([]),
+      query("SELECT * FROM invoice_items WHERE invoice_id = $1 ORDER BY sort_order", [invoiceId]),
+    ]);
 
-    const { data: invoice, error: invErr } = await supabase
-      .from("invoices")
-      .select("*, customers(*), businesses(*)")
-      .eq("id", invoiceId)
-      .single();
-
-    if (invErr || !invoice) {
-      return NextResponse.json({ error: "Invoice not found" }, { status: 404 });
-    }
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const customer = invoice.customers as Record<string, any> | null;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const business = invoice.businesses as Record<string, any> | null;
+    const business = businessRows[0] || null;
+    const customer = customerRows[0] || null;
 
     if (!customer?.email) {
-      return NextResponse.json(
-        { error: "Customer has no email address" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Customer has no email address" }, { status: 400 });
     }
 
-    const currency: string = business?.currency ?? "USD";
-    const fmt = (n: number) =>
-      new Intl.NumberFormat("en-US", {
-        style: "currency",
-        currency,
-        minimumFractionDigits: 2,
-      }).format(n);
+    const currency: string = business?.currency ?? "MWK";
+    const fmt = (n: number) => new Intl.NumberFormat("en-US", { style: "currency", currency, minimumFractionDigits: 2 }).format(n);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const items: any[] = Array.isArray(invoice.items) ? invoice.items : [];
-
-    const itemRows = items
-      .map(
-        (item) => `
+    const itemRows = items.map((item: any) => `
       <tr>
         <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;">
-          ${item.name}
-          ${item.description ? `<br/><span style="color:#888;font-size:12px;">${item.description}</span>` : ""}
+          ${item.description || ""}
         </td>
         <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;text-align:center;">${item.quantity}</td>
-        <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;text-align:right;">${fmt(Number(item.unit_price))}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;text-align:right;">${fmt(Number(item.price))}</td>
         <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;text-align:right;">${fmt(Number(item.total))}</td>
-      </tr>`
-      )
-      .join("");
+      </tr>`).join("");
 
-    const dueDate = new Date(invoice.due_date).toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    });
+    const dueDate = invoice.due_date ? new Date(invoice.due_date).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }) : "—";
 
     const emailHtml = `<!DOCTYPE html>
 <html>
@@ -111,32 +83,23 @@ export async function POST(req: NextRequest) {
 
     const RESEND_API_KEY = process.env.RESEND_API_KEY;
     if (!RESEND_API_KEY) {
-      return NextResponse.json(
-        { error: "Email not configured — add RESEND_API_KEY to Vercel environment variables." },
-        { status: 503 }
-      );
+      return NextResponse.json({ error: "Email not configured — add RESEND_API_KEY to Vercel environment variables." }, { status: 503 });
     }
 
     const emailRes = await fetch("https://api.resend.com/emails", {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${RESEND_API_KEY}`,
-        "Content-Type": "application/json",
-      },
+      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         from: `${String(business?.name ?? "Brandfledger")} <onboarding@resend.dev>`,
         to: [String(customer.email)],
-        subject: `Invoice ${String(invoice.invoice_number)} from ${String(business?.name)} — ${fmt(Number(invoice.total))} due ${new Date(invoice.due_date).toLocaleDateString()}`,
+        subject: `Invoice ${String(invoice.invoice_number)} from ${String(business?.name)} — ${fmt(Number(invoice.total))} due ${invoice.due_date ? new Date(invoice.due_date).toLocaleDateString() : ""}`,
         html: emailHtml,
       }),
     });
 
     if (!emailRes.ok) {
       const errData = (await emailRes.json()) as { message?: string };
-      return NextResponse.json(
-        { error: errData.message ?? "Email send failed" },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: errData.message ?? "Email send failed" }, { status: 500 });
     }
 
     return NextResponse.json({ success: true });
