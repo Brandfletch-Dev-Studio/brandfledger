@@ -65,12 +65,12 @@ export async function POST(request: Request) {
       [userId, email.toLowerCase().trim(), hashedPassword, now, now, now, JSON.stringify({ full_name: fullName || "" })]
     );
 
-    // Create default business if provided
+    // Create default business with 14-day free trial
     if (businessName) {
       const bizId = crypto.randomUUID();
       await client.query(
-        `INSERT INTO businesses (id, name, currency, invoice_prefix, owner_id, created_at)
-         VALUES ($1, $2, 'MWK', 'INV', $3, $4)`,
+        `INSERT INTO businesses (id, name, currency, invoice_prefix, owner_id, created_at, subscription_status, trial_ends_at)
+         VALUES ($1, $2, 'MWK', 'INV', $3, $4, 'trial', $4 + INTERVAL '14 days')`,
         [bizId, businessName, userId, now]
       );
     }

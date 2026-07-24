@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Check, Crown, Loader2, Clock, AlertCircle, Lock, PartyPopper, XCircle } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
-import { useSearchParams } from "next/navigation";
+
 
 interface PricingConfig {
   monthly_rate: number;
