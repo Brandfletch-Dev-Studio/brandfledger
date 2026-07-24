@@ -13,7 +13,7 @@ const tabs = [
   { href: "/customers", label: "Clients", icon: Users },
 ];
 
-const moreRoutes = ["/expenses", "/reports", "/settings", "/subscription", "/admin"];
+const moreRoutes = ["/expenses", "/reports", "/data", "/settings", "/subscription", "/admin"];
 
 export function BottomNav({ isAdmin = false }: { isAdmin?: boolean }) {
   const pathname = usePathname();

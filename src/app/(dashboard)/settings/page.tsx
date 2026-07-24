@@ -1,7 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { getDefaultBusiness } from "@/lib/default-business";
+import { useState, useEffect, useCallback } from "react";
 import { Header } from "@/components/layout/header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,52 +27,70 @@ const businessTypes = [
 export default function SettingsPage() {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
+  const [pageLoading, setPageLoading] = useState(true);
   const [business, setBusiness] = useState<any>(null);
   const [bizForm, setBizForm] = useState({
     name: "", email: "", phone: "", address: "", website: "",
     currency: "USD", invoice_prefix: "INV", business_type: "other", tax_id: "",
   });
 
-  useEffect(() => { load(); }, []);
+  const load = useCallback(async () => {
+    setPageLoading(true);
+    try {
+      const res = await fetch("/api/data/customers");
+      if (!res.ok) throw new Error("Failed to load");
+      const data = await res.json();
+      const biz = data.business;
+      if (biz) {
+        setBusiness(biz);
+        setBizForm({
+          name: biz.name, email: biz.email ?? "", phone: biz.phone ?? "",
+          address: biz.address ?? "", website: biz.website ?? "",
+          currency: biz.currency, invoice_prefix: biz.invoice_prefix,
+          business_type: biz.business_type ?? "other", tax_id: biz.tax_id ?? "",
+        });
+      }
+    } catch (err: any) {
+      toast({ title: "Couldn't load settings", description: err.message, variant: "destructive" });
+    } finally {
+      setPageLoading(false);
+    }
+  }, [toast]);
 
-  async function load() {
-    const sb = createClient();
-    const { data: biz, error } = await getDefaultBusiness(sb);
-    if (error) {
-      toast({ title: "Couldn't load business settings", description: error.message, variant: "destructive" });
-      return;
-    }
-    if (biz) {
-      setBusiness(biz);
-      setBizForm({
-        name: biz.name, email: biz.email ?? "", phone: biz.phone ?? "",
-        address: biz.address ?? "", website: biz.website ?? "",
-        currency: biz.currency, invoice_prefix: biz.invoice_prefix,
-        business_type: biz.business_type ?? "other", tax_id: biz.tax_id ?? "",
-      });
-    }
-  }
+  useEffect(() => { load(); }, [load]);
 
   async function saveBusiness() {
     if (!business) return;
     setLoading(true);
-    const sb = createClient();
-    const { error } = await sb.from("businesses").update({
-      name: bizForm.name, email: bizForm.email, phone: bizForm.phone,
-      address: bizForm.address, website: bizForm.website,
-      currency: bizForm.currency, invoice_prefix: bizForm.invoice_prefix,
-      business_type: bizForm.business_type, tax_id: bizForm.tax_id,
-      updated_at: new Date().toISOString(),
-    }).eq("id", business.id);
-    if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
-    else toast({ title: "Settings saved", description: "Your business settings have been updated." });
-    setLoading(false);
+    try {
+      const res = await fetch("/api/data/business-settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(bizForm),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to save");
+      toast({ title: "Settings saved", description: "Your business settings have been updated." });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
   }
+
+  if (pageLoading) return (
+    <div>
+      <Header title="Settings" description="Manage your business settings" icon={Building2} />
+      <div className="p-6 flex items-center justify-center py-32">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    </div>
+  );
 
   return (
     <div>
       <Header title="Settings" description="Manage your business settings" icon={Building2} />
-      <div className="p-6 max-w-2xl space-y-6">
+      <div className="p-3 sm:p-6 max-w-2xl space-y-6">
         {/* Business Profile */}
         <Card>
           <CardHeader>

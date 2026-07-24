@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Users, Package, Settings, BarChart3, Receipt, Crown, X, ArrowLeftRight, Shield, FileText } from "lucide-react";
+import { LayoutDashboard, Users, Package, Settings, BarChart3, Receipt, Crown, X, ArrowLeftRight, Shield, FileText, Database } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -13,6 +13,7 @@ const navItems = [
   { href: "/expenses", label: "Expenses", icon: Receipt },
   { href: "/reports", label: "Reports", icon: BarChart3 },
   { href: "/subscription", label: "Pricing", icon: Crown },
+  { href: "/data", label: "Data Management", icon: Database },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
