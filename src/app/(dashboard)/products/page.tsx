@@ -98,6 +98,10 @@ export default function ProductsPage() {
     p.category?.toLowerCase().includes(search.toLowerCase())
   );
 
+  // Icon color rotation based on category
+  const iconColors = ["bg-indigo-100 dark:bg-indigo-500/10", "bg-emerald-100 dark:bg-emerald-500/10", "bg-amber-100 dark:bg-amber-500/10", "bg-pink-100 dark:bg-pink-500/10", "bg-sky-100 dark:bg-sky-500/10"];
+  function iconColor(idx: number) { return iconColors[idx % iconColors.length]; }
+
   if (pageLoading) return (
     <div>
       <Header title="Products & Services" description="Your product and service catalog" icon={Package} />
@@ -164,42 +168,46 @@ export default function ProductsPage() {
             <p className="text-muted-foreground text-sm">{search ? "No products match your search." : "No products yet. Add your first product or service!"}</p>
           </CardContent></Card>
         ) : (
-          <Card>
-            <div className="divide-y">
-              {filtered.map(p => {
-                const profit = Number(p.price) - Number(p.cost ?? 0);
-                return (
-                  <div key={p.id} className="flex items-center justify-between p-4 hover:bg-muted/30 transition-colors">
-                    <div className="flex items-center gap-4">
-                      <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                        <Package className="h-4 w-4 text-primary" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium">{p.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {[p.category, p.unit ? `per ${p.unit}` : null].filter(Boolean).join(" · ")}
-                        </p>
-                      </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filtered.map((p, idx) => {
+              const profit = Number(p.price) - Number(p.cost ?? 0);
+              const margin = Number(p.price) > 0 ? (profit / Number(p.price) * 100) : 0;
+              return (
+                <Card key={p.id} className="group relative hover:shadow-md transition-shadow">
+                  <CardContent className="p-5 text-center">
+                    {/* Icon */}
+                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center mx-auto mb-3 ${iconColor(idx)}`}>
+                      <Package className="h-5 w-5 text-primary" />
                     </div>
-                    <div className="flex items-center gap-4">
-                      <div className="text-right">
-                        <p className="text-sm font-semibold">{formatCurrency(p.price, business?.currency)}</p>
-                        {Number(p.cost ?? 0) > 0 && (
-                          <p className="text-xs text-muted-foreground">
-                            cost {formatCurrency(p.cost, business?.currency)} · profit {formatCurrency(profit, business?.currency)}
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex gap-1">
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(p)}><Pencil className="h-3.5 w-3.5" /></Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleDelete(p.id)}><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
-                      </div>
+                    {/* Name + category */}
+                    <p className="text-sm font-semibold truncate">{p.name}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {[p.category, p.unit ? `per ${p.unit}` : null].filter(Boolean).join(" · ") || "No category"}
+                    </p>
+                    {/* Price */}
+                    <p className="text-lg font-bold text-primary mt-3">{formatCurrency(p.price, business?.currency)}</p>
+                    {/* Cost + profit */}
+                    {Number(p.cost ?? 0) > 0 ? (
+                      <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1 font-medium">
+                        profit {formatCurrency(profit, business?.currency)} · {margin.toFixed(0)}%
+                      </p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground mt-1">profit {formatCurrency(p.price, business?.currency)}</p>
+                    )}
+                    {/* Hover actions */}
+                    <div className="flex justify-center gap-2 mt-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Button variant="outline" size="sm" className="h-7" onClick={() => openEdit(p)}>
+                        <Pencil className="h-3 w-3 mr-1" /> Edit
+                      </Button>
+                      <Button variant="outline" size="sm" className="h-7 text-destructive hover:text-destructive" onClick={() => handleDelete(p.id)}>
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          </Card>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
         )}
       </div>
     </div>
