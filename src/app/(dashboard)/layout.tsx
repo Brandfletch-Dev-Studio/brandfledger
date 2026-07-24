@@ -12,7 +12,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background">
       <TopBar businessName={business?.name} />
-      <main className="flex-1 overflow-y-auto pb-20">
+      <main className="flex-1 overflow-y-auto pb-16 sm:pb-20">
         {children}
       </main>
       <BottomNav />

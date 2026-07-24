@@ -66,11 +66,11 @@ interface Props {
 function StatCard({ label, value, sub, valueClassName }: { label: string; value: string; sub?: string; valueClassName?: string }) {
   return (
     <Card className="shadow-sm">
-      <CardContent className="p-5">
+      <CardContent className="p-3 sm:p-5">
         <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
           {label}
         </div>
-        <div className={`text-2xl sm:text-3xl font-bold tracking-tight truncate ${valueClassName || 'text-foreground'}`}>
+        <div className={`text-xl sm:text-3xl font-bold tracking-tight truncate ${valueClassName || 'text-foreground'}`}>
           {value}
         </div>
         {sub && <p className="text-xs text-muted-foreground mt-1.5">{sub}</p>}
@@ -245,7 +245,7 @@ export default function DashboardClient({
   const isNetProfitPositive = (stats?.netProfit || 0) >= 0;
 
   return (
-    <div className="relative min-h-full p-6 space-y-6">
+    <div className="relative min-h-full p-3 sm:p-6 space-y-4 sm:space-y-6">
       {/* Header Area */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between pb-6 border-b">
         <div>
@@ -319,7 +319,7 @@ export default function DashboardClient({
           </CardHeader>
           <CardContent suppressHydrationWarning>
             {hasTrendData ? (
-              <ResponsiveContainer width="100%" height={300}>
+              <ResponsiveContainer width="100%" height={250}>
                 <BarChart data={monthlyTrend} margin={{ left: -20, right: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" className="opacity-40" vertical={false} />
                   <XAxis dataKey="month" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
@@ -395,7 +395,7 @@ export default function DashboardClient({
       {/* Floating Action Button */}
       <Link
         href="/invoices?new=1"
-        className="fixed bottom-6 right-6 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 transition-colors"
+        className="fixed bottom-20 right-4 sm:bottom-6 sm:right-6 z-20 flex h-12 w-12 sm:h-14 sm:w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 transition-colors"
         aria-label="New Invoice"
       >
         <Plus className="h-6 w-6" />

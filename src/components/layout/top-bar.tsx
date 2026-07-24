@@ -14,11 +14,11 @@ export function TopBar({ businessName }: TopBarProps) {
 
   return (
     <>
-      <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-2 border-b bg-card px-3">
-        <div className="flex items-center gap-1 min-w-0">
+      <header className="sticky top-0 z-30 flex h-12 sm:h-14 items-center justify-between gap-1 border-b bg-card px-2 sm:px-3">
+        <div className="flex items-center gap-0.5 min-w-0">
           <button
             onClick={() => setMenuOpen(true)}
-            className="p-2 rounded-lg hover:bg-muted shrink-0"
+            className="p-1.5 sm:p-2 rounded-lg hover:bg-muted shrink-0"
             aria-label="Open menu"
           >
             <Menu className="h-5 w-5" />
@@ -27,15 +27,15 @@ export function TopBar({ businessName }: TopBarProps) {
             <div className="h-6 w-6 rounded-md bg-primary flex items-center justify-center shrink-0">
               <Zap className="h-3.5 w-3.5 text-primary-foreground" />
             </div>
-            <span className="text-sm font-semibold truncate max-w-[9rem] sm:max-w-xs">{businessName || "Brandfledger"}</span>
-            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <span className="text-xs sm:text-sm font-semibold truncate max-w-[7rem] sm:max-w-xs">{businessName || "Brandfledger"}</span>
+            <ChevronDown className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-muted-foreground shrink-0" />
           </Link>
         </div>
 
         <div className="relative shrink-0">
           <button
             onClick={() => setNotifOpen(o => !o)}
-            className="p-2 rounded-lg hover:bg-muted relative"
+            className="p-1.5 sm:p-2 rounded-lg hover:bg-muted relative"
             aria-label="Notifications"
           >
             <Bell className="h-5 w-5" />

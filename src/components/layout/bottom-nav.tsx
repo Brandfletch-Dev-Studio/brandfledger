@@ -29,10 +29,13 @@ export function BottomNav() {
             <Link
               key={href}
               href={href}
-              className={cn("flex-1 flex flex-col items-center justify-center gap-0.5 py-2 text-[11px] font-medium", active ? "text-primary" : "text-muted-foreground")}
+              className={cn(
+                "flex-1 flex flex-col items-center justify-center gap-0.5 py-1.5 sm:py-2 text-[10px] sm:text-[11px] font-medium",
+                active ? "text-primary" : "text-muted-foreground"
+              )}
             >
-              <div className={cn("flex items-center justify-center rounded-xl h-8 w-12 transition-colors", active && "bg-primary/10")}>
-                <Icon className="h-5 w-5" />
+              <div className={cn("flex items-center justify-center rounded-xl h-7 w-10 sm:h-8 sm:w-12 transition-colors", active && "bg-primary/10")}>
+                <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
               </div>
               {label}
             </Link>
@@ -40,10 +43,13 @@ export function BottomNav() {
         })}
         <button
           onClick={() => setMenuOpen(true)}
-          className={cn("flex-1 flex flex-col items-center justify-center gap-0.5 py-2 text-[11px] font-medium", isMoreActive ? "text-primary" : "text-muted-foreground")}
+          className={cn(
+            "flex-1 flex flex-col items-center justify-center gap-0.5 py-1.5 sm:py-2 text-[10px] sm:text-[11px] font-medium",
+            isMoreActive ? "text-primary" : "text-muted-foreground"
+          )}
         >
-          <div className={cn("flex items-center justify-center rounded-xl h-8 w-12 transition-colors", isMoreActive && "bg-primary/10")}>
-            <MoreHorizontal className="h-5 w-5" />
+          <div className={cn("flex items-center justify-center rounded-xl h-7 w-10 sm:h-8 sm:w-12 transition-colors", isMoreActive && "bg-primary/10")}>
+            <MoreHorizontal className="h-4 w-4 sm:h-5 sm:w-5" />
           </div>
           More
         </button>

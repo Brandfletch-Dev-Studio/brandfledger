@@ -12,8 +12,8 @@ const primaryNav = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/transactions", label: "Transactions", icon: ArrowLeftRight },
   { href: "/invoices", label: "Sales / Invoices", icon: FileText },
-  { href: "/products", label: "Items", icon: Package },
-  { href: "/customers", label: "Customers", icon: Users },
+  { href: "/products", label: "Products", icon: Package },
+  { href: "/customers", label: "Clients", icon: Users },
 ];
 
 const moreNav = [

@@ -157,7 +157,7 @@ export default function ProductsPage() {
           </Dialog>
         }
       />
-      <div className="p-6 space-y-4">
+      <div className="p-3 sm:p-6 space-y-4">
         <div className="relative max-w-sm">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input placeholder="Search products..." className="pl-9" value={search} onChange={e => setSearch(e.target.value)} />

@@ -245,13 +245,13 @@ export default function TransactionsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6 p-3 sm:p-6">
       <Header title="Transactions" description="Log income & expenses with automatic profit tracking" />
 
       {/* Summary Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <Card className="shadow-sm border">
-          <CardContent className="p-4">
+          <CardContent className="p-3 sm:p-4">
             <p className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">REVENUE</p>
             <p className="text-2xl font-extrabold text-emerald-600 dark:text-emerald-400 mt-1">
               {formatCurrency(stats.totalRevenue, currency)}
@@ -262,7 +262,7 @@ export default function TransactionsPage() {
           </CardContent>
         </Card>
         <Card className="shadow-sm border">
-          <CardContent className="p-4">
+          <CardContent className="p-3 sm:p-4">
             <p className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">COST OF SALES</p>
             <p className="text-2xl font-extrabold text-rose-600 dark:text-rose-400 mt-1">
               {formatCurrency(stats.totalCost, currency)}
@@ -271,7 +271,7 @@ export default function TransactionsPage() {
           </CardContent>
         </Card>
         <Card className="shadow-sm border">
-          <CardContent className="p-4">
+          <CardContent className="p-3 sm:p-4">
             <p className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">GROSS PROFIT</p>
             <p className={`text-2xl font-extrabold mt-1 ${stats.grossProfit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
               {formatCurrency(stats.grossProfit, currency)}
@@ -282,7 +282,7 @@ export default function TransactionsPage() {
           </CardContent>
         </Card>
         <Card className="shadow-sm border">
-          <CardContent className="p-4">
+          <CardContent className="p-3 sm:p-4">
             <p className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">NET PROFIT</p>
             <p className={`text-2xl font-extrabold mt-1 ${stats.netProfit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
               {formatCurrency(stats.netProfit, currency)}
@@ -620,14 +620,14 @@ export default function TransactionsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/50">
-                  <th className="text-left p-3 font-semibold text-muted-foreground whitespace-nowrap">Date</th>
-                  <th className="text-left p-3 font-semibold text-muted-foreground">Description</th>
-                  <th className="text-left p-3 font-semibold text-muted-foreground hidden sm:table-cell">Category</th>
-                  <th className="text-right p-3 font-semibold text-muted-foreground">Amount</th>
-                  <th className="text-right p-3 font-semibold text-muted-foreground hidden sm:table-cell">Cost</th>
-                  <th className="text-right p-3 font-semibold text-muted-foreground">Profit</th>
-                  <th className="text-right p-3 font-semibold text-muted-foreground hidden sm:table-cell">Margin</th>
-                  <th className="p-3 w-10"></th>
+                  <th className="text-left p-2 sm:p-3 font-semibold text-muted-foreground whitespace-nowrap">Date</th>
+                  <th className="text-left p-2 sm:p-3 font-semibold text-muted-foreground">Description</th>
+                  <th className="text-left p-2 sm:p-3 font-semibold text-muted-foreground hidden sm:table-cell">Category</th>
+                  <th className="text-right p-2 sm:p-3 font-semibold text-muted-foreground">Amount</th>
+                  <th className="text-right p-2 sm:p-3 font-semibold text-muted-foreground hidden sm:table-cell">Cost</th>
+                  <th className="text-right p-2 sm:p-3 font-semibold text-muted-foreground">Profit</th>
+                  <th className="text-right p-2 sm:p-3 font-semibold text-muted-foreground hidden sm:table-cell">Margin</th>
+                  <th className="p-2 sm:p-3 w-10"></th>
                 </tr>
               </thead>
               <tbody>
@@ -647,8 +647,8 @@ export default function TransactionsPage() {
 
                   return (
                     <tr key={t.id} className="border-b hover:bg-muted/40 transition-colors">
-                      <td className="p-3 whitespace-nowrap text-muted-foreground">{formatDate(t.date)}</td>
-                      <td className="p-3">
+                      <td className="p-2 sm:p-3 whitespace-nowrap text-muted-foreground">{formatDate(t.date)}</td>
+                      <td className="p-2 sm:p-3">
                         <div className="font-semibold text-foreground">
                           {isIncome ? (t.client_name || "—") : (t.vendor_name || t.description || "Expense")}
                         </div>
@@ -656,14 +656,14 @@ export default function TransactionsPage() {
                           {isIncome ? (t.description || "Income transaction") : (t.vendor_name ? t.description : "Expense transaction")}
                         </div>
                       </td>
-                      <td className="p-3 hidden sm:table-cell">
+                      <td className="p-2 sm:p-3 hidden sm:table-cell">
                         {t.category_name && (
                           <Badge variant="outline" className="text-xs font-normal">
                             {t.category_name}
                           </Badge>
                         )}
                       </td>
-                      <td className={`p-3 text-right font-semibold whitespace-nowrap ${isIncome ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
+                      <td className={`p-2 sm:p-3 text-right font-semibold whitespace-nowrap ${isIncome ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
                         {isIncome ? "+" : "-"}{formatCurrency(amt, currency)}
                       </td>
                       <td className="p-3 text-right text-muted-foreground hidden sm:table-cell whitespace-nowrap">

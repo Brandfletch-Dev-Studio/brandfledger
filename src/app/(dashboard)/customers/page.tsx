@@ -127,7 +127,7 @@ export default function CustomersPage() {
   return (
     <div>
       <Header title="Clients" description="Manage your client database" />
-      <div className="p-6 space-y-4">
+      <div className="p-3 sm:p-6 space-y-4">
         <div className="flex items-center justify-between gap-4">
           <div className="relative flex-1 max-w-sm">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
