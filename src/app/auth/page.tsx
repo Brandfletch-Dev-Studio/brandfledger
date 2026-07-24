@@ -1,7 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,65 +20,60 @@ export default function AuthPage() {
   });
 
   useEffect(() => {
-    // If already logged in, redirect to dashboard
-    const sb = createClient();
-    sb.auth.getSession().then(({ data }) => {
-      if (data.session) router.push("/dashboard");
-    });
+    // Check for existing session cookie via API
+    fetch("/api/auth/me").then(r => r.ok ? router.push("/dashboard") : null).catch(() => {});
   }, [router]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    const sb = createClient();
 
     if (mode === "signup") {
-      const { data, error } = await sb.auth.signUp({
-        email: form.email,
-        password: form.password,
-        options: {
-          data: { full_name: form.fullName },
-        },
-      });
-
-      if (error) {
-        toast({ title: "Sign up failed", description: error.message, variant: "destructive" });
+      try {
+        const res = await fetch("/api/auth/signup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(form),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          toast({ title: "Sign up failed", description: data.error, variant: "destructive" });
+          setLoading(false);
+          return;
+        }
+        toast({ title: "Welcome to Brandfledger!", description: "Your account is ready." });
+        // Full page reload to ensure cookie is set
+        window.location.href = "/dashboard";
+        return;
+      } catch (err: any) {
+        toast({ title: "Sign up failed", description: err.message, variant: "destructive" });
         setLoading(false);
         return;
       }
+    }
 
-      // If email confirmation is disabled, user is logged in immediately
-      if (data.session) {
-        // Create a default business for the new user
-        if (form.businessName) {
-          await sb.from("businesses").insert({
-            name: form.businessName,
-            currency: "MWK",
-            invoice_prefix: "INV",
-            owner_id: data.user?.id,
-          });
-        }
-        toast({ title: "Welcome to Brandfledger!", description: "Your account is ready." });
-        router.push("/dashboard");
-      } else {
-        toast({ title: "Check your email", description: "We sent you a confirmation link to complete sign up." });
-      }
-    } else {
-      const { data, error } = await sb.auth.signInWithPassword({
-        email: form.email,
-        password: form.password,
+    // Sign in
+    try {
+      const res = await fetch("/api/auth/signin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: form.email, password: form.password }),
       });
-
-      if (error) {
-        toast({ title: "Sign in failed", description: error.message, variant: "destructive" });
+      const data = await res.json();
+      
+      if (!res.ok) {
+        toast({ title: "Sign in failed", description: data.error, variant: "destructive" });
         setLoading(false);
         return;
       }
 
       toast({ title: "Welcome back!" });
-      router.push("/dashboard");
+      // Full page reload to ensure cookie is sent with the middleware request
+      window.location.href = "/dashboard";
+    } catch (err: any) {
+      toast({ title: "Sign in failed", description: err.message, variant: "destructive" });
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   return (
