@@ -19,6 +19,19 @@ export async function GET(request: Request) {
     const section = searchParams.get("section");
 
     if (section === "overview") {
+      // Auto-backfill accounts rows for any business owner not yet registered
+      // (handles users created before the accounts table existed)
+      try {
+        await query(`
+          INSERT INTO accounts (user_id, subscription_status, trial_ends_at)
+          SELECT DISTINCT b.owner_id, 'trial',
+            b.created_at + INTERVAL '14 days'
+          FROM businesses b
+          WHERE NOT EXISTS (SELECT 1 FROM accounts a WHERE a.user_id = b.owner_id)
+          ON CONFLICT (user_id) DO NOTHING
+        `, []);
+      } catch {}
+
       const now = new Date();
       const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400_000).toISOString();
       const sevenDaysAgo  = new Date(now.getTime() -  7 * 86400_000).toISOString();
@@ -33,8 +46,8 @@ export async function GET(request: Request) {
         revenueRows,
         recentExpiredRows,
       ] = await Promise.all([
-        // Total unique user accounts
-        query(`SELECT COUNT(DISTINCT owner_id) as count FROM businesses`, []),
+        // Total unique user accounts (from accounts table, backfilled above)
+        query(`SELECT COUNT(*) as count FROM accounts`, []),
         // Subscription breakdown
         query(`
           SELECT subscription_status, COUNT(*) as count
