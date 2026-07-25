@@ -65,12 +65,20 @@ export async function POST(request: Request) {
       [userId, email.toLowerCase().trim(), hashedPassword, now, now, now, JSON.stringify({ full_name: fullName || "" })]
     );
 
-    // Create default business with 14-day free trial
+    // Create accounts row with 14-day free trial (one trial per account)
+    await client.query(
+      `INSERT INTO accounts (user_id, subscription_status, trial_ends_at)
+       VALUES ($1, 'trial', $2::timestamptz + INTERVAL '14 days')
+       ON CONFLICT (user_id) DO NOTHING`,
+      [userId, now]
+    );
+
+    // Create default business (no trial fields — trial is on the account)
     if (businessName) {
       const bizId = crypto.randomUUID();
       await client.query(
-        `INSERT INTO businesses (id, name, currency, invoice_prefix, owner_id, created_at, subscription_status, trial_ends_at)
-         VALUES ($1, $2, 'MWK', 'INV', $3, $4, 'trial', $4 + INTERVAL '14 days')`,
+        `INSERT INTO businesses (id, name, currency, invoice_prefix, owner_id, created_at)
+         VALUES ($1, $2, 'MWK', 'INV', $3, $4)`,
         [bizId, businessName, userId, now]
       );
     }

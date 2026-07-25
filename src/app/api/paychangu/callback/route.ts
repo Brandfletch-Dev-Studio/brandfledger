@@ -43,8 +43,10 @@ export async function GET(req: NextRequest) {
           [verifyResult.data?.tx_id || txRef, endDate, sub.id]
         );
 
+        // Update account-level subscription (one per user, covers all their businesses)
         await query(
-          `UPDATE businesses SET subscription_status = 'active', subscription_ends_at = $1 WHERE id = $2`,
+          `UPDATE accounts SET subscription_status = 'active', subscription_ends_at = $1, updated_at = NOW()
+           WHERE user_id = (SELECT owner_id FROM businesses WHERE id = $2 LIMIT 1)`,
           [endDate, sub.business_id]
         );
 

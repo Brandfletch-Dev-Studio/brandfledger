@@ -17,13 +17,10 @@ import type { Transaction, Category, Product } from "@/types";
 import { PAYMENT_METHODS } from "@/types";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 
+const BLANK_LINE = { product_id: "", description: "", qty: "1", unit_price: "", unit_cost: "" };
 const BLANK_INCOME = {
   client_name: "",
-  description: "",
-  amount: "",
-  cost_amount: "",
   category_id: "",
-  product_id: "",
   payment_method: "cash",
   date: new Date().toISOString().split("T")[0],
 };
@@ -49,6 +46,7 @@ export default function TransactionsPage() {
   const [catOpen, setCatOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("income");
   const [incomeForm, setIncomeForm] = useState(BLANK_INCOME);
+  const [lineItems, setLineItems] = useState([{ ...BLANK_LINE }]);
   const [expenseForm, setExpenseForm] = useState(BLANK_EXPENSE);
   const [catForm, setCatForm] = useState(BLANK_CATEGORY);
 
@@ -76,27 +74,41 @@ export default function TransactionsPage() {
   const incomeCategories = categories.filter(c => c.type === "income");
   const expenseCategories = categories.filter(c => c.type === "expense");
 
-  const profitPreview = useMemo(() => {
-    const amount = parseFloat(incomeForm.amount) || 0;
-    const cost = parseFloat(incomeForm.cost_amount) || 0;
-    const profit = amount - cost;
-    const margin = amount > 0 ? (profit / amount * 100) : 0;
-    return { cost, profit, margin };
-  }, [incomeForm.amount, incomeForm.cost_amount]);
-
-  function onProductChange(productId: string) {
-    const product = products.find(p => p.id === productId);
-    if (product) {
-      setIncomeForm(p => ({
-        ...p,
-        product_id: productId,
-        amount: String(product.price),
-        cost_amount: String(product.cost ?? 0),
-        description: product.name,
-      }));
-    } else {
-      setIncomeForm(p => ({ ...p, product_id: "" }));
+  const lineTotals = useMemo(() => {
+    let totalAmount = 0, totalCost = 0;
+    for (const li of lineItems) {
+      const qty = parseFloat(li.qty) || 1;
+      const price = parseFloat(li.unit_price) || 0;
+      const cost = parseFloat(li.unit_cost) || 0;
+      totalAmount += qty * price;
+      totalCost += qty * cost;
     }
+    const profit = totalAmount - totalCost;
+    const margin = totalAmount > 0 ? (profit / totalAmount * 100) : 0;
+    return { totalAmount, totalCost, profit, margin };
+  }, [lineItems]);
+
+  function onLineProductChange(index: number, productId: string) {
+    const product = products.find(p => p.id === productId);
+    setLineItems(prev => prev.map((li, i) => i !== index ? li : {
+      ...li,
+      product_id: productId,
+      unit_price: product ? String(product.price) : li.unit_price,
+      unit_cost: product ? String(product.cost ?? 0) : li.unit_cost,
+      description: product ? product.name : li.description,
+    }));
+  }
+
+  function updateLine(index: number, field: string, value: string) {
+    setLineItems(prev => prev.map((li, i) => i !== index ? li : { ...li, [field]: value }));
+  }
+
+  function addLine() {
+    setLineItems(prev => [...prev, { ...BLANK_LINE }]);
+  }
+
+  function removeLine(index: number) {
+    setLineItems(prev => prev.length > 1 ? prev.filter((_, i) => i !== index) : prev);
   }
 
   const stats = useMemo(() => {
@@ -128,37 +140,47 @@ export default function TransactionsPage() {
   }, [transactions, search, typeFilter]);
 
   async function handleAddIncome() {
-    if (!incomeForm.client_name || !incomeForm.amount || !business) return;
+    const validLines = lineItems.filter(li => li.unit_price && parseFloat(li.unit_price) > 0);
+    if (!incomeForm.client_name || validLines.length === 0 || !business) return;
     setLoading(true);
-    const amount = parseFloat(incomeForm.amount);
-    const costAmount = parseFloat(incomeForm.cost_amount) || 0;
+
     const cat = categories.find(c => c.id === incomeForm.category_id);
+    let succeeded = 0;
 
-    const res = await fetch("/api/data/transactions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "create_transaction",
-        business_id: business.id,
-        type: "income",
-        category_id: incomeForm.category_id || null,
-        category_name: cat?.name || null,
-        client_name: incomeForm.client_name,
-        description: incomeForm.description || incomeForm.client_name,
-        amount,
-        cost_amount: costAmount,
-        product_id: incomeForm.product_id || null,
-        payment_method: incomeForm.payment_method,
-        date: incomeForm.date,
-      }),
-    });
+    for (const li of validLines) {
+      const qty = parseFloat(li.qty) || 1;
+      const amount = qty * (parseFloat(li.unit_price) || 0);
+      const costAmount = qty * (parseFloat(li.unit_cost) || 0);
 
-    if (!res.ok) {
-      const err = await res.json();
-      toast({ title: "Error", description: err.error || "Failed to add income", variant: "destructive" });
-    } else {
-      toast({ title: "Income logged", description: `${incomeForm.client_name} — ${formatCurrency(amount, business.currency)}` });
+      const res = await fetch("/api/data/transactions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "create_transaction",
+          business_id: business.id,
+          type: "income",
+          category_id: incomeForm.category_id || null,
+          category_name: cat?.name || null,
+          client_name: incomeForm.client_name,
+          description: li.description || li.product_id || incomeForm.client_name,
+          amount,
+          cost_amount: costAmount,
+          product_id: li.product_id || null,
+          payment_method: incomeForm.payment_method,
+          date: incomeForm.date,
+        }),
+      });
+      if (res.ok) succeeded++;
+      else {
+        const err = await res.json();
+        toast({ title: "Error on line " + (succeeded + 1), description: err.error || "Failed", variant: "destructive" });
+      }
+    }
+
+    if (succeeded > 0) {
+      toast({ title: `${succeeded} transaction${succeeded > 1 ? "s" : ""} logged`, description: `${incomeForm.client_name} — ${formatCurrency(lineTotals.totalAmount, business.currency)}` });
       setIncomeForm({ ...BLANK_INCOME, date: new Date().toISOString().split("T")[0] });
+      setLineItems([{ ...BLANK_LINE }]);
       setOpen(false);
       clearCache(`transactions_v2:${bizId ?? "default"}`);
       refetch();
@@ -285,31 +307,96 @@ export default function TransactionsPage() {
                   </TabsList>
 
                   <TabsContent value="income" className="space-y-3 mt-4">
+                    {/* Client & meta */}
                     <div>
-                      <Label className="text-xs">Client Name</Label>
+                      <Label className="text-xs">Client Name *</Label>
                       <Input value={incomeForm.client_name} onChange={e => setIncomeForm(p => ({ ...p, client_name: e.target.value }))} placeholder="e.g. Radiant Son" className="h-9" />
                     </div>
-                    <div>
-                      <Label className="text-xs">Description</Label>
-                      <Input value={incomeForm.description} onChange={e => setIncomeForm(p => ({ ...p, description: e.target.value }))} placeholder="e.g. $2 ad" className="h-9" />
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <Label className="text-xs">Amount (MWK)</Label>
-                        <Input type="number" value={incomeForm.amount} onChange={e => setIncomeForm(p => ({ ...p, amount: e.target.value }))} placeholder="12000" className="h-9" />
+
+                    {/* Line items */}
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-[1fr_56px_80px_80px_28px] gap-1.5 items-center">
+                        <Label className="text-[10px] text-muted-foreground">Product / Description</Label>
+                        <Label className="text-[10px] text-muted-foreground text-center">Qty</Label>
+                        <Label className="text-[10px] text-muted-foreground text-right">Price</Label>
+                        <Label className="text-[10px] text-muted-foreground text-right">Cost</Label>
+                        <span />
                       </div>
-                      <div>
-                        <Label className="text-xs">Cost (MWK)</Label>
-                        <Input type="number" value={incomeForm.cost_amount} onChange={e => setIncomeForm(p => ({ ...p, cost_amount: e.target.value }))} placeholder="8600" className="h-9" />
-                      </div>
+                      {lineItems.map((li, idx) => (
+                        <div key={idx} className="grid grid-cols-[1fr_56px_80px_80px_28px] gap-1.5 items-center">
+                          <SearchableSelect
+                            options={[
+                              { value: "__custom__", label: "Custom…" },
+                              ...products.map(p => ({ value: p.id, label: p.name, subtitle: formatCurrency(p.price, currency) }))
+                            ]}
+                            value={li.product_id || (li.description ? "__custom__" : "")}
+                            onChange={v => {
+                              if (v === "__custom__") {
+                                updateLine(idx, "product_id", "");
+                              } else {
+                                onLineProductChange(idx, v);
+                              }
+                            }}
+                            placeholder="Select / type…"
+                            searchPlaceholder="Search products…"
+                          />
+                          <Input
+                            type="number"
+                            value={li.qty}
+                            onChange={e => updateLine(idx, "qty", e.target.value)}
+                            className="h-9 text-center px-1.5"
+                            min="1"
+                          />
+                          <Input
+                            type="number"
+                            value={li.unit_price}
+                            onChange={e => updateLine(idx, "unit_price", e.target.value)}
+                            placeholder="0"
+                            className="h-9 text-right px-1.5"
+                          />
+                          <Input
+                            type="number"
+                            value={li.unit_cost}
+                            onChange={e => updateLine(idx, "unit_cost", e.target.value)}
+                            placeholder="0"
+                            className="h-9 text-right px-1.5"
+                          />
+                          <button
+                            onClick={() => removeLine(idx)}
+                            className="h-7 w-7 flex items-center justify-center rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        onClick={addLine}
+                        className="flex items-center gap-1.5 text-xs text-primary font-medium hover:underline py-0.5"
+                      >
+                        <Plus className="h-3.5 w-3.5" /> Add item
+                      </button>
                     </div>
-                    {profitPreview.profit !== 0 && parseFloat(incomeForm.amount) > 0 && (
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <span>Profit: <span className={profitPreview.profit >= 0 ? "text-green-600 font-medium" : "text-red-600 font-medium"}>{formatCurrency(profitPreview.profit, currency)}</span></span>
-                        <span>•</span>
-                        <span>Margin: <span className="font-medium">{profitPreview.margin.toFixed(1)}%</span></span>
+
+                    {/* Totals preview */}
+                    {lineTotals.totalAmount > 0 && (
+                      <div className="rounded-lg bg-muted/50 px-3 py-2 space-y-1">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-muted-foreground">Total</span>
+                          <span className="font-semibold">{formatCurrency(lineTotals.totalAmount, currency)}</span>
+                        </div>
+                        <div className="flex justify-between text-xs">
+                          <span className="text-muted-foreground">Cost</span>
+                          <span>{formatCurrency(lineTotals.totalCost, currency)}</span>
+                        </div>
+                        <div className="flex justify-between text-xs border-t pt-1">
+                          <span className="text-muted-foreground">Profit</span>
+                          <span className={lineTotals.profit >= 0 ? "text-green-600 font-semibold" : "text-destructive font-semibold"}>
+                            {formatCurrency(lineTotals.profit, currency)} ({lineTotals.margin.toFixed(1)}%)
+                          </span>
+                        </div>
                       </div>
                     )}
+
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <Label className="text-xs">Category</Label>
@@ -322,22 +409,6 @@ export default function TransactionsPage() {
                         />
                       </div>
                       <div>
-                        <Label className="text-xs">Product</Label>
-                        <SearchableSelect
-                          options={products.map(p => ({ value: p.id, label: p.name }))}
-                          value={incomeForm.product_id}
-                          onChange={onProductChange}
-                          placeholder="Select..."
-                          searchPlaceholder="Search products..."
-                        />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <Label className="text-xs">Date</Label>
-                        <Input type="date" value={incomeForm.date} onChange={e => setIncomeForm(p => ({ ...p, date: e.target.value }))} className="h-9" />
-                      </div>
-                      <div>
                         <Label className="text-xs">Payment Method</Label>
                         <Select value={incomeForm.payment_method} onValueChange={v => setIncomeForm(p => ({ ...p, payment_method: v }))}>
                           <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
@@ -347,8 +418,12 @@ export default function TransactionsPage() {
                         </Select>
                       </div>
                     </div>
-                    <Button onClick={handleAddIncome} disabled={loading} className="w-full">
-                      {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Log Income"}
+                    <div>
+                      <Label className="text-xs">Date</Label>
+                      <Input type="date" value={incomeForm.date} onChange={e => setIncomeForm(p => ({ ...p, date: e.target.value }))} className="h-9" />
+                    </div>
+                    <Button onClick={handleAddIncome} disabled={loading || !incomeForm.client_name || lineTotals.totalAmount === 0} className="w-full">
+                      {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : `Log Income${lineItems.filter(li => parseFloat(li.unit_price) > 0).length > 1 ? ` (${lineItems.filter(li => parseFloat(li.unit_price) > 0).length} items)` : ""}`}
                     </Button>
                   </TabsContent>
 

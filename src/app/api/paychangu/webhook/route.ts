@@ -63,7 +63,8 @@ export async function POST(req: NextRequest) {
           );
 
           await query(
-            `UPDATE businesses SET subscription_status = 'active', subscription_ends_at = $1 WHERE id = $2`,
+            `UPDATE accounts SET subscription_status = 'active', subscription_ends_at = $1, updated_at = NOW()
+             WHERE user_id = (SELECT owner_id FROM businesses WHERE id = $2 LIMIT 1)`,
             [endDate, sub.business_id]
           );
         }
