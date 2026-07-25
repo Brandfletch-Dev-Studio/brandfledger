@@ -3,6 +3,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const options = [
+  { value: "today", label: "Today" },
   { value: "this_month", label: "This Month" },
   { value: "last_month", label: "Last Month" },
   { value: "this_quarter", label: "This Quarter" },
@@ -16,11 +17,22 @@ export function PeriodSelect({ value }: { value: string }) {
 
   return (
     <Select value={value} onValueChange={(v) => router.push(`${pathname}?period=${v}`)}>
-      <SelectTrigger className="w-auto min-w-[120px] h-9 rounded-full bg-card text-xs font-medium gap-1.5 shrink-0">
+      <SelectTrigger className="w-auto min-w-[130px] h-9 rounded-full bg-card border text-xs font-medium gap-1.5 shrink-0">
         <SelectValue />
       </SelectTrigger>
-      <SelectContent align="end">
-        {options.map(o => <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>)}
+      <SelectContent
+        align="start"
+        className="z-50 min-w-[160px] rounded-xl border bg-card shadow-lg text-card-foreground"
+      >
+        {options.map(o => (
+          <SelectItem
+            key={o.value}
+            value={o.value}
+            className="text-sm rounded-lg cursor-pointer"
+          >
+            {o.label}
+          </SelectItem>
+        ))}
       </SelectContent>
     </Select>
   );

@@ -9,6 +9,9 @@ function getPeriodRange(period: string) {
   let start: Date;
   const end: Date = now;
   switch (period) {
+    case "today":
+      start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+      break;
     case "last_month":
       start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
       break;
