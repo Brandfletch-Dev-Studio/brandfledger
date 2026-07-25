@@ -3,19 +3,15 @@ import crypto from "crypto";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { Pool } = require("pg") as { Pool: new (opts: any) => any };
 
-const PROJECT_REF = "qgsaycsdoclsiwrsfaco";
-const DB_PASSWORD = encodeURIComponent("Arthur@472003Chibondo");
-const SESSION_SECRET = "brandfledger-session-secret-2026";
+const SESSION_SECRET = process.env.SESSION_SECRET!;
 
-// ─── Connection Pool ───────────────────────────────────────────────────────────
-// Re-used across requests within the same serverless instance — cuts 400-600ms
-// of connect/disconnect overhead that the old Client approach paid per call.
+// ─── Connection Pool ────────────────────────────────────────────────────────────
 let _pool: any = null;
 
 function getPool() {
   if (!_pool) {
     _pool = new Pool({
-      connectionString: `postgresql://postgres.${PROJECT_REF}:${DB_PASSWORD}@aws-0-eu-west-1.pooler.supabase.com:6543/postgres`,
+      connectionString: process.env.DATABASE_URL!,
       ssl: { rejectUnauthorized: false },
       max: 3,
       idleTimeoutMillis: 10000,
@@ -26,7 +22,7 @@ function getPool() {
   return _pool;
 }
 
-// ─── Auth ──────────────────────────────────────────────────────────────────────
+// ─── Auth ───────────────────────────────────────────────────────────────────────
 export function getDbUser() {
   const cookieStore = cookies();
   const sessionCookie = cookieStore.get("brandfledger_session")?.value;
@@ -42,14 +38,14 @@ export function getDbUser() {
   }
 }
 
-// ─── Query ─────────────────────────────────────────────────────────────────────
+// ─── Query ──────────────────────────────────────────────────────────────────────
 export async function query(text: string, params?: any[]) {
   const pool = getPool();
   const result = await pool.query(text, params);
   return result.rows;
 }
 
-// ─── Helpers ───────────────────────────────────────────────────────────────────
+// ─── Helpers ────────────────────────────────────────────────────────────────────
 export async function getUserBusinesses(userId: string) {
   return query(
     "SELECT id, name, currency, invoice_prefix, address, phone, email, logo_url FROM businesses WHERE owner_id = $1 ORDER BY created_at",
