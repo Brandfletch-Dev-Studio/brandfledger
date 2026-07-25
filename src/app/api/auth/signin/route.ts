@@ -35,59 +35,26 @@ export async function POST(request: Request) {
   try {
     await client.connect();
 
-    // Verify credentials against auth.users using bcrypt
+    // Single query: fetch user AND verify password using pgcrypto in one round trip
     const { rows } = await client.query(
-      `SELECT id, email, encrypted_password, raw_user_meta_data->>'full_name' as full_name
-       FROM auth.users 
-       WHERE email = $1 AND email_confirmed_at IS NOT NULL`,
-      [email.toLowerCase().trim()]
+      `SELECT
+         id,
+         email,
+         raw_user_meta_data->>'full_name' AS full_name,
+         (encrypted_password = crypt($2, encrypted_password)) AS password_ok
+       FROM auth.users
+       WHERE email = $1`,
+      [email.toLowerCase().trim(), password]
     );
 
     if (rows.length === 0) {
-      // Check if user exists but email not confirmed
-      const { rows: unconfirmed } = await client.query(
-        `SELECT id FROM auth.users WHERE email = $1 AND email_confirmed_at IS NULL`,
-        [email.toLowerCase().trim()]
-      );
-      if (unconfirmed.length > 0) {
-        await client.end();
-        return NextResponse.json({ error: "Please confirm your email first" }, { status: 401 });
-      }
       await client.end();
       return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
     }
 
     const user = rows[0];
 
-    // Verify password using crypt() function (PostgreSQL bcrypt)
-    const { rows: pwCheck } = await client.query(
-      "SELECT $1 = crypt($2, $3) as match",
-      [true, password, user.encrypted_password]
-    );
-
-    // Also try with the password as the crypt input
-    let passwordValid = false;
-    if (pwCheck[0]?.match) {
-      passwordValid = true;
-    } else {
-      // Try direct crypt comparison
-      const { rows: pwCheck2 } = await client.query(
-        "SELECT crypt($1, $2) = $2 as match",
-        [password, user.encrypted_password]
-      );
-      passwordValid = pwCheck2[0]?.match || false;
-    }
-
-    if (!passwordValid) {
-      // Try one more way: use pgcrypto's crypt
-      const { rows: pwCheck3 } = await client.query(
-        `SELECT (encrypted_password = crypt($1, encrypted_password)) as match FROM auth.users WHERE email = $2`,
-        [password, email.toLowerCase().trim()]
-      );
-      passwordValid = pwCheck3[0]?.match || false;
-    }
-
-    if (!passwordValid) {
+    if (!user.password_ok) {
       await client.end();
       return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
     }
@@ -100,17 +67,14 @@ export async function POST(request: Request) {
 
     await client.end();
 
-    // Create session token
     const sessionToken = createSessionToken(user.id, user.email);
 
     const response = NextResponse.json({
       success: true,
       user: { id: user.id, email: user.email, fullName: user.full_name },
       businesses,
-      sessionToken,
     });
 
-    // Set session cookie
     response.cookies.set("brandfledger_session", sessionToken, {
       httpOnly: true,
       secure: true,
@@ -122,6 +86,7 @@ export async function POST(request: Request) {
     return response;
   } catch (err: any) {
     try { await client.end(); } catch {}
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    console.error("Signin error:", err.message);
+    return NextResponse.json({ error: "Sign in failed. Please try again." }, { status: 500 });
   }
 }
