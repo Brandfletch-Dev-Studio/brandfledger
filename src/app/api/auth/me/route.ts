@@ -4,12 +4,9 @@ import crypto from "crypto";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const SESSION_SECRET = "brandfledger-session-secret-2026";
-const PROJECT_REF = "qgsaycsdoclsiwrsfaco";
-const DB_PASSWORD = encodeURIComponent("Arthur@472003Chibondo");
-
 function verifySessionToken(token: string): { userId: string; email: string } | null {
   try {
+    const SESSION_SECRET = process.env.SESSION_SECRET!;
     const [body, signature] = token.split(".");
     const expectedSig = crypto.createHmac("sha256", SESSION_SECRET).update(body).digest("base64url");
     if (signature !== expectedSig) return null;
@@ -22,11 +19,11 @@ function verifySessionToken(token: string): { userId: string; email: string } | 
 
 export async function GET(request: Request) {
   const cookieHeader = request.headers.get("cookie") || "";
-  const cookies = Object.fromEntries(
+  const cookieMap = Object.fromEntries(
     cookieHeader.split(";").map(c => c.trim().split("=").map(decodeURIComponent) as [string, string])
   );
-  
-  const sessionCookie = cookies["brandfledger_session"];
+
+  const sessionCookie = cookieMap["brandfledger_session"];
   if (!sessionCookie) {
     return NextResponse.json({ authenticated: false }, { status: 401 });
   }
@@ -36,12 +33,10 @@ export async function GET(request: Request) {
     return NextResponse.json({ authenticated: false }, { status: 401 });
   }
 
-  // Optionally verify user still exists in DB
   const pg = await import("pg");
   const Client = pg.Client;
-  const connStr = `postgresql://postgres.${PROJECT_REF}:${DB_PASSWORD}@aws-0-eu-west-1.pooler.supabase.com:6543/postgres`;
   const client = new (Client as any)({
-    connectionString: connStr,
+    connectionString: process.env.DATABASE_URL!,
     ssl: { rejectUnauthorized: false },
     connectionTimeoutMillis: 10000,
   });
