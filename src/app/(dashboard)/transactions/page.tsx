@@ -292,7 +292,7 @@ export default function TransactionsPage() {
                   <Plus className="h-3.5 w-3.5" /> Quick Add
                 </Button>
               </DialogTrigger>
-              <DialogContent className="max-w-md">
+              <DialogContent>
                 <DialogHeader>
                   <DialogTitle>New Transaction</DialogTitle>
                 </DialogHeader>
@@ -315,15 +315,15 @@ export default function TransactionsPage() {
 
                     {/* Line items */}
                     <div className="space-y-2">
-                      <div className="grid grid-cols-[1fr_56px_80px_80px_28px] gap-1.5 items-center">
-                        <Label className="text-[10px] text-muted-foreground">Product / Description</Label>
+                      <div className="grid grid-cols-[1fr_44px_68px_68px_24px] gap-1 items-center">
+                        <Label className="text-[10px] text-muted-foreground">Product</Label>
                         <Label className="text-[10px] text-muted-foreground text-center">Qty</Label>
                         <Label className="text-[10px] text-muted-foreground text-right">Price</Label>
                         <Label className="text-[10px] text-muted-foreground text-right">Cost</Label>
                         <span />
                       </div>
                       {lineItems.map((li, idx) => (
-                        <div key={idx} className="grid grid-cols-[1fr_56px_80px_80px_28px] gap-1.5 items-center">
+                        <div key={idx} className="grid grid-cols-[1fr_44px_68px_68px_24px] gap-1 items-center">
                           <SearchableSelect
                             options={[
                               { value: "__custom__", label: "Custom…" },
@@ -344,7 +344,7 @@ export default function TransactionsPage() {
                             type="number"
                             value={li.qty}
                             onChange={e => updateLine(idx, "qty", e.target.value)}
-                            className="h-9 text-center px-1.5"
+                            className="h-8 text-center px-1 text-xs"
                             min="1"
                           />
                           <Input
@@ -352,14 +352,14 @@ export default function TransactionsPage() {
                             value={li.unit_price}
                             onChange={e => updateLine(idx, "unit_price", e.target.value)}
                             placeholder="0"
-                            className="h-9 text-right px-1.5"
+                            className="h-8 text-right px-1 text-xs"
                           />
                           <Input
                             type="number"
                             value={li.unit_cost}
                             onChange={e => updateLine(idx, "unit_cost", e.target.value)}
                             placeholder="0"
-                            className="h-9 text-right px-1.5"
+                            className="h-8 text-right px-1 text-xs"
                           />
                           <button
                             onClick={() => removeLine(idx)}
@@ -508,7 +508,7 @@ export default function TransactionsPage() {
               <Tag className="h-3.5 w-3.5" /> Manage Categories
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-md">
+          <DialogContent>
             <DialogHeader><DialogTitle>Manage Categories</DialogTitle></DialogHeader>
             <div className="space-y-3">
               {categories.length > 0 && (
