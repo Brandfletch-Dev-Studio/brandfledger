@@ -53,38 +53,18 @@ const FEATURES = [
   },
 ];
 
-const PRICING_PLANS = [
-  {
-    name: "Starter",
-    price: "MK 9,900",
-    period: "/month",
-    desc: "Perfect for solo traders and micro-businesses.",
-    features: ["1 business", "Unlimited transactions", "Invoicing", "Basic reports", "Email support"],
-    cta: "Start Free Trial",
-    href: "/register",
-    highlighted: false,
-  },
-  {
-    name: "Growth",
-    price: "MK 19,900",
-    period: "/month",
-    desc: "For growing businesses that need more power.",
-    features: ["Up to 3 businesses", "Everything in Starter", "Advanced reports", "Client portal", "Priority support"],
-    cta: "Start Free Trial",
-    href: "/register",
-    highlighted: true,
-  },
-  {
-    name: "Pro",
-    price: "MK 39,900",
-    period: "/month",
-    desc: "Full power for established businesses.",
-    features: ["Unlimited businesses", "Everything in Growth", "Data export", "API access", "Dedicated support"],
-    cta: "Contact Sales",
-    href: "mailto:hello@brandfledger.com",
-    highlighted: false,
-  },
-];
+const PLAN = {
+  monthly: "MK 15,000",
+  annual: "MK 150,000",
+  features: [
+    "Unlimited businesses",
+    "Unlimited transactions & invoices",
+    "Profit-per-sale tracking",
+    "Client management",
+    "Business reports & exports",
+    "Priority support",
+  ],
+};
 
 export default function LandingClient() {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -214,43 +194,53 @@ export default function LandingClient() {
         </section>
 
         {/* ── PRICING ── */}
-        <section id="pricing" className="py-16 sm:py-24 bg-white">
-          <div className="max-w-6xl mx-auto px-4">
-            <div className="text-center mb-12">
+        <section id="pricing" className="py-16 sm:py-24 bg-gray-50">
+          <div className="max-w-2xl mx-auto px-4">
+            <div className="text-center mb-10">
               <p className="text-sm font-semibold text-indigo-600 uppercase tracking-wider mb-2">Pricing</p>
-              <h2 className="text-3xl sm:text-4xl font-extrabold text-gray-900">Simple, fair pricing</h2>
-              <p className="mt-3 text-gray-500">Start free for 14 days. No card needed.</p>
+              <h2 className="text-3xl sm:text-4xl font-extrabold text-gray-900">One plan. Everything included.</h2>
+              <p className="mt-3 text-gray-500">14-day free trial. No card needed. Cancel anytime.</p>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 max-w-4xl mx-auto">
-              {PRICING_PLANS.map(p => (
-                <div key={p.name} className={`rounded-2xl border p-6 flex flex-col ${p.highlighted
-                  ? "border-indigo-500 shadow-xl ring-2 ring-indigo-500 ring-offset-2 bg-indigo-600 text-white"
-                  : "border-gray-200 shadow-sm bg-white"}`}>
-                  {p.highlighted && (
-                    <div className="text-xs font-bold bg-white/20 text-white rounded-full px-3 py-1 w-fit mb-3">Most Popular</div>
-                  )}
-                  <p className={`text-sm font-semibold mb-1 ${p.highlighted ? "text-indigo-200" : "text-gray-500"}`}>{p.name}</p>
-                  <div className="flex items-end gap-1 mb-1">
-                    <span className="text-3xl font-extrabold">{p.price}</span>
-                    <span className={`text-sm mb-1 ${p.highlighted ? "text-indigo-200" : "text-gray-400"}`}>{p.period}</span>
-                  </div>
-                  <p className={`text-xs mb-5 ${p.highlighted ? "text-indigo-200" : "text-gray-500"}`}>{p.desc}</p>
-                  <ul className="space-y-2 flex-1 mb-6">
-                    {p.features.map(feat => (
-                      <li key={feat} className="flex items-start gap-2 text-sm">
-                        <CheckCircle2 className={`w-4 h-4 mt-0.5 shrink-0 ${p.highlighted ? "text-green-300" : "text-green-500"}`} />
-                        <span className={p.highlighted ? "text-white" : "text-gray-700"}>{feat}</span>
-                      </li>
-                    ))}
-                  </ul>
-                  <Link href={p.href}
-                    className={`block text-center py-2.5 rounded-xl font-semibold text-sm transition-colors ${p.highlighted
-                      ? "bg-white text-indigo-600 hover:bg-indigo-50"
-                      : "bg-indigo-600 text-white hover:bg-indigo-700"}`}>
-                    {p.cta}
-                  </Link>
+
+            <div className="rounded-3xl border border-gray-200 bg-white shadow-xl overflow-hidden">
+              {/* Header band */}
+              <div className="bg-indigo-600 text-white text-center py-4">
+                <span className="text-xs font-bold bg-white/20 rounded-full px-3 py-1">14-day free trial</span>
+              </div>
+
+              {/* Price */}
+              <div className="text-center pt-8 pb-6 px-6">
+                <div className="flex items-end justify-center gap-1 mb-2">
+                  <span className="text-5xl font-extrabold text-gray-900">{PLAN.monthly}</span>
+                  <span className="text-lg text-gray-400 mb-2">/month</span>
                 </div>
-              ))}
+                <p className="text-sm text-gray-500">
+                  or <span className="font-semibold text-gray-700">{PLAN.annual}</span>/year <span className="text-green-600 font-medium">(save 2 months)</span>
+                </p>
+              </div>
+
+              {/* Features */}
+              <div className="px-6 pb-2">
+                <ul className="space-y-3">
+                  {PLAN.features.map(f => (
+                    <li key={f} className="flex items-center gap-3 text-sm text-gray-700">
+                      <div className="h-5 w-5 rounded-full bg-green-100 flex items-center justify-center shrink-0">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-green-600" />
+                      </div>
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* CTAs */}
+              <div className="p-6 space-y-3">
+                <Link href="/register"
+                  className="block w-full text-center py-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm transition-colors shadow-sm">
+                  Start Free Trial
+                </Link>
+                <p className="text-center text-xs text-gray-400">No credit card required · Cancel anytime</p>
+              </div>
             </div>
           </div>
         </section>
