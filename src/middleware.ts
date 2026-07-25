@@ -34,6 +34,9 @@ async function verifySessionToken(token: string): Promise<{ userId: string; emai
   }
 }
 
+// Public routes that don't require authentication
+const PUBLIC_ROUTES = ["/", "/login", "/register", "/auth", "/pricing", "/privacy", "/terms"];
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -41,8 +44,8 @@ export async function middleware(request: NextRequest) {
   const sessionCookie = request.cookies.get("brandfledger_session")?.value;
   const hasValidSession = sessionCookie ? !!(await verifySessionToken(sessionCookie)) : false;
 
-  // If on auth page and already authenticated → redirect to dashboard
-  if (pathname.startsWith("/auth") && hasValidSession) {
+  // If on a public auth route and already authenticated → redirect to dashboard
+  if ((pathname.startsWith("/auth") || pathname === "/login" || pathname === "/register") && hasValidSession) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
@@ -51,13 +54,14 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/api") ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||
-    pathname === "/"
+    pathname.startsWith("/icons") ||
+    pathname.startsWith("/logo")
   ) {
     return NextResponse.next();
   }
 
-  // Auth pages without a session — allow through (user needs to log in)
-  if (pathname.startsWith("/auth") || pathname === "/pricing") {
+  // Public routes — allow through without session
+  if (PUBLIC_ROUTES.some(route => pathname === route) || PUBLIC_ROUTES.some(route => pathname.startsWith(route + "/"))) {
     return NextResponse.next();
   }
 
@@ -66,8 +70,8 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // No valid session — redirect to auth
-  const redirectUrl = new URL("/auth", request.url);
+  // No valid session — redirect to login
+  const redirectUrl = new URL("/login", request.url);
   redirectUrl.searchParams.set("redirect", pathname);
   return NextResponse.redirect(redirectUrl);
 }
