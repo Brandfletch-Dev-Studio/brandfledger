@@ -117,7 +117,7 @@ export default function PublicInvoiceView() {
                   <tr key={idx} className="border-b">
                     <td className="p-2">
                       <p className="font-medium">{item.name}</p>
-                      {item.description && <p className="text-xs text-muted-foreground mt-0.5">{item.description}</p>}
+                      {item.description && item.description !== item.name && <p className="text-xs text-muted-foreground mt-0.5">{item.description}</p>}
                     </td>
                     <td className="p-2 text-center">{item.quantity}</td>
                     <td className="p-2 text-right">{formatCurrency(Number(item.unit_price), currency)}</td>
