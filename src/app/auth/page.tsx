@@ -97,7 +97,7 @@ export default function AuthPage() {
         {/* Logo */}
         <div className="text-center space-y-2">
           <div className="inline-flex">
-            <img src="/icons/icon-192.png" alt="Brandfledger" className="h-14 w-14 rounded-2xl shadow-md" />
+            <img src="/logo.png" alt="Brandfledger" className="h-14 w-14 rounded-2xl shadow-md" />
           </div>
           <h1 className="text-2xl font-bold tracking-tight">Brandfledger</h1>
           <p className="text-sm text-muted-foreground">

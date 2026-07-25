@@ -103,7 +103,7 @@ export function BusinessSwitcher({ currentName }: { currentName?: string | null 
           className="flex items-center gap-1.5 min-w-0 px-1.5 py-1.5 rounded-lg hover:bg-muted"
         >
           <div className="h-6 w-6 rounded-md bg-primary flex items-center justify-center shrink-0">
-            <img src="/icons/icon-192.png" alt="" className="h-5 w-5 rounded-md" />
+            <img src="/logo.png" alt="" className="h-5 w-5 rounded-md" />
           </div>
           <span className="text-xs sm:text-sm font-semibold truncate max-w-[7rem] sm:max-w-xs">
             {shownName}

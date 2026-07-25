@@ -4,6 +4,7 @@ import { BottomNav } from "@/components/layout/bottom-nav";
 import { TrialBanner } from "@/components/trial-banner";
 import { NavProgress } from "@/components/layout/nav-progress";
 import { Paywall } from "@/components/paywall";
+import { SplashScreen } from "@/components/splash-screen";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +30,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background">
+      <SplashScreen />
       <NavProgress />
       <TopBar businessName={businessName} userEmail={userEmail} isAdmin={isAdmin} />
       <TrialBanner />

@@ -38,7 +38,7 @@ export function AppMenu({ open, onClose, isAdmin = false }: AppMenuProps) {
       <div className="absolute bottom-0 inset-x-0 max-h-[85vh] overflow-y-auto rounded-t-2xl border-t bg-card p-4 pb-8 shadow-lg animate-in slide-in-from-bottom duration-200">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <img src="/icons/icon-192.png" alt="Brandfledger" className="h-8 w-8 rounded-xl" />
+            <img src="/logo.png" alt="Brandfledger" className="h-8 w-8 rounded-xl" />
             <span className="text-sm font-bold text-foreground">Brandfledger</span>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-muted" aria-label="Close menu">

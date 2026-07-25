@@ -17,16 +17,17 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: "/icons/favicon-32.png", sizes: "32x32", type: "image/png" },
-      { url: "/icons/favicon-16.png", sizes: "16x16", type: "image/png" },
-      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/favicon.ico", sizes: "32x32" },
+      { url: "/logo-192.png", sizes: "192x192", type: "image/png" },
     ],
     apple: "/icons/apple-touch-icon.png",
+    shortcut: "/favicon.ico",
   },
   openGraph: {
     title: "Brandfledger",
     description: "Run your business finances from one clean dashboard.",
     type: "website",
+    images: [{ url: "/logo.png", width: 512, height: 512, alt: "Brandfledger" }],
   },
 };
 
