@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle, Send, Copy, Trash2, Loader2, ArrowLeft, Mail } from "lucide-react";
+import { CheckCircle, Send, Copy, Trash2, Loader2, ArrowLeft, Mail, MessageCircle } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter, useParams } from "next/navigation";
@@ -84,6 +84,22 @@ export default function InvoiceDetailPage() {
     toast({ title: "Link copied", description: "Share this with your client" });
   }
 
+  function shareViaWhatsApp() {
+    const phone = (invoice.customer_phone || "").replace(/\D/g, "");
+    const shareUrl = `${window.location.origin}/invoices/view/${invoiceId}`;
+    const currency = business?.currency ?? "MWK";
+    const total = new Intl.NumberFormat("en-US", { style: "currency", currency, minimumFractionDigits: 0 }).format(Number(invoice.total));
+    const msg = encodeURIComponent(
+      `Hi ${invoice.customer_name || ""}! Here is your invoice ${invoice.invoice_number} from ${business?.name || "us"} for ${total}.\n\nView it here: ${shareUrl}`
+    );
+    if (phone) {
+      window.open(`https://wa.me/${phone}?text=${msg}`, "_blank");
+    } else {
+      // No phone — open WhatsApp share without a specific recipient
+      window.open(`https://wa.me/?text=${msg}`, "_blank");
+    }
+  }
+
   async function deleteInvoice() {
     if (!confirm("Delete this invoice?")) return;
     setActing("delete");
@@ -137,6 +153,10 @@ export default function InvoiceDetailPage() {
           <button onClick={copyLink} title="Copy share link"
             className="h-8 w-8 rounded-lg border flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
             <Copy className="h-4 w-4" />
+          </button>
+          <button onClick={shareViaWhatsApp} title="Share via WhatsApp"
+            className="h-8 w-8 rounded-lg bg-green-500 hover:bg-green-600 text-white flex items-center justify-center transition-colors">
+            <MessageCircle className="h-4 w-4" />
           </button>
           {invoice.customer_email && invoice.status !== "paid" && (
             <button onClick={sendEmail} disabled={acting === "send"}

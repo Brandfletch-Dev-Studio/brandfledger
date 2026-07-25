@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { SearchableSelect } from "@/components/ui/searchable-select";
-import { ArrowLeft, Plus, Trash2, Loader2, Save, Send, Phone, Mail, MessageCircle } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Loader2, Save, Send, Phone, Mail } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
@@ -172,12 +172,7 @@ export default function CreateInvoicePage() {
     }
   }
 
-  function openWhatsApp() {
-    const phone = contactPhone.replace(/\D/g, "");
-    if (!phone) { toast({ title: "No phone number", description: "Add a phone number first.", variant: "destructive" }); return; }
-    const msg = encodeURIComponent(`Hi, here is your invoice from ${business?.name || "us"}. Please let me know if you have any questions.`);
-    window.open(`https://wa.me/${phone}?text=${msg}`, "_blank");
-  }
+
 
   if (loading) return (
     <div className="flex items-center justify-center min-h-[60vh]">
@@ -186,7 +181,7 @@ export default function CreateInvoicePage() {
   );
 
   return (
-    <div className="p-3 sm:p-6 space-y-4 max-w-2xl mx-auto pb-28">
+    <div className="p-3 sm:p-6 space-y-4 max-w-2xl mx-auto pb-40">
       <button onClick={() => router.push("/invoices")} className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
         <ArrowLeft className="h-4 w-4" /> Back to Invoices
       </button>
@@ -228,25 +223,13 @@ export default function CreateInvoicePage() {
             <Label className="text-xs mb-1.5 flex items-center gap-1.5 block">
               <Phone className="h-3 w-3" /> Phone / WhatsApp
             </Label>
-            <div className="flex gap-1.5">
-              <Input
+            <Input
                 type="tel"
                 placeholder="+265..."
                 value={contactPhone}
                 onChange={e => setContactPhone(e.target.value)}
-                className="h-9 text-sm flex-1 min-w-0"
+                className="h-9 text-sm"
               />
-              {contactPhone && (
-                <button
-                  type="button"
-                  onClick={openWhatsApp}
-                  title="Open WhatsApp"
-                  className="h-9 w-9 rounded-lg bg-green-500 hover:bg-green-600 text-white flex items-center justify-center shrink-0"
-                >
-                  <MessageCircle className="h-4 w-4" />
-                </button>
-              )}
-            </div>
           </div>
         </div>
       </section>
@@ -380,7 +363,7 @@ export default function CreateInvoicePage() {
       </section>
 
       {/* ── ACTION BUTTONS ── fixed at bottom */}
-      <div className="fixed bottom-0 left-0 right-0 p-3 bg-background border-t flex gap-2 z-40">
+      <div className="fixed bottom-0 left-0 right-0 px-3 pt-3 pb-[calc(0.75rem+56px+env(safe-area-inset-bottom))] bg-background border-t flex gap-2 z-50">
         <button
           type="button"
           onClick={() => saveInvoice("draft")}
