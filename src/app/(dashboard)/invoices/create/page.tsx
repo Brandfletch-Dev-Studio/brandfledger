@@ -100,10 +100,13 @@ export default function CreateInvoicePage() {
       const customer = customers.find(c => c.id === customerId);
       const validItems = items.filter(i => i.name.trim()).map((i, idx) => ({
         product_id: i.product_id || null,
+        name: i.name,
         description: i.name,
         quantity: i.quantity,
+        unit_price: i.unit_price,
         price: i.unit_price,
         cost: i.cost,
+        total: i.quantity * i.unit_price,
         sort_order: idx,
       }));
 
@@ -124,8 +127,32 @@ export default function CreateInvoicePage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to save");
 
-      toast({ title: status === "draft" ? "Invoice saved as draft" : "Invoice created & sent" });
-      router.push(`/invoices/${data.invoice.id}`);
+      const invoiceId = data.invoice.id;
+
+      // If sending, email the client
+      if (status === "sent" && customer?.email) {
+        try {
+          const sendRes = await fetch("/api/invoices/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ invoiceId }),
+          });
+          const sendData = await sendRes.json();
+          if (!sendRes.ok) {
+            toast({ title: "Invoice created", description: `Email failed: ${sendData.error}`, variant: "destructive" });
+          } else {
+            toast({ title: "Invoice sent!", description: `Email delivered to ${customer.email}` });
+          }
+        } catch {
+          toast({ title: "Invoice created", description: "Could not send email — check client email address.", variant: "destructive" });
+        }
+      } else if (status === "sent" && !customer?.email) {
+        toast({ title: "Invoice created", description: "Client has no email on file — couldn't send automatically." });
+      } else {
+        toast({ title: "Invoice saved as draft" });
+      }
+
+      router.push(`/invoices/${invoiceId}`);
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     } finally {

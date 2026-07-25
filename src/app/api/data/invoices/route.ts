@@ -24,7 +24,14 @@ export async function GET(request: Request) {
     if (!businessId) return NextResponse.json({ error: "No business found" }, { status: 404 });
 
     const [invoices, customers, products, business] = await Promise.all([
-      query("SELECT * FROM invoices WHERE business_id = $1 ORDER BY issue_date DESC NULLS LAST, created_at DESC", [businessId]),
+      query(
+        `SELECT i.*, c.name AS customer_name, c.email AS customer_email, c.phone AS customer_phone
+         FROM invoices i
+         LEFT JOIN customers c ON c.id = i.customer_id
+         WHERE i.business_id = $1
+         ORDER BY i.issue_date DESC NULLS LAST, i.created_at DESC`,
+        [businessId]
+      ),
       query("SELECT id, name, email, phone FROM customers WHERE business_id = $1 ORDER BY name", [businessId]),
       query("SELECT id, name, price, cost FROM products WHERE business_id = $1 AND is_active = true ORDER BY name", [businessId]),
       query("SELECT * FROM businesses WHERE id = $1", [businessId]),
