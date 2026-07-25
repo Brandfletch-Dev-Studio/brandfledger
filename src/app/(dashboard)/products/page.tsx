@@ -10,7 +10,7 @@ import { Plus, Search, Pencil, Trash2, Package, Loader2, RefreshCw, TrendingUp }
 import { formatCurrency } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 
-const BLANK_FORM = { name: "", description: "", price: "", cost: "", category_id: "", unit: "" };
+const BLANK_FORM = { name: "", description: "", price: "", cost: "", unit: "" };
 
 export default function ProductsPage() {
   const { toast } = useToast();
@@ -51,7 +51,7 @@ export default function ProductsPage() {
     setForm({
       name: p.name, description: p.description ?? "",
       price: String(p.price), cost: String(p.cost ?? 0),
-      category_id: p.category_id ?? "", unit: p.unit ?? "",
+      unit: p.unit ?? "",
     });
     setOpen(true);
   }
@@ -75,7 +75,6 @@ export default function ProductsPage() {
         description: form.description,
         price: form.price || "0",
         cost: form.cost || "0",
-        category_id: form.category_id || null,
         unit: form.unit,
         is_active: true,
       };
@@ -144,10 +143,7 @@ export default function ProductsPage() {
                     <div className="space-y-2"><Label>Price *</Label><Input type="number" min="0" step="0.01" value={form.price} onChange={e => setForm(p => ({ ...p, price: e.target.value }))} placeholder="0.00" /></div>
                     <div className="space-y-2"><Label>Cost</Label><Input type="number" min="0" step="0.01" value={form.cost} onChange={e => setForm(p => ({ ...p, cost: e.target.value }))} placeholder="0.00" /></div>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-2"><Label>Unit</Label><Input value={form.unit} onChange={e => setForm(p => ({ ...p, unit: e.target.value }))} placeholder="ea, hr, kg..." /></div>
-                    <div className="space-y-2"><Label>Category</Label><Input value={form.category_id} onChange={e => setForm(p => ({ ...p, category_id: e.target.value }))} placeholder="Category ID" /></div>
-                  </div>
+                  <div className="space-y-2"><Label>Unit</Label><Input value={form.unit} onChange={e => setForm(p => ({ ...p, unit: e.target.value }))} placeholder="ea, hr, kg..." /></div>
                   <Button onClick={handleSave} disabled={loading || !form.name.trim()} className="w-full">
                     {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Saving...</> : editing ? "Update Product" : "Add Product"}
                   </Button>
