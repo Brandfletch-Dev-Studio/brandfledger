@@ -1,6 +1,7 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
 import { ChevronDown, Search, Check, X } from "lucide-react";
+import { createPortal } from "react-dom";
 
 interface Option {
   value: string;
@@ -16,7 +17,6 @@ interface SearchableSelectProps {
   searchPlaceholder?: string;
   maxHeight?: number;
   className?: string;
-  /** Minimum dropdown width in px. Defaults to 220. */
   minDropdownWidth?: number;
 }
 
@@ -26,64 +26,70 @@ export function SearchableSelect({
   onChange,
   placeholder = "Select...",
   searchPlaceholder = "Search...",
-  maxHeight = 220,
+  maxHeight = 240,
   className = "",
-  minDropdownWidth = 220,
+  minDropdownWidth = 240,
 }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const [dropStyle, setDropStyle] = useState<React.CSSProperties>({});
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => { setMounted(true); }, []);
 
   const selected = options.find(o => o.value === value);
-
   const filtered = search.trim()
     ? options.filter(o => o.label.toLowerCase().includes(search.toLowerCase()))
     : options;
 
   // Close on outside click
   useEffect(() => {
+    if (!open) return;
     function handle(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      const portal = document.getElementById("searchable-select-portal");
+      if (
+        containerRef.current && !containerRef.current.contains(target) &&
+        !(portal && portal.contains(target))
+      ) {
         setOpen(false);
         setSearch("");
       }
     }
     document.addEventListener("mousedown", handle);
     return () => document.removeEventListener("mousedown", handle);
-  }, []);
+  }, [open]);
 
-  // Focus search when opened & compute dropdown position
+  // Compute position when opening
   useEffect(() => {
-    if (open) {
-      setTimeout(() => searchRef.current?.focus(), 50);
+    if (!open || !containerRef.current) return;
+    setTimeout(() => searchRef.current?.focus(), 40);
 
-      if (containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect();
-        const vw = window.innerWidth;
-        const padding = 12; // safe edge padding
+    const rect = containerRef.current.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const padding = 8;
 
-        // How wide should the dropdown be?
-        const dropW = Math.max(rect.width, minDropdownWidth);
+    const dropW = Math.max(rect.width, minDropdownWidth);
+    let left = rect.left;
+    if (left + dropW > vw - padding) left = vw - dropW - padding;
+    if (left < padding) left = padding;
 
-        // Align to trigger's left, but clamp so it doesn't go off-screen right
-        let left = rect.left;
-        if (left + dropW > vw - padding) {
-          left = vw - dropW - padding;
-        }
-        if (left < padding) left = padding;
-
-        setDropStyle({
-          position: "fixed",
-          top: rect.bottom + 4,
-          left,
-          width: dropW,
-          zIndex: 9999,
-        });
-      }
+    // Open below or above depending on space
+    const spaceBelow = vh - rect.bottom;
+    const spaceAbove = rect.top;
+    const estimatedH = Math.min(maxHeight + 52, 300);
+    let top: number;
+    if (spaceBelow >= estimatedH || spaceBelow >= spaceAbove) {
+      top = rect.bottom + 4;
+    } else {
+      top = rect.top - estimatedH - 4;
     }
-  }, [open, minDropdownWidth]);
+
+    setDropStyle({ position: "fixed", top, left, width: dropW, zIndex: 99999 });
+  }, [open, minDropdownWidth, maxHeight]);
 
   function select(val: string) {
     onChange(val);
@@ -97,79 +103,103 @@ export function SearchableSelect({
     setSearch("");
   }
 
+  const dropdown = mounted && open ? createPortal(
+    <>
+      {/* Invisible backdrop to catch outside taps on mobile */}
+      <div
+        style={{ position: "fixed", inset: 0, zIndex: 99998 }}
+        onMouseDown={() => { setOpen(false); setSearch(""); }}
+      />
+      <div
+        id="searchable-select-portal"
+        style={{
+          ...dropStyle,
+          backgroundColor: "white",
+          border: "1px solid #e2e8f0",
+          borderRadius: "12px",
+          boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+          overflow: "hidden",
+        }}
+      >
+        {/* Search bar */}
+        <div style={{
+          display: "flex", alignItems: "center", gap: "8px",
+          padding: "10px 12px", borderBottom: "1px solid #e2e8f0",
+          backgroundColor: "#f8fafc",
+        }}>
+          <Search style={{ width: 14, height: 14, color: "#94a3b8", flexShrink: 0 }} />
+          <input
+            ref={searchRef}
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder={searchPlaceholder}
+            style={{
+              flex: 1, background: "transparent", border: "none", outline: "none",
+              fontSize: "14px", color: "#1e293b", minWidth: 0,
+            }}
+          />
+          {search && (
+            <button onClick={() => setSearch("")} style={{ color: "#94a3b8", cursor: "pointer", background: "none", border: "none", padding: 0 }}>
+              <X style={{ width: 14, height: 14 }} />
+            </button>
+          )}
+        </div>
+
+        {/* Options */}
+        <div style={{ overflowY: "auto", maxHeight, backgroundColor: "white" }}>
+          {filtered.length === 0 ? (
+            <p style={{ textAlign: "center", padding: "16px", fontSize: "13px", color: "#94a3b8" }}>No results</p>
+          ) : filtered.map(o => (
+            <button
+              key={o.value}
+              type="button"
+              onMouseDown={e => { e.preventDefault(); select(o.value); }}
+              style={{
+                display: "flex", alignItems: "center", gap: "8px",
+                width: "100%", padding: "10px 12px", textAlign: "left",
+                fontSize: "14px", cursor: "pointer", border: "none",
+                backgroundColor: o.value === value ? "#eef2ff" : "white",
+                color: o.value === value ? "#4f46e5" : "#1e293b",
+                fontWeight: o.value === value ? 600 : 400,
+                borderBottom: "1px solid #f1f5f9",
+              }}
+              onMouseEnter={e => { if (o.value !== value) (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#f8fafc"; }}
+              onMouseLeave={e => { if (o.value !== value) (e.currentTarget as HTMLButtonElement).style.backgroundColor = "white"; }}
+            >
+              <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.label}</span>
+              {o.subtitle && (
+                <span style={{ fontSize: "12px", color: "#94a3b8", flexShrink: 0, marginLeft: "8px" }}>{o.subtitle}</span>
+              )}
+              {o.value === value && <Check style={{ width: 14, height: 14, flexShrink: 0 }} />}
+            </button>
+          ))}
+        </div>
+      </div>
+    </>,
+    document.body
+  ) : null;
+
   return (
     <div ref={containerRef} className={`relative ${className}`}>
-      {/* Trigger */}
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
-        className="flex items-center justify-between w-full h-8 rounded-md border border-input bg-background px-2 py-1.5 text-sm shadow-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
+        className="flex items-center justify-between w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
       >
-        <span className={`truncate text-xs ${!selected ? "text-muted-foreground" : ""}`}>
+        <span className={`truncate text-sm ${!selected ? "text-gray-400" : "text-gray-900"}`}>
           {selected ? selected.label : placeholder}
         </span>
         <div className="flex items-center gap-1 shrink-0 ml-1">
           {selected && (
-            <span
-              onClick={clear}
-              className="text-muted-foreground hover:text-foreground cursor-pointer"
-            >
-              <X className="h-3 w-3" />
+            <span onClick={clear} className="text-gray-400 hover:text-gray-600 cursor-pointer">
+              <X className="h-3.5 w-3.5" />
             </span>
           )}
-          <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
+          <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} />
         </div>
       </button>
-
-      {/* Dropdown — rendered via fixed positioning so it escapes any overflow:hidden parent */}
-      {open && (
-        <div
-          className="rounded-xl border bg-card shadow-2xl overflow-hidden"
-          style={dropStyle}
-        >
-          {/* Search bar */}
-          <div className="flex items-center gap-2 px-3 py-2 border-b bg-card sticky top-0">
-            <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-            <input
-              ref={searchRef}
-              type="text"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder={searchPlaceholder}
-              className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground min-w-0"
-            />
-            {search && (
-              <button onClick={() => setSearch("")} className="text-muted-foreground hover:text-foreground shrink-0">
-                <X className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
-
-          {/* Options list */}
-          <div className="overflow-y-auto bg-card" style={{ maxHeight }}>
-            {filtered.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">No results</p>
-            ) : (
-              filtered.map(o => (
-                <button
-                  key={o.value}
-                  type="button"
-                  onClick={() => select(o.value)}
-                  className={`flex items-center gap-2 w-full px-3 py-2.5 text-left text-sm hover:bg-muted transition-colors ${
-                    o.value === value ? "bg-primary/10 text-primary font-medium" : ""
-                  }`}
-                >
-                  <span className="flex-1 min-w-0 truncate">{o.label}</span>
-                  {o.subtitle && (
-                    <span className="text-xs text-muted-foreground shrink-0 ml-2">{o.subtitle}</span>
-                  )}
-                  {o.value === value && <Check className="h-3.5 w-3.5 shrink-0" />}
-                </button>
-              ))
-            )}
-          </div>
-        </div>
-      )}
+      {dropdown}
     </div>
   );
 }
