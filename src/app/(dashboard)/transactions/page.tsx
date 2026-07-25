@@ -15,6 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useCachedFetch, clearCache } from "@/hooks/use-cached-fetch";
 import type { Transaction, Category, Product } from "@/types";
 import { PAYMENT_METHODS } from "@/types";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 
 const BLANK_INCOME = {
   client_name: "",
@@ -312,21 +313,23 @@ export default function TransactionsPage() {
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <Label className="text-xs">Category</Label>
-                        <Select value={incomeForm.category_id} onValueChange={v => setIncomeForm(p => ({ ...p, category_id: v }))}>
-                          <SelectTrigger className="h-9"><SelectValue placeholder="Select..." /></SelectTrigger>
-                          <SelectContent>
-                            {incomeCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
+                        <SearchableSelect
+                          options={incomeCategories.map(c => ({ value: c.id, label: c.name }))}
+                          value={incomeForm.category_id}
+                          onChange={v => setIncomeForm(p => ({ ...p, category_id: v }))}
+                          placeholder="Select..."
+                          searchPlaceholder="Search categories..."
+                        />
                       </div>
                       <div>
                         <Label className="text-xs">Product</Label>
-                        <Select value={incomeForm.product_id} onValueChange={onProductChange}>
-                          <SelectTrigger className="h-9"><SelectValue placeholder="Select..." /></SelectTrigger>
-                          <SelectContent>
-                            {products.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
+                        <SearchableSelect
+                          options={products.map(p => ({ value: p.id, label: p.name }))}
+                          value={incomeForm.product_id}
+                          onChange={onProductChange}
+                          placeholder="Select..."
+                          searchPlaceholder="Search products..."
+                        />
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
@@ -365,12 +368,13 @@ export default function TransactionsPage() {
                       </div>
                       <div>
                         <Label className="text-xs">Category</Label>
-                        <Select value={expenseForm.category_id} onValueChange={v => setExpenseForm(p => ({ ...p, category_id: v }))}>
-                          <SelectTrigger className="h-9"><SelectValue placeholder="Select..." /></SelectTrigger>
-                          <SelectContent>
-                            {expenseCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
+                        <SearchableSelect
+                          options={expenseCategories.map(c => ({ value: c.id, label: c.name }))}
+                          value={expenseForm.category_id}
+                          onChange={v => setExpenseForm(p => ({ ...p, category_id: v }))}
+                          placeholder="Select..."
+                          searchPlaceholder="Search categories..."
+                        />
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
