@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { BFLogo } from "@/components/bf-logo";
 import { usePathname } from "next/navigation";
 import { LayoutDashboard, Users, Package, Settings, BarChart3, Receipt, Crown, X, ArrowLeftRight, Shield, FileText, Database } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -38,7 +39,7 @@ export function AppMenu({ open, onClose, isAdmin = false }: AppMenuProps) {
       <div className="absolute bottom-0 inset-x-0 max-h-[85vh] overflow-y-auto rounded-t-2xl border-t bg-card p-4 pb-8 shadow-lg animate-in slide-in-from-bottom duration-200">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <img src="/logo.png" alt="Brandfledger" className="h-8 w-8 rounded-xl" />
+            <BFLogo size={32} className="rounded-xl" />
             <span className="text-sm font-bold text-foreground">Brandfledger</span>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-muted" aria-label="Close menu">
