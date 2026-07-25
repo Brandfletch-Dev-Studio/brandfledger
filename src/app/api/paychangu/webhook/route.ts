@@ -14,7 +14,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing signature" }, { status: 400 });
     }
 
-    const WEBHOOK_SECRET = process.env.PAYCHANGU_WEBHOOK_SECRET || "";
+    // Read from DB or env
+    const webhookRows = await query("SELECT value FROM platform_settings WHERE key = 'paychangu_webhook_secret'");
+    const WEBHOOK_SECRET = webhookRows[0]?.value?.encoded
+      ? Buffer.from(webhookRows[0].value.encoded, "base64").toString("utf-8")
+      : (process.env.PAYCHANGU_WEBHOOK_SECRET || "");
     const computedSignature = crypto
       .createHmac("sha256", WEBHOOK_SECRET)
       .update(rawBody)
@@ -30,7 +34,10 @@ export async function POST(req: NextRequest) {
       const txRef = payload.reference || payload.tx_ref;
 
       // Verify with API
-      const PAYCHANGU_SECRET = process.env.PAYCHANGU_SECRET_KEY || "sec_test_NmI2ZDk4NjFlMzI0NDBlNjBiZWM3YzA2YjExZDM5NjY5MjY4NDQ3Yz";
+      const secretRows = await query("SELECT value FROM platform_settings WHERE key = 'paychangu_secret_key'");
+      const PAYCHANGU_SECRET = secretRows[0]?.value?.encoded
+        ? Buffer.from(secretRows[0].value.encoded, "base64").toString("utf-8")
+        : (process.env.PAYCHANGU_SECRET_KEY || "");
       const verifyRes = await fetch(`https://api.paychangu.com/verify-payment/${txRef}`, {
         method: "GET",
         headers: {

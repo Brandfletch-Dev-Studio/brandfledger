@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Loader2, Users, Building2, DollarSign, TrendingUp, ShoppingCart } from "lucide-react";
+import { Loader2, Users, Building2, DollarSign, TrendingUp } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 
 export default function AdminOverviewPage() {
@@ -10,10 +10,7 @@ export default function AdminOverviewPage() {
     businesses: 0,
     totalRevenue: 0,
     totalTransactions: 0,
-    totalProducts: 0,
     totalClients: 0,
-    paidInvoices: 0,
-    totalInvoices: 0,
   });
   const [businesses, setBusinesses] = useState<any[]>([]);
 
@@ -23,7 +20,12 @@ export default function AdminOverviewPage() {
       const res = await fetch("/api/data/admin?section=overview");
       if (!res.ok) throw new Error("Failed");
       const data = await res.json();
-      setStats(data.stats);
+      setStats({
+        businesses: data.stats?.businesses ?? 0,
+        totalRevenue: data.stats?.totalRevenue ?? 0,
+        totalTransactions: data.stats?.totalTransactions ?? 0,
+        totalClients: data.stats?.totalClients ?? 0,
+      });
       setBusinesses(data.businesses || []);
     } catch {}
     setLoading(false);
@@ -38,12 +40,10 @@ export default function AdminOverviewPage() {
   );
 
   const cards = [
-    { label: "Businesses", value: stats.businesses, icon: Building2, color: "text-primary" },
-    { label: "Total Revenue", value: formatCurrency(stats.totalRevenue, "MWK"), icon: DollarSign, color: "text-emerald-600" },
-    { label: "Transactions", value: stats.totalTransactions, icon: TrendingUp, color: "text-primary" },
-    { label: "Products", value: stats.totalProducts, icon: ShoppingCart, color: "text-primary" },
-    { label: "Clients", value: stats.totalClients, icon: Users, color: "text-primary" },
-    { label: "Paid Invoices", value: formatCurrency(stats.paidInvoices, "MWK"), icon: DollarSign, color: "text-emerald-600" },
+    { label: "Businesses", value: stats.businesses, icon: Building2, currency: false },
+    { label: "Total Revenue", value: stats.totalRevenue, icon: DollarSign, currency: true },
+    { label: "Transactions", value: stats.totalTransactions, icon: TrendingUp, currency: false },
+    { label: "Clients", value: stats.totalClients, icon: Users, currency: false },
   ];
 
   return (
@@ -53,15 +53,17 @@ export default function AdminOverviewPage() {
         <p className="text-sm text-muted-foreground">High-level metrics across all businesses on the platform.</p>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 gap-3">
         {cards.map((card) => (
           <Card key={card.label}>
             <CardContent className="p-4">
               <div className="flex items-center gap-2 mb-2">
-                <card.icon className={`h-4 w-4 ${card.color}`} />
+                <card.icon className="h-4 w-4 text-primary" />
                 <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{card.label}</span>
               </div>
-              <p className="text-xl font-bold">{card.value}</p>
+              <p className="text-xl font-bold">
+                {card.currency ? formatCurrency(card.value, "MWK") : card.value}
+              </p>
             </CardContent>
           </Card>
         ))}

@@ -6,38 +6,32 @@ export const runtime = "nodejs";
 
 const ADMIN_EMAIL = "geniuspulse22@gmail.com";
 
+function isAdmin(user: { email: string }) {
+  return user.email.toLowerCase() === ADMIN_EMAIL;
+}
+
 export async function GET(request: Request) {
   try {
     const user = getDbUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    if (user.email !== ADMIN_EMAIL) return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+    if (!isAdmin(user)) return NextResponse.json({ error: "Admin access required" }, { status: 403 });
 
     const { searchParams } = new URL(request.url);
     const section = searchParams.get("section");
 
     if (section === "overview") {
-      const [businesses, transactions, products, customers, invoices] = await Promise.all([
+      const [businesses, revenueRows, customers] = await Promise.all([
         query("SELECT id, name, currency, subscription_status, created_at FROM businesses ORDER BY created_at DESC", []),
-        query("SELECT amount, type FROM transactions", []),
-        query("SELECT COUNT(*) as count FROM products", []),
+        query("SELECT COALESCE(SUM(amount),0) as total, COUNT(*) as count FROM transactions WHERE type = 'income'", []),
         query("SELECT COUNT(*) as count FROM customers", []),
-        query("SELECT total, status FROM invoices", []),
       ]);
-
-      const totalRevenue = transactions
-        .filter((t: any) => t.type === "income")
-        .reduce((s: number, t: any) => s + Number(t.amount), 0);
-      const paidInvoices = invoices.filter((i: any) => i.status === "paid").reduce((s: number, i: any) => s + Number(i.total), 0);
 
       return NextResponse.json({
         stats: {
           businesses: businesses.length,
-          totalRevenue,
-          totalTransactions: transactions.length,
-          totalProducts: parseInt(products[0]?.count || "0"),
+          totalRevenue: parseFloat(revenueRows[0]?.total || "0"),
+          totalTransactions: parseInt(revenueRows[0]?.count || "0"),
           totalClients: parseInt(customers[0]?.count || "0"),
-          paidInvoices,
-          totalInvoices: invoices.length,
         },
         businesses,
       });
@@ -73,6 +67,76 @@ export async function GET(request: Request) {
       return NextResponse.json({ businesses });
     }
 
+    if (section === "settings") {
+      // Return status of configured credentials (never return the actual keys)
+      const rows = await query("SELECT key, value FROM platform_settings WHERE key IN ('paychangu_configured','resend_configured')", []);
+      const status: Record<string, boolean> = {};
+      for (const row of rows) {
+        status[row.key.replace("_configured", "")] = !!row.value?.configured;
+      }
+      return NextResponse.json({ status: { paychangu_configured: !!status.paychangu, resend_configured: !!status.resend } });
+    }
+
+    return NextResponse.json({ error: "Unknown section" }, { status: 400 });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const user = getDbUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!isAdmin(user)) return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+
+    const body = await request.json();
+    const { section } = body;
+
+    if (section === "settings") {
+      const { paychangu_secret_key, paychangu_webhook_secret, resend_api_key } = body;
+
+      // Store credentials encrypted in platform_settings (base64 — not production crypto, but better than env-only)
+      // In a real production system you'd use a KMS; for now we store obfuscated in DB
+      if (paychangu_secret_key?.trim()) {
+        const encoded = Buffer.from(paychangu_secret_key.trim()).toString("base64");
+        await query(
+          `INSERT INTO platform_settings (key, value) VALUES ('paychangu_secret_key', $1)
+           ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
+          [JSON.stringify({ encoded })]
+        );
+        await query(
+          `INSERT INTO platform_settings (key, value) VALUES ('paychangu_configured', $1)
+           ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
+          [JSON.stringify({ configured: true })]
+        );
+      }
+
+      if (paychangu_webhook_secret?.trim()) {
+        const encoded = Buffer.from(paychangu_webhook_secret.trim()).toString("base64");
+        await query(
+          `INSERT INTO platform_settings (key, value) VALUES ('paychangu_webhook_secret', $1)
+           ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
+          [JSON.stringify({ encoded })]
+        );
+      }
+
+      if (resend_api_key?.trim()) {
+        const encoded = Buffer.from(resend_api_key.trim()).toString("base64");
+        await query(
+          `INSERT INTO platform_settings (key, value) VALUES ('resend_api_key', $1)
+           ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
+          [JSON.stringify({ encoded })]
+        );
+        await query(
+          `INSERT INTO platform_settings (key, value) VALUES ('resend_configured', $1)
+           ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
+          [JSON.stringify({ configured: true })]
+        );
+      }
+
+      return NextResponse.json({ success: true });
+    }
+
     return NextResponse.json({ error: "Unknown section" }, { status: 400 });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
@@ -83,16 +147,15 @@ export async function PUT(request: Request) {
   try {
     const user = getDbUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    if (user.email !== ADMIN_EMAIL) return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+    if (!isAdmin(user)) return NextResponse.json({ error: "Admin access required" }, { status: 403 });
 
     const body = await request.json();
     const { action, ...data } = body;
 
     if (action === "update_pricing") {
-      // Upsert pricing in platform_settings
       await query(
         `INSERT INTO platform_settings (key, value) VALUES ('pricing', $1)
-         ON CONFLICT (key) DO UPDATE SET value = $1`,
+         ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
         [JSON.stringify(data.pricing)]
       );
       return NextResponse.json({ success: true });

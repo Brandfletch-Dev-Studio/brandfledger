@@ -4,6 +4,17 @@ import { getDbUser, query } from "@/lib/db";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+// Helper: read a credential from platform_settings (stored base64-encoded)
+async function getCredential(key: string): Promise<string | null> {
+  try {
+    const rows = await query("SELECT value FROM platform_settings WHERE key = $1", [key]);
+    if (!rows[0]?.value?.encoded) return null;
+    return Buffer.from(rows[0].value.encoded, "base64").toString("utf-8");
+  } catch {
+    return null;
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const user = getDbUser();
@@ -51,7 +62,18 @@ export async function POST(req: NextRequest) {
       },
     };
 
-    const PAYCHANGU_SECRET = process.env.PAYCHANGU_SECRET_KEY || "sec_test_NmI2ZDk4NjFlMzI0NDBlNjBiZWM3YzA2YjExZDM5NjY5MjY4NDQ3Yz";
+    // Read secret key: prefer DB-stored key, fall back to env var
+    const PAYCHANGU_SECRET =
+      (await getCredential("paychangu_secret_key")) ||
+      process.env.PAYCHANGU_SECRET_KEY ||
+      "";
+
+    if (!PAYCHANGU_SECRET) {
+      return NextResponse.json(
+        { error: "Payment not configured. Admin must add Paychangu credentials in Admin → Settings." },
+        { status: 503 }
+      );
+    }
 
     const response = await fetch("https://api.paychangu.com/payment", {
       method: "POST",
