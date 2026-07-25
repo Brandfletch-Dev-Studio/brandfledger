@@ -16,28 +16,20 @@ export async function GET(request: Request) {
 
     const invoice = invoices[0];
 
-    // Get business and customer info
-    const [business, customer] = await Promise.all([
-      query("SELECT name, email, phone, address, currency FROM businesses WHERE id = $1", [invoice.business_id]),
-      invoice.customer_id
-        ? query("SELECT name, email, phone, address FROM customers WHERE id = $1", [invoice.customer_id])
-        : Promise.resolve([]),
-    ]);
+    // Get business info
+    const business = await query("SELECT name, email, phone, address, currency FROM businesses WHERE id = $1", [invoice.business_id]);
 
-    // Get invoice items
-    const items = await query("SELECT * FROM invoice_items WHERE invoice_id = $1 ORDER BY sort_order", [id]);
+    // Get customer info
+    let customer = [];
+    if (invoice.customer_id) {
+      customer = await query("SELECT name, email, phone, address FROM customers WHERE id = $1", [invoice.customer_id]);
+    }
+
+    // items is a JSONB column
+    const items = Array.isArray(invoice.items) ? invoice.items : [];
 
     return NextResponse.json({
-      invoice: {
-        ...invoice,
-        items: items.map((item: any) => ({
-          name: item.description,
-          description: "",
-          quantity: item.quantity,
-          unit_price: item.price,
-          total: item.total,
-        })),
-      },
+      invoice: { ...invoice, items },
       business: business[0] || null,
       customer: customer[0] || null,
     });

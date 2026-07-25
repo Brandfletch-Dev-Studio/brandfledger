@@ -14,10 +14,9 @@ export async function POST(req: NextRequest) {
     if (invoices.length === 0) return NextResponse.json({ error: "Invoice not found" }, { status: 404 });
     const invoice = invoices[0];
 
-    const [businessRows, customerRows, items] = await Promise.all([
+    const [businessRows, customerRows] = await Promise.all([
       query("SELECT * FROM businesses WHERE id = $1", [invoice.business_id]),
       invoice.customer_id ? query("SELECT * FROM customers WHERE id = $1", [invoice.customer_id]) : Promise.resolve([]),
-      query("SELECT * FROM invoice_items WHERE invoice_id = $1 ORDER BY sort_order", [invoiceId]),
     ]);
 
     const business = businessRows[0] || null;
@@ -30,13 +29,17 @@ export async function POST(req: NextRequest) {
     const currency: string = business?.currency ?? "MWK";
     const fmt = (n: number) => new Intl.NumberFormat("en-US", { style: "currency", currency, minimumFractionDigits: 2 }).format(n);
 
-    const itemRows = items.map((item: any) => `
+    // items is JSONB column
+    const items: any[] = Array.isArray(invoice.items) ? invoice.items : [];
+
+    const itemRows = items.map((item) => `
       <tr>
         <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;">
-          ${item.description || ""}
+          ${item.name || item.description || ""}
+          ${item.description ? `<br/><span style="color:#888;font-size:12px;">${item.description}</span>` : ""}
         </td>
         <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;text-align:center;">${item.quantity}</td>
-        <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;text-align:right;">${fmt(Number(item.price))}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;text-align:right;">${fmt(Number(item.unit_price || item.price || 0))}</td>
         <td style="padding:8px 12px;border-bottom:1px solid #f0f0f0;text-align:right;">${fmt(Number(item.total))}</td>
       </tr>`).join("");
 

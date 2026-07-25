@@ -65,8 +65,7 @@ export async function DELETE(request: Request) {
       deleted.transactions = r.length || 0;
     }
     if (scope === "all" || scope === "invoices") {
-      // Delete invoice items first (FK), then invoices
-      await query("DELETE FROM invoice_items WHERE invoice_id IN (SELECT id FROM invoices WHERE business_id = $1)", [businessId]);
+      // Invoices store items as JSONB — no separate invoice_items table
       const r = await query("DELETE FROM invoices WHERE business_id = $1", [businessId]);
       deleted.invoices = r.length || 0;
     }
