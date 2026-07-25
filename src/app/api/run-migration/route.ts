@@ -7,130 +7,80 @@ const PROJECT_REF = "qgsaycsdoclsiwrsfaco";
 const PASSWORD = encodeURIComponent("Arthur@472003Chibondo");
 
 const MIGRATION_SQL = `
--- Create platform_settings table if not exists
+-- ============================================================
+-- Products: add missing columns
+-- ============================================================
+ALTER TABLE products ADD COLUMN IF NOT EXISTS cost          numeric(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS category_id   uuid REFERENCES categories(id) ON DELETE SET NULL;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS is_active     boolean NOT NULL DEFAULT true;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS profit_margin numeric(7,4) DEFAULT 0;
+
+-- ============================================================
+-- Performance indexes
+-- ============================================================
+CREATE INDEX IF NOT EXISTS idx_transactions_business_date  ON transactions(business_id, date DESC);
+CREATE INDEX IF NOT EXISTS idx_transactions_business_type  ON transactions(business_id, type);
+CREATE INDEX IF NOT EXISTS idx_products_business_active    ON products(business_id, is_active);
+CREATE INDEX IF NOT EXISTS idx_invoices_business_date      ON invoices(business_id, issue_date DESC);
+CREATE INDEX IF NOT EXISTS idx_customers_business          ON customers(business_id);
+CREATE INDEX IF NOT EXISTS idx_categories_business         ON categories(business_id);
+CREATE INDEX IF NOT EXISTS idx_businesses_owner_id         ON businesses(owner_id);
+
+-- ============================================================
+-- Platform settings (idempotent)
+-- ============================================================
 CREATE TABLE IF NOT EXISTS platform_settings (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  key TEXT UNIQUE NOT NULL,
-  value JSONB NOT NULL DEFAULT '{}'::jsonb,
+  id         UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  key        TEXT UNIQUE NOT NULL,
+  value      JSONB NOT NULL DEFAULT '{}'::jsonb,
   updated_at TIMESTAMPTZ DEFAULT now()
 );
 
--- Insert default pricing
 INSERT INTO platform_settings (key, value) VALUES
-  ('pricing', '{"monthly_rate": 15000, "currency": "MWK", "annual_rate": 150000, "trial_days": 14, "features": ["Unlimited invoices", "Unlimited businesses", "Profit tracking", "Team members", "Reports & exports", "Priority support"]}')
+  ('pricing', '{"monthly_rate":15000,"currency":"MWK","annual_rate":150000,"trial_days":14,"features":["Unlimited invoices","Unlimited businesses","Profit tracking","Team members","Reports & exports","Priority support"]}')
 ON CONFLICT (key) DO NOTHING;
 
--- Add owner_id to businesses if not exists
-ALTER TABLE businesses ADD COLUMN IF NOT EXISTS owner_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
-CREATE INDEX IF NOT EXISTS idx_businesses_owner_id ON businesses(owner_id);
-
--- Enable RLS on platform_settings
+-- ============================================================
+-- RLS policies (idempotent)
+-- ============================================================
 ALTER TABLE platform_settings ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Authenticated users can read platform settings" ON platform_settings;
-CREATE POLICY "Authenticated users can read platform settings" ON platform_settings
-  FOR SELECT USING (auth.uid() IS NOT NULL);
+DROP POLICY IF EXISTS "read_platform_settings" ON platform_settings;
+CREATE POLICY "read_platform_settings" ON platform_settings FOR SELECT USING (auth.uid() IS NOT NULL);
 
--- Enable RLS on businesses
 ALTER TABLE businesses ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Users can view own businesses" ON businesses;
-CREATE POLICY "Users can view own businesses" ON businesses
-  FOR SELECT USING (auth.uid() = owner_id OR owner_id IS NULL);
-DROP POLICY IF EXISTS "Users can insert own businesses" ON businesses;
-CREATE POLICY "Users can insert own businesses" ON businesses
-  FOR INSERT WITH CHECK (auth.uid() = owner_id);
-DROP POLICY IF EXISTS "Users can update own businesses" ON businesses;
-CREATE POLICY "Users can update own businesses" ON businesses
-  FOR UPDATE USING (auth.uid() = owner_id);
-DROP POLICY IF EXISTS "Users can delete own businesses" ON businesses;
-CREATE POLICY "Users can delete own businesses" ON businesses
-  FOR DELETE USING (auth.uid() = owner_id);
+DROP POLICY IF EXISTS "owner_businesses" ON businesses;
+CREATE POLICY "owner_businesses" ON businesses FOR ALL USING (auth.uid() = owner_id);
 
--- Enable RLS on transactions
 ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Users can manage own transactions" ON transactions;
-CREATE POLICY "Users can manage own transactions" ON transactions
-  FOR ALL USING (
-    EXISTS (SELECT 1 FROM businesses WHERE businesses.id = transactions.business_id AND businesses.owner_id = auth.uid())
-  ) WITH CHECK (
-    EXISTS (SELECT 1 FROM businesses WHERE businesses.id = transactions.business_id AND businesses.owner_id = auth.uid())
-  );
+DROP POLICY IF EXISTS "owner_transactions" ON transactions;
+CREATE POLICY "owner_transactions" ON transactions FOR ALL
+  USING (business_id IN (SELECT id FROM businesses WHERE owner_id = auth.uid()));
 
--- Enable RLS on products (only if table exists)
-DO $$ BEGIN
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'products') THEN
-    ALTER TABLE products ENABLE ROW LEVEL SECURITY;
-    DROP POLICY IF EXISTS "Users can manage own products" ON products;
-    CREATE POLICY "Users can manage own products" ON products
-      FOR ALL USING (
-        EXISTS (SELECT 1 FROM businesses WHERE businesses.id = products.business_id AND businesses.owner_id = auth.uid())
-      ) WITH CHECK (
-        EXISTS (SELECT 1 FROM businesses WHERE businesses.id = products.business_id AND businesses.owner_id = auth.uid())
-      );
-  END IF;
-END $$;
+ALTER TABLE products ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "owner_products" ON products;
+CREATE POLICY "owner_products" ON products FOR ALL
+  USING (business_id IN (SELECT id FROM businesses WHERE owner_id = auth.uid()));
 
--- Enable RLS on categories (only if table exists)
-DO $$ BEGIN
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'categories') THEN
-    ALTER TABLE categories ENABLE ROW LEVEL SECURITY;
-    DROP POLICY IF EXISTS "Users can manage own categories" ON categories;
-    CREATE POLICY "Users can manage own categories" ON categories
-      FOR ALL USING (
-        EXISTS (SELECT 1 FROM businesses WHERE businesses.id = categories.business_id AND businesses.owner_id = auth.uid())
-      ) WITH CHECK (
-        EXISTS (SELECT 1 FROM businesses WHERE businesses.id = categories.business_id AND businesses.owner_id = auth.uid())
-      );
-  END IF;
-END $$;
+ALTER TABLE categories ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "owner_categories" ON categories;
+CREATE POLICY "owner_categories" ON categories FOR ALL
+  USING (business_id IN (SELECT id FROM businesses WHERE owner_id = auth.uid()));
 
--- Enable RLS on invoices (only if table exists)
-DO $$ BEGIN
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'invoices') THEN
-    ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;
-    DROP POLICY IF EXISTS "Users can manage own invoices" ON invoices;
-    CREATE POLICY "Users can manage own invoices" ON invoices
-      FOR ALL USING (
-        EXISTS (SELECT 1 FROM businesses WHERE businesses.id = invoices.business_id AND businesses.owner_id = auth.uid())
-      ) WITH CHECK (
-        EXISTS (SELECT 1 FROM businesses WHERE businesses.id = invoices.business_id AND businesses.owner_id = auth.uid())
-      );
-  END IF;
-END $$;
+ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "owner_customers" ON customers;
+CREATE POLICY "owner_customers" ON customers FOR ALL
+  USING (business_id IN (SELECT id FROM businesses WHERE owner_id = auth.uid()));
 
--- Enable RLS on customers (only if table exists)
-DO $$ BEGIN
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'customers') THEN
-    ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
-    DROP POLICY IF EXISTS "Users can manage own customers" ON customers;
-    CREATE POLICY "Users can manage own customers" ON customers
-      FOR ALL USING (
-        EXISTS (SELECT 1 FROM businesses WHERE businesses.id = customers.business_id AND businesses.owner_id = auth.uid())
-      ) WITH CHECK (
-        EXISTS (SELECT 1 FROM businesses WHERE businesses.id = customers.business_id AND businesses.owner_id = auth.uid())
-      );
-  END IF;
-END $$;
-
--- Enable RLS on team_members (only if table exists)
-DO $$ BEGIN
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'team_members') THEN
-    ALTER TABLE team_members ENABLE ROW LEVEL SECURITY;
-    DROP POLICY IF EXISTS "Users can manage own team" ON team_members;
-    CREATE POLICY "Users can manage own team" ON team_members
-      FOR ALL USING (
-        EXISTS (SELECT 1 FROM businesses WHERE businesses.id = team_members.business_id AND businesses.owner_id = auth.uid())
-      ) WITH CHECK (
-        EXISTS (SELECT 1 FROM businesses WHERE businesses.id = team_members.business_id AND businesses.owner_id = auth.uid())
-      );
-  END IF;
-END $$;
+ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "owner_invoices" ON invoices;
+CREATE POLICY "owner_invoices" ON invoices FOR ALL
+  USING (business_id IN (SELECT id FROM businesses WHERE owner_id = auth.uid()));
 `;
 
 export async function POST() {
   const pg = await import("pg");
   const Client = pg.Client;
 
-  // eu-west-1 is the correct region
   const connStr = `postgresql://postgres.${PROJECT_REF}:${PASSWORD}@aws-0-eu-west-1.pooler.supabase.com:6543/postgres`;
   const client = new (Client as any)({
     connectionString: connStr,
@@ -140,27 +90,24 @@ export async function POST() {
 
   try {
     await client.connect();
-    console.log("Connected via eu-west-1 pooler");
-    
     await client.query(MIGRATION_SQL);
-    
-    // Verify
-    const { rows } = await client.query("SELECT key FROM platform_settings");
-    const { rows: bizRows } = await client.query("SELECT id, name, owner_id FROM businesses LIMIT 5");
-    const { rows: tableList } = await client.query(
-      "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name"
+
+    // Verify products columns
+    const { rows: cols } = await client.query(
+      "SELECT column_name FROM information_schema.columns WHERE table_name='products' ORDER BY ordinal_position"
+    );
+    const { rows: idxRows } = await client.query(
+      "SELECT indexname FROM pg_indexes WHERE tablename IN ('transactions','products','invoices','customers','categories','businesses') ORDER BY tablename, indexname"
     );
     await client.end();
 
     return NextResponse.json({
       success: true,
-      message: "Migration complete",
-      platformSettings: rows.map((r: any) => r.key),
-      businesses: bizRows,
-      tables: tableList.map((r: any) => r.table_name),
+      message: "Migration complete — products columns & indexes added",
+      products_columns: cols.map((r: any) => r.column_name),
+      indexes: idxRows.map((r: any) => r.indexname),
     });
   } catch (err: any) {
-    console.log("Migration failed:", err.message);
     try { await client.end(); } catch {}
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
