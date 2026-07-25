@@ -16,9 +16,7 @@ export default function LandingClient() {
         <div className="max-w-5xl mx-auto px-4 sm:px-5 h-14 sm:h-16 flex items-center justify-between">
           {/* Logo on Left */}
           <div className="flex items-center gap-2 sm:gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-purple-600 flex items-center justify-center">
-              <Zap className="w-5 h-5 text-white fill-white" />
-            </div>
+            <img src="/icons/icon-192.png" alt="Brandfledger" className="w-8 h-8 rounded-lg" />
             <span className="font-bold text-base sm:text-lg text-gray-900 tracking-tight">Brandfledger</span>
           </div>
 
