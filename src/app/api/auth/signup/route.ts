@@ -65,6 +65,20 @@ export async function POST(request: Request) {
       [userId, email.toLowerCase().trim(), hashedPassword, now, now, now, JSON.stringify({ full_name: fullName || "" })]
     );
 
+    // Ensure accounts table exists (auto-create if missing)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS accounts (
+        user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+        subscription_status TEXT NOT NULL DEFAULT 'trial',
+        plan TEXT,
+        trial_ends_at TIMESTAMPTZ,
+        subscription_ends_at TIMESTAMPTZ,
+        amount NUMERIC,
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
     // Create accounts row with 14-day free trial (one trial per account)
     await client.query(
       `INSERT INTO accounts (user_id, subscription_status, trial_ends_at)
