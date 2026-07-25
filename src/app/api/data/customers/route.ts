@@ -10,6 +10,16 @@ async function getBusinessId(userId: string, requestedId?: string | null) {
     if (ownership.length === 0) return null;
     return requestedId;
   }
+  // Check cookie for active business selection
+  try {
+    const { cookies } = await import("next/headers");
+    const cookieStore = cookies();
+    const cookieId = cookieStore.get("activeBusinessId")?.value;
+    if (cookieId) {
+      const ownership = await query("SELECT id FROM businesses WHERE id = $1 AND owner_id = $2", [cookieId, userId]);
+      if (ownership.length > 0) return cookieId;
+    }
+  } catch {}
   const businesses = await query("SELECT id FROM businesses WHERE owner_id = $1 ORDER BY created_at LIMIT 1", [userId]);
   return businesses[0]?.id ?? null;
 }

@@ -1,4 +1,5 @@
 import { getDbUser, query } from "@/lib/db";
+import { cookies } from "next/headers";
 import DashboardClient from "./dashboard-client";
 
 export const dynamic = "force-dynamic";
@@ -51,7 +52,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
     // Get user's businesses
     const businesses = await query("SELECT id, name, currency, invoice_prefix, address, phone, email, logo_url FROM businesses WHERE owner_id = $1 ORDER BY created_at", [user.userId]);
     
-    const business = businesses[0] || null;
+    // Respect the active business selection (stored in cookie by the business switcher)
+    const cookieStore = cookies();
+    const activeBusinessId = cookieStore.get("activeBusinessId")?.value;
+    const business = (activeBusinessId && businesses.find((b: any) => b.id === activeBusinessId)) || businesses[0] || null;
 
     if (!business) {
       return <DashboardClient business={null} stats={null} setupStatus={{ hasBusiness: false, hasCustomer: false, hasProduct: false, hasInvoice: false }} period={period} />;

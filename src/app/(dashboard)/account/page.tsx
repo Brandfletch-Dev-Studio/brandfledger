@@ -108,9 +108,12 @@ export default function AccountPage() {
   function switchBusiness(id: string) {
     clearAllCaches();
     localStorage.setItem("activeBusinessId", id);
+    // Also set as cookie so server components (dashboard, etc.) can read it
+    document.cookie = `activeBusinessId=${id}; path=/; max-age=${60 * 60 * 24 * 365}; SameSite=Lax`;
     setActiveId(id);
-    toast({ title: "Switched business" });
-    router.refresh();
+    toast({ title: "Business switched" });
+    // Hard navigate to dashboard so server re-renders with new business
+    window.location.href = "/dashboard";
   }
 
   if (loading) return (

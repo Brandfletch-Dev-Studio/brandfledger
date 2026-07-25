@@ -60,10 +60,13 @@ export function BusinessSwitcher({ currentName }: { currentName?: string | null 
   function switchBusiness(b: Business) {
     clearAllCaches();
     localStorage.setItem("activeBusinessId", b.id);
+    // Set cookie so server components can read the active business on re-render
+    document.cookie = `activeBusinessId=${b.id}; path=/; max-age=${60 * 60 * 24 * 365}; SameSite=Lax`;
     setActiveId(b.id);
     setDisplayName(b.name);
     setOpen(false);
-    router.refresh();
+    // Hard navigate so all server components re-render with new business
+    window.location.href = "/dashboard";
   }
 
   async function handleAddBusiness() {
@@ -81,12 +84,13 @@ export function BusinessSwitcher({ currentName }: { currentName?: string | null 
       setBusinesses(prev => [...prev, data.business]);
       clearAllCaches();
       localStorage.setItem("activeBusinessId", data.business.id);
+      document.cookie = `activeBusinessId=${data.business.id}; path=/; max-age=${60 * 60 * 24 * 365}; SameSite=Lax`;
       setActiveId(data.business.id);
       setDisplayName(data.business.name);
       setForm({ name: "", currency: "MWK", invoice_prefix: "INV" });
       setAddOpen(false);
       setOpen(false);
-      router.refresh();
+      window.location.href = "/dashboard";
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     }
