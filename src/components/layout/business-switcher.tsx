@@ -1,39 +1,40 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { getAllBusinesses, getActiveBusinessId, setActiveBusinessId } from "@/lib/default-business";
-import { ChevronDown, Plus, Building2, Check, Loader2, X } from "lucide-react";
+import { ChevronDown, Plus, Building2, Check, Loader2, X, Pencil, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/hooks/use-toast";
+import { clearAllCaches } from "@/hooks/use-cached-fetch";
 
-import { clearAllCaches } from '@/hooks/use-cached-fetch';
-const currencies = ["USD", "MWK", "ZAR", "NGN", "KES", "GHS", "EUR", "GBP", "CAD", "AUD"];
+const currencies = ["MWK", "USD", "EUR", "GBP", "ZAR", "NGN", "KES", "GHS", "CAD", "AUD", "TZS", "UGX", "RWF"];
 
 interface Business {
   id: string;
   name: string;
   currency: string;
   invoice_prefix?: string;
+  subscription_status?: string;
 }
 
-interface BusinessSwitcherProps {
-  currentName?: string | null;
-}
-
-export function BusinessSwitcher({ currentName }: BusinessSwitcherProps) {
+export function BusinessSwitcher({ currentName }: { currentName?: string | null }) {
   const { toast } = useToast();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [businesses, setBusinesses] = useState<Business[]>([]);
-  const [loading, setLoading] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [displayName, setDisplayName] = useState(currentName);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [form, setForm] = useState({ name: "", currency: "MWK", invoice_prefix: "INV" });
 
   useEffect(() => {
+    setDisplayName(currentName);
+  }, [currentName]);
+
+  useEffect(() => {
+    const stored = localStorage.getItem("activeBusinessId");
+    setActiveId(stored);
     loadBusinesses();
-    setActiveId(getActiveBusinessId());
   }, []);
 
   useEffect(() => {
@@ -47,46 +48,52 @@ export function BusinessSwitcher({ currentName }: BusinessSwitcherProps) {
   }, []);
 
   async function loadBusinesses() {
-    const sb = createClient();
-    const { data } = await getAllBusinesses(sb);
-    setBusinesses(data ?? []);
+    try {
+      const res = await fetch("/api/data/businesses");
+      if (!res.ok) return;
+      const data = await res.json();
+      setBusinesses(data.businesses || []);
+    } catch {}
   }
 
-  function switchBusiness(id: string) {
+  function switchBusiness(b: Business) {
     clearAllCaches();
-    setActiveBusinessId(id);
-    setActiveId(id);
+    localStorage.setItem("activeBusinessId", b.id);
+    setActiveId(b.id);
+    setDisplayName(b.name);
     setOpen(false);
     router.refresh();
   }
 
   async function handleAddBusiness() {
-    if (!form.name) return;
-    setLoading(true);
-    const sb = createClient();
-    const { data, error } = await sb.from("businesses").insert({
-      name: form.name,
-      currency: form.currency,
-      invoice_prefix: form.invoice_prefix,
-    }).select("id, name, currency, invoice_prefix").single();
-
-    if (error) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-      setLoading(false);
-      return;
+    if (!form.name.trim()) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/data/businesses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to create");
+      toast({ title: "Business created!", description: data.business.name });
+      setBusinesses(prev => [...prev, data.business]);
+      clearAllCaches();
+      localStorage.setItem("activeBusinessId", data.business.id);
+      setActiveId(data.business.id);
+      setDisplayName(data.business.name);
+      setForm({ name: "", currency: "MWK", invoice_prefix: "INV" });
+      setAddOpen(false);
+      setOpen(false);
+      router.refresh();
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
     }
-
-    toast({ title: "Business created", description: form.name });
-    setBusinesses(prev => [...prev, data]);
-    clearAllCaches();
-    setActiveBusinessId(data.id);
-    setActiveId(data.id);
-    setForm({ name: "", currency: "MWK", invoice_prefix: "INV" });
-    setAddOpen(false);
-    setOpen(false);
-    setLoading(false);
-    router.refresh();
+    setSaving(false);
   }
+
+  const activeBiz = businesses.find(b => b.id === activeId);
+  const shownName = displayName || activeBiz?.name || "Select business";
 
   return (
     <>
@@ -99,99 +106,125 @@ export function BusinessSwitcher({ currentName }: BusinessSwitcherProps) {
             <Building2 className="h-3.5 w-3.5 text-primary-foreground" />
           </div>
           <span className="text-xs sm:text-sm font-semibold truncate max-w-[7rem] sm:max-w-xs">
-            {currentName || "Select business"}
+            {shownName}
           </span>
           <ChevronDown className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-muted-foreground shrink-0" />
         </button>
 
         {open && (
-          <div className="absolute left-0 top-full mt-1 w-64 rounded-xl border bg-card shadow-lg z-50 p-2 max-h-[60vh] overflow-y-auto">
-            <p className="text-[10px] font-bold uppercase text-muted-foreground px-2 py-1.5">Your businesses</p>
-            {businesses.map(b => (
+          <div className="absolute left-0 top-full mt-1 w-72 rounded-2xl border bg-card shadow-xl z-50 overflow-hidden">
+            <div className="p-2">
+              <p className="text-[10px] font-bold uppercase text-muted-foreground px-2 py-1.5 tracking-wider">
+                Your businesses
+              </p>
+              <div className="space-y-0.5 max-h-56 overflow-y-auto">
+                {businesses.map(b => {
+                  const isActive = b.id === activeId;
+                  return (
+                    <button
+                      key={b.id}
+                      onClick={() => switchBusiness(b)}
+                      className={`flex items-center gap-2.5 w-full rounded-xl px-2.5 py-2.5 text-left text-sm transition-colors ${
+                        isActive ? "bg-primary/10" : "hover:bg-muted"
+                      }`}
+                    >
+                      <div className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 text-sm font-bold ${
+                        isActive ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+                      }`}>
+                        {b.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium truncate">{b.name}</p>
+                        <p className="text-xs text-muted-foreground">{b.currency} · {b.subscription_status || "trial"}</p>
+                      </div>
+                      {isActive && <Check className="h-4 w-4 text-primary shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="border-t p-2">
               <button
-                key={b.id}
-                onClick={() => switchBusiness(b.id)}
-                className="flex items-center gap-2.5 w-full rounded-lg px-2.5 py-2.5 text-left text-sm hover:bg-muted transition-colors"
+                onClick={() => { setAddOpen(true); setOpen(false); }}
+                className="flex items-center gap-2.5 w-full rounded-xl px-2.5 py-2.5 text-sm text-primary hover:bg-primary/5 transition-colors"
               >
-                <div className={`h-7 w-7 rounded-md flex items-center justify-center shrink-0 text-xs font-bold ${activeId === b.id ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
-                  {b.name.charAt(0).toUpperCase()}
-                </div>
-                <span className="truncate flex-1 font-medium">{b.name}</span>
-                {activeId === b.id && <Check className="h-4 w-4 text-primary shrink-0" />}
-              </button>
-            ))}
-            <div className="border-t mt-1 pt-1">
-              <button
-                onClick={() => setAddOpen(true)}
-                className="flex items-center gap-2.5 w-full rounded-lg px-2.5 py-2.5 text-left text-sm text-primary hover:bg-primary/5 transition-colors"
-              >
-                <div className="h-7 w-7 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+                <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
                   <Plus className="h-4 w-4" />
                 </div>
-                <span className="font-medium">Add business</span>
+                <span className="font-medium">Add new business</span>
               </button>
             </div>
           </div>
         )}
       </div>
 
-      {/* Add Business Dialog */}
+      {/* Add Business Sheet */}
       {addOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
           <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setAddOpen(false)} />
-          <div className="relative w-full max-w-md rounded-2xl border bg-card shadow-lg p-6 space-y-4">
+          <div className="relative w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl border bg-card shadow-2xl p-6 space-y-5 animate-in slide-in-from-bottom duration-200 sm:animate-none">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Add new business</h2>
-              <button onClick={() => setAddOpen(false)} className="p-1.5 rounded-lg hover:bg-muted">
+              <div>
+                <h2 className="text-lg font-bold">New business</h2>
+                <p className="text-sm text-muted-foreground">Each business has its own data & invoices</p>
+              </div>
+              <button onClick={() => setAddOpen(false)} className="p-2 rounded-xl hover:bg-muted">
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <div className="space-y-3">
-              <div>
+
+            <div className="space-y-4">
+              <div className="space-y-1.5">
                 <label className="text-sm font-medium">Business name *</label>
                 <input
-                  className="mt-1.5 w-full rounded-lg border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  className="w-full rounded-xl border bg-background px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                   placeholder="e.g. Hamaz Boreholes Ltd"
                   value={form.name}
                   onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
                   autoFocus
+                  onKeyDown={e => e.key === "Enter" && handleAddBusiness()}
                 />
               </div>
+
               <div className="grid grid-cols-2 gap-3">
-                <div>
+                <div className="space-y-1.5">
                   <label className="text-sm font-medium">Currency</label>
                   <select
-                    className="mt-1.5 w-full rounded-lg border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                    className="w-full rounded-xl border bg-background px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                     value={form.currency}
                     onChange={e => setForm(p => ({ ...p, currency: e.target.value }))}
                   >
                     {currencies.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
-                <div>
+                <div className="space-y-1.5">
                   <label className="text-sm font-medium">Invoice prefix</label>
                   <input
-                    className="mt-1.5 w-full rounded-lg border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                    className="w-full rounded-xl border bg-background px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary font-mono"
                     placeholder="INV"
+                    maxLength={6}
                     value={form.invoice_prefix}
                     onChange={e => setForm(p => ({ ...p, invoice_prefix: e.target.value.toUpperCase() }))}
                   />
                 </div>
               </div>
             </div>
-            <div className="flex gap-2 justify-end">
+
+            <div className="flex gap-3">
               <button
                 onClick={() => setAddOpen(false)}
-                className="px-4 py-2 rounded-lg text-sm font-medium border hover:bg-muted transition-colors"
+                className="flex-1 py-2.5 rounded-xl text-sm font-medium border hover:bg-muted transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleAddBusiness}
-                disabled={loading || !form.name}
-                className="px-4 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                disabled={saving || !form.name.trim()}
+                className="flex-1 py-2.5 rounded-xl text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
               >
-                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create business"}
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                {saving ? "Creating..." : "Create business"}
               </button>
             </div>
           </div>
