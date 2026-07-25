@@ -190,33 +190,38 @@ export default function InvoicesPage() {
               const StatusIcon = status.icon;
               return (
                 <Card key={inv.id} className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => router.push(`/invoices/${inv.id}`)}>
-                  <CardContent className="p-3 sm:p-4 flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <div className="h-9 w-9 sm:h-10 sm:w-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-                        <StatusIcon className="h-4 w-4 text-primary" />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="font-medium text-sm truncate">{inv.invoice_number}</p>
-                          <Badge variant="secondary" className={`text-[10px] px-1.5 py-0 ${status.className}`}>{status.label}</Badge>
-                        </div>
-                        <p className="text-xs text-muted-foreground truncate">
-                          {custName} · {formatDate(inv.issue_date)}
-                        </p>
-                      </div>
+                  <CardContent className="p-3 flex items-center gap-2">
+                    {/* Icon */}
+                    <div className="h-9 w-9 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                      <StatusIcon className="h-4 w-4 text-primary" />
                     </div>
-                    <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-                      <p className="text-sm font-semibold">{formatCurrency(Number(inv.total), currency)}</p>
-                      <div className="flex gap-1" onClick={e => e.stopPropagation()}>
-                        {inv.status !== "paid" && (
-                          <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" disabled={actionLoading === inv.id} onClick={() => markAsPaid(inv)}>
-                            {actionLoading === inv.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Mark Paid"}
-                          </Button>
-                        )}
-                        <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => copyShareLink(inv)}>
-                          <Copy className="h-3.5 w-3.5" />
-                        </Button>
+                    {/* Invoice info — takes all remaining space */}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <p className="font-medium text-sm">{inv.invoice_number}</p>
+                        <Badge variant="secondary" className={`text-[10px] px-1.5 py-0 shrink-0 ${status.className}`}>{status.label}</Badge>
                       </div>
+                      <p className="text-xs text-muted-foreground truncate">{custName} · {formatDate(inv.issue_date)}</p>
+                    </div>
+                    {/* Right: amount + actions — fixed width, never expands */}
+                    <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+                      <p className="text-sm font-semibold tabular-nums">{formatCurrency(Number(inv.total), currency)}</p>
+                      {inv.status !== "paid" && (
+                        <Button
+                          size="sm" variant="ghost"
+                          className="h-8 w-8 p-0 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                          disabled={actionLoading === inv.id}
+                          onClick={() => markAsPaid(inv)}
+                          title="Mark as paid"
+                        >
+                          {actionLoading === inv.id
+                            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            : <CheckCircle className="h-4 w-4" />}
+                        </Button>
+                      )}
+                      <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={() => copyShareLink(inv)} title="Copy share link">
+                        <Copy className="h-3.5 w-3.5" />
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>
