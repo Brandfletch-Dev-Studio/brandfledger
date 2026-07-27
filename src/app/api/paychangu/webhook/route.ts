@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
-import { query } from "@/lib/db";
+import { supabase } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -14,11 +14,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing signature" }, { status: 400 });
     }
 
-    // Read from DB or env
-    const webhookRows = await query("SELECT value FROM platform_settings WHERE key = 'paychangu_webhook_secret'");
-    const WEBHOOK_SECRET = webhookRows[0]?.value?.encoded
-      ? Buffer.from(webhookRows[0].value.encoded, "base64").toString("utf-8")
-      : (process.env.PAYCHANGU_WEBHOOK_SECRET || "");
+    const { data: webhookRow } = await supabase
+      .from("platform_settings")
+      .select("value")
+      .eq("key", "paychangu_webhook_secret")
+      .maybeSingle();
+
+    const WEBHOOK_SECRET = webhookRow?.value?.encoded
+      ? Buffer.from(webhookRow.value.encoded, "base64").toString("utf-8")
+      : process.env.PAYCHANGU_WEBHOOK_SECRET || "";
+
     const computedSignature = crypto
       .createHmac("sha256", WEBHOOK_SECRET)
       .update(rawBody)
@@ -29,49 +34,49 @@ export async function POST(req: NextRequest) {
     }
 
     const payload = JSON.parse(rawBody);
+    const { event, data } = payload;
 
-    if (payload.event_type === "api.charge.payment" && payload.status === "success") {
-      const txRef = payload.reference || payload.tx_ref;
+    if (event === "payment.success" && data?.tx_ref) {
+      const { data: sub } = await supabase
+        .from("subscriptions")
+        .select("*")
+        .eq("paychangu_tx_ref", data.tx_ref)
+        .maybeSingle();
 
-      // Verify with API
-      const secretRows = await query("SELECT value FROM platform_settings WHERE key = 'paychangu_secret_key'");
-      const PAYCHANGU_SECRET = secretRows[0]?.value?.encoded
-        ? Buffer.from(secretRows[0].value.encoded, "base64").toString("utf-8")
-        : (process.env.PAYCHANGU_SECRET_KEY || "");
-      const verifyRes = await fetch(`https://api.paychangu.com/verify-payment/${txRef}`, {
-        method: "GET",
-        headers: {
-          Accept: "application/json",
-          Authorization: `Bearer ${PAYCHANGU_SECRET}`,
-        },
-      });
+      if (sub) {
+        const endDate =
+          sub.plan === "annual"
+            ? new Date(Date.now() + 365 * 86400000).toISOString()
+            : new Date(Date.now() + 30 * 86400000).toISOString();
 
-      const verifyResult = await verifyRes.json();
+        await supabase
+          .from("subscriptions")
+          .update({
+            status: "active",
+            paychangu_tx_id: data.tx_id || data.tx_ref,
+            end_date: endDate,
+          })
+          .eq("id", sub.id);
 
-      if (verifyRes.ok && verifyResult.data?.status === "success") {
-        const subs = await query("SELECT * FROM subscriptions WHERE paychangu_tx_ref = $1", [txRef]);
-        const sub = subs[0];
+        const { data: biz } = await supabase
+          .from("businesses")
+          .select("owner_id")
+          .eq("id", sub.business_id)
+          .maybeSingle();
 
-        if (sub && sub.status !== "active") {
-          const endDate = sub.plan === "annual"
-            ? new Date(Date.now() + 365 * 86400000)
-            : new Date(Date.now() + 30 * 86400000);
-
-          await query(
-            `UPDATE subscriptions SET status = 'active', paychangu_tx_id = $1, end_date = $2, updated_at = now() WHERE id = $3`,
-            [verifyResult.data?.tx_id || txRef, endDate, sub.id]
-          );
-
-          await query(
-            `UPDATE accounts SET subscription_status = 'active', subscription_ends_at = $1, updated_at = NOW()
-             WHERE user_id = (SELECT owner_id FROM businesses WHERE id = $2 LIMIT 1)`,
-            [endDate, sub.business_id]
-          );
+        if (biz?.owner_id) {
+          await supabase
+            .from("accounts")
+            .update({
+              subscription_status: "active",
+              subscription_ends_at: endDate,
+            })
+            .eq("user_id", biz.owner_id);
         }
       }
     }
 
-    return NextResponse.json({ status: "ok" });
+    return NextResponse.json({ received: true });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
