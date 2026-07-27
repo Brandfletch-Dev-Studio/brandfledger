@@ -18,6 +18,7 @@ interface SearchableSelectProps {
   maxHeight?: number;
   className?: string;
   minDropdownWidth?: number;
+  allowCustom?: boolean;
 }
 
 export function SearchableSelect({
@@ -29,6 +30,7 @@ export function SearchableSelect({
   maxHeight = 240,
   className = "",
   minDropdownWidth = 240,
+  allowCustom = false,
 }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -40,9 +42,16 @@ export function SearchableSelect({
   useEffect(() => { setMounted(true); }, []);
 
   const selected = options.find(o => o.value === value);
+  const displayLabel = selected ? selected.label : (allowCustom && value ? value : placeholder);
+  const hasValue = !!selected || (allowCustom && !!value);
+
   const filtered = search.trim()
     ? options.filter(o => o.label.toLowerCase().includes(search.toLowerCase()))
     : options;
+
+  const trimmedSearch = search.trim();
+  const showCustom = allowCustom && trimmedSearch !== "" && !options.some(o => o.label.toLowerCase() === trimmedSearch.toLowerCase());
+  const customOption = showCustom ? { value: search, label: `Use: "${search}"` } : null;
 
   // Close on outside click
   useEffect(() => {
@@ -148,7 +157,28 @@ export function SearchableSelect({
 
         {/* Options */}
         <div style={{ overflowY: "auto", maxHeight, backgroundColor: "white" }}>
-          {filtered.length === 0 ? (
+          {customOption && (
+            <button
+              key="custom-option"
+              type="button"
+              onMouseDown={e => { e.preventDefault(); select(customOption.value); }}
+              style={{
+                display: "flex", alignItems: "center", gap: "8px",
+                width: "100%", padding: "10px 12px", textAlign: "left",
+                fontSize: "14px", cursor: "pointer", border: "none",
+                backgroundColor: customOption.value === value ? "#eef2ff" : "white",
+                color: customOption.value === value ? "#4f46e5" : "#1e293b",
+                fontWeight: customOption.value === value ? 600 : 400,
+                borderBottom: "1px solid #f1f5f9",
+              }}
+              onMouseEnter={e => { if (customOption.value !== value) (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#f8fafc"; }}
+              onMouseLeave={e => { if (customOption.value !== value) (e.currentTarget as HTMLButtonElement).style.backgroundColor = "white"; }}
+            >
+              <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{customOption.label}</span>
+              {customOption.value === value && <Check style={{ width: 14, height: 14, flexShrink: 0 }} />}
+            </button>
+          )}
+          {filtered.length === 0 && !customOption ? (
             <p style={{ textAlign: "center", padding: "16px", fontSize: "13px", color: "#94a3b8" }}>No results</p>
           ) : filtered.map(o => (
             <button
@@ -187,11 +217,11 @@ export function SearchableSelect({
         onClick={() => setOpen(o => !o)}
         className="flex items-center justify-between w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
       >
-        <span className={`truncate text-sm ${!selected ? "text-gray-400" : "text-gray-900"}`}>
-          {selected ? selected.label : placeholder}
+        <span className={`truncate text-sm ${!hasValue ? "text-gray-400" : "text-gray-900"}`}>
+          {displayLabel}
         </span>
         <div className="flex items-center gap-1 shrink-0 ml-1">
-          {selected && (
+          {hasValue && (
             <span onClick={clear} className="text-gray-400 hover:text-gray-600 cursor-pointer">
               <X className="h-3.5 w-3.5" />
             </span>
