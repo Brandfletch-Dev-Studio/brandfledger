@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { query } from "@/lib/db";
+import { supabase, getDbUser } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -10,17 +10,27 @@ export async function POST(req: NextRequest) {
     const invoiceId = body?.invoiceId as string | undefined;
     if (!invoiceId) return NextResponse.json({ error: "Missing invoiceId" }, { status: 400 });
 
-    const invoices = await query("SELECT * FROM invoices WHERE id = $1", [invoiceId]);
-    if (invoices.length === 0) return NextResponse.json({ error: "Invoice not found" }, { status: 404 });
-    const invoice = invoices[0];
+    const { data: invoice, error: invoiceErr } = await supabase
+      .from("invoices")
+      .select("*")
+      .eq("id", invoiceId)
+      .maybeSingle();
 
-    const [businessRows, customerRows] = await Promise.all([
-      query("SELECT * FROM businesses WHERE id = $1", [invoice.business_id]),
-      invoice.customer_id ? query("SELECT * FROM customers WHERE id = $1", [invoice.customer_id]) : Promise.resolve([]),
+    if (invoiceErr) throw invoiceErr;
+    if (!invoice) return NextResponse.json({ error: "Invoice not found" }, { status: 404 });
+
+    const [businessRes, customerRes] = await Promise.all([
+      supabase.from("businesses").select("*").eq("id", invoice.business_id).maybeSingle(),
+      invoice.customer_id
+        ? supabase.from("customers").select("*").eq("id", invoice.customer_id).maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
     ]);
 
-    const business = businessRows[0] || null;
-    const customer = customerRows[0] || null;
+    if (businessRes.error) throw businessRes.error;
+    if (customerRes.error) throw customerRes.error;
+
+    const business = businessRes.data || null;
+    const customer = customerRes.data || null;
 
     if (!customer?.email) {
       return NextResponse.json({ error: "Customer has no email address" }, { status: 400 });
