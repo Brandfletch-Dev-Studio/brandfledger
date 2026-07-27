@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { BFLogo } from "@/components/bf-logo";
-import { Loader2, Mail, Lock, Eye, EyeOff } from "lucide-react";
+import { Loader2, Mail, Lock, Eye, EyeOff, ArrowRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 export default function LoginPage() {
@@ -52,93 +52,106 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-purple-50 px-4">
-      <div className="w-full max-w-sm">
-        {/* Logo + heading */}
-        <div className="text-center mb-5">
-          <div className="inline-flex items-center justify-center mb-3">
-            <BFLogo size={56} className="rounded-2xl shadow-lg" />
-          </div>
-          <h1 className="text-xl font-extrabold text-gray-900">Welcome back</h1>
-          <p className="text-xs text-gray-500 mt-0.5">Sign in to your Brandfledger account</p>
-        </div>
+    <div className="min-h-screen flex flex-col bg-background">
+      {/* Top accent bar */}
+      <div className="h-1 w-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500" />
 
-        <form onSubmit={handleSubmit} className="space-y-3">
-          {/* Email */}
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-gray-600" htmlFor="email">Email address</label>
-            <div className="relative">
-              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <input
-                id="email"
-                type="email"
-                autoComplete="email"
-                required
-                value={form.email}
-                onChange={e => set("email", e.target.value)}
-                placeholder="you@example.com"
-                className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-200 bg-white text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
-              />
+      <div className="flex flex-1 flex-col items-center justify-center px-5 py-10">
+        <div className="w-full max-w-[360px]">
+
+          {/* Brand */}
+          <div className="flex items-center gap-3 mb-8">
+            <BFLogo size={44} className="rounded-xl shadow-md" />
+            <div>
+              <p className="text-xs font-medium text-muted-foreground tracking-widest uppercase">Brandfledger</p>
+              <h1 className="text-xl font-black text-foreground leading-tight">Welcome back</h1>
             </div>
           </div>
 
-          {/* Password */}
-          <div className="space-y-1">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-medium text-gray-600" htmlFor="password">Password</label>
-              <button type="button" className="text-xs text-indigo-600 hover:underline" tabIndex={-1}>Forgot password?</button>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Email */}
+            <div>
+              <label className="block text-xs font-semibold text-foreground mb-1.5" htmlFor="email">Email</label>
+              <div className="relative">
+                <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                <input
+                  id="email"
+                  type="email"
+                  autoComplete="email"
+                  required
+                  value={form.email}
+                  onChange={e => set("email", e.target.value)}
+                  placeholder="you@example.com"
+                  className="w-full pl-10 pr-4 py-3 rounded-xl border border-border bg-card text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/60 focus:border-primary transition-all shadow-sm"
+                />
+              </div>
             </div>
-            <div className="relative">
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <input
-                id="password"
-                type={showPassword ? "text" : "password"}
-                autoComplete="current-password"
-                required
-                value={form.password}
-                onChange={e => set("password", e.target.value)}
-                placeholder="••••••••"
-                className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-gray-200 bg-white text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(s => !s)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                tabIndex={-1}
-              >
-                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
+
+            {/* Password */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-semibold text-foreground" htmlFor="password">Password</label>
+                <Link href="/forgot-password" className="text-xs font-medium text-primary hover:underline">
+                  Forgot password?
+                </Link>
+              </div>
+              <div className="relative">
+                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                <input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  autoComplete="current-password"
+                  required
+                  value={form.password}
+                  onChange={e => set("password", e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full pl-10 pr-11 py-3 rounded-xl border border-border bg-card text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/60 focus:border-primary transition-all shadow-sm"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(s => !s)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
+
+            {/* CTA */}
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-primary hover:bg-primary/90 disabled:opacity-60 text-primary-foreground font-bold text-sm transition-all shadow-md active:scale-[0.98]"
+            >
+              {loading
+                ? <><Loader2 className="h-4 w-4 animate-spin" /> Signing in…</>
+                : <><span>Sign In</span><ArrowRight className="h-4 w-4" /></>
+              }
+            </button>
+          </form>
+
+          {/* Divider */}
+          <div className="flex items-center gap-3 my-5">
+            <div className="flex-1 h-px bg-border" />
+            <span className="text-xs text-muted-foreground">New to Brandfledger?</span>
+            <div className="flex-1 h-px bg-border" />
           </div>
 
-          {/* Submit */}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-semibold text-sm transition-colors shadow-sm"
+          <Link
+            href="/register"
+            className="flex items-center justify-center gap-2 w-full py-3 rounded-xl border-2 border-border bg-background hover:border-primary/40 hover:bg-primary/5 text-sm font-semibold text-foreground transition-all active:scale-[0.98]"
           >
-            {loading ? <><Loader2 className="h-4 w-4 animate-spin" /> Signing in…</> : "Sign In"}
-          </button>
-        </form>
+            Create a free account
+          </Link>
 
-        {/* Divider */}
-        <div className="relative my-4">
-          <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200" /></div>
-          <div className="relative flex justify-center"><span className="bg-white px-3 text-xs text-gray-400">Don't have an account?</span></div>
+          <p className="text-center text-[11px] text-muted-foreground mt-5">
+            By signing in you agree to our{" "}
+            <Link href="/terms" className="text-primary hover:underline">Terms</Link>
+            {" "}and{" "}
+            <Link href="/privacy" className="text-primary hover:underline">Privacy Policy</Link>.
+          </p>
         </div>
-
-        <Link
-          href="/register"
-          className="block w-full text-center py-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-sm font-semibold text-gray-700 transition-colors"
-        >
-          Create a free account
-        </Link>
-
-        <p className="text-center text-xs text-gray-400 mt-4">
-          By signing in you agree to our{" "}
-          <Link href="/terms" className="text-indigo-600 hover:underline">Terms</Link> and{" "}
-          <Link href="/privacy" className="text-indigo-600 hover:underline">Privacy Policy</Link>.
-        </p>
       </div>
     </div>
   );
