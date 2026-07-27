@@ -37,6 +37,7 @@ export function SearchableSelect({
   const containerRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const [dropStyle, setDropStyle] = useState<React.CSSProperties>({});
+  const [listMaxH, setListMaxH] = useState(200);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => { setMounted(true); }, []);
@@ -131,10 +132,7 @@ export function SearchableSelect({
 
   const dropdown = mounted && open ? createPortal(
     <>
-      <div
-        style={{ position: "fixed", inset: 0, zIndex: 99998 }}
-        onMouseDown={() => { setOpen(false); setSearch(""); }}
-      />
+
       <div
         id="searchable-select-portal"
         style={{
@@ -188,7 +186,7 @@ export function SearchableSelect({
         {/* Scrollable options list — height capped to available space */}
         <div style={{
           overflowY: "auto",
-          maxHeight: "var(--list-max-h, 200px)",
+          maxHeight: `${listMaxH}px`,
           backgroundColor: "white",
           WebkitOverflowScrolling: "touch", // smooth scroll on iOS
         }}>
