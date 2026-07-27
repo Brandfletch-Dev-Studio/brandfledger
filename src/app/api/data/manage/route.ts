@@ -1,30 +1,28 @@
 import { NextResponse } from "next/server";
-import { query, getDbUser } from "@/lib/db";
+import { supabase, getDbUser } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 async function getBusinessId(userId: string, requestedId?: string | null) {
   if (requestedId) {
-    const ownership = await query("SELECT id FROM businesses WHERE id = $1 AND owner_id = $2", [requestedId, userId]);
-    if (ownership.length === 0) return null;
+    const { data } = await supabase.from('businesses').select('id').eq('id', requestedId).eq('owner_id', userId).maybeSingle();
+    if (!data) return null;
     return requestedId;
   }
-  // Check cookie for active business selection
   try {
     const { cookies } = await import("next/headers");
     const cookieStore = cookies();
     const cookieId = cookieStore.get("activeBusinessId")?.value;
     if (cookieId) {
-      const ownership = await query("SELECT id FROM businesses WHERE id = $1 AND owner_id = $2", [cookieId, userId]);
-      if (ownership.length > 0) return cookieId;
+      const { data } = await supabase.from('businesses').select('id').eq('id', cookieId).eq('owner_id', userId).maybeSingle();
+      if (data) return cookieId;
     }
   } catch {}
-  const businesses = await query("SELECT id FROM businesses WHERE owner_id = $1 ORDER BY created_at LIMIT 1", [userId]);
-  return businesses[0]?.id ?? null;
+  const { data } = await supabase.from('businesses').select('id').eq('owner_id', userId).order('created_at').limit(1).maybeSingle();
+  return data?.id ?? null;
 }
 
-// GET — return data counts for each table
 export async function GET(request: Request) {
   try {
     const user = getDbUser();
@@ -35,20 +33,20 @@ export async function GET(request: Request) {
     if (!businessId) return NextResponse.json({ error: "No business found" }, { status: 404 });
 
     const [transactions, customers, products, categories, invoices] = await Promise.all([
-      query("SELECT COUNT(*) as count FROM transactions WHERE business_id = $1", [businessId]),
-      query("SELECT COUNT(*) as count FROM customers WHERE business_id = $1", [businessId]),
-      query("SELECT COUNT(*) as count FROM products WHERE business_id = $1", [businessId]),
-      query("SELECT COUNT(*) as count FROM categories WHERE business_id = $1", [businessId]),
-      query("SELECT COUNT(*) as count FROM invoices WHERE business_id = $1", [businessId]),
+      supabase.from('transactions').select('id', { count: 'exact', head: true }).eq('business_id', businessId),
+      supabase.from('customers').select('id', { count: 'exact', head: true }).eq('business_id', businessId),
+      supabase.from('products').select('id', { count: 'exact', head: true }).eq('business_id', businessId),
+      supabase.from('categories').select('id', { count: 'exact', head: true }).eq('business_id', businessId),
+      supabase.from('invoices').select('id', { count: 'exact', head: true }).eq('business_id', businessId),
     ]);
 
     return NextResponse.json({
       counts: {
-        transactions: parseInt(transactions[0].count),
-        customers: parseInt(customers[0].count),
-        products: parseInt(products[0].count),
-        categories: parseInt(categories[0].count),
-        invoices: parseInt(invoices[0].count),
+        transactions: transactions.count || 0,
+        customers: customers.count || 0,
+        products: products.count || 0,
+        categories: categories.count || 0,
+        invoices: invoices.count || 0,
       },
       businessId,
     });
@@ -57,7 +55,6 @@ export async function GET(request: Request) {
   }
 }
 
-// DELETE — clear data by table, or all
 export async function DELETE(request: Request) {
   try {
     const user = getDbUser();
@@ -71,25 +68,24 @@ export async function DELETE(request: Request) {
     const deleted: Record<string, number> = {};
 
     if (scope === "all" || scope === "transactions") {
-      const r = await query("DELETE FROM transactions WHERE business_id = $1", [businessId]);
-      deleted.transactions = r.length || 0;
+      const r = await supabase.from('transactions').delete().eq('business_id', businessId);
+      deleted.transactions = r.count || 0;
     }
     if (scope === "all" || scope === "invoices") {
-      // Invoices store items as JSONB — no separate invoice_items table
-      const r = await query("DELETE FROM invoices WHERE business_id = $1", [businessId]);
-      deleted.invoices = r.length || 0;
+      const r = await supabase.from('invoices').delete().eq('business_id', businessId);
+      deleted.invoices = r.count || 0;
     }
     if (scope === "all" || scope === "customers") {
-      const r = await query("DELETE FROM customers WHERE business_id = $1", [businessId]);
-      deleted.customers = r.length || 0;
+      const r = await supabase.from('customers').delete().eq('business_id', businessId);
+      deleted.customers = r.count || 0;
     }
     if (scope === "all" || scope === "products") {
-      const r = await query("DELETE FROM products WHERE business_id = $1", [businessId]);
-      deleted.products = r.length || 0;
+      const r = await supabase.from('products').delete().eq('business_id', businessId);
+      deleted.products = r.count || 0;
     }
     if (scope === "all" || scope === "categories") {
-      const r = await query("DELETE FROM categories WHERE business_id = $1", [businessId]);
-      deleted.categories = r.length || 0;
+      const r = await supabase.from('categories').delete().eq('business_id', businessId);
+      deleted.categories = r.count || 0;
     }
 
     return NextResponse.json({ success: true, deleted });
