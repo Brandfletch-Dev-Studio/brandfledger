@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { query, getDbUser } from "@/lib/db";
+import { supabase, getDbUser } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 async function verifyOwnership(businessId: string, userId: string) {
-  const ownership = await query("SELECT id FROM businesses WHERE id = $1 AND owner_id = $2", [businessId, userId]);
-  return ownership.length > 0;
+  const { data } = await supabase.from('businesses').select('id').eq('id', businessId).eq('owner_id', userId).maybeSingle();
+  return !!data;
 }
 
 export async function GET(request: Request) {
@@ -18,28 +18,58 @@ export async function GET(request: Request) {
     let businessId: string | null = searchParams.get("business_id");
     
     if (!businessId) {
-      const businesses = await query("SELECT id FROM businesses WHERE owner_id = $1 ORDER BY created_at LIMIT 1", [user.userId]);
-      if (businesses.length === 0) return NextResponse.json({ error: "No business found" }, { status: 404 });
-      businessId = businesses[0].id;
+      const { data: businesses, error: bizError } = await supabase
+        .from('businesses')
+        .select('id')
+        .eq('owner_id', user.userId)
+        .order('created_at')
+        .limit(1)
+        .maybeSingle();
+      if (bizError) throw bizError;
+      if (!businesses) return NextResponse.json({ error: "No business found" }, { status: 404 });
+      businessId = businesses.id;
     }
 
     if (!businessId || !await verifyOwnership(businessId, user.userId)) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
 
-    const [transactions, categories, products] = await Promise.all([
-      query("SELECT * FROM transactions WHERE business_id = $1 ORDER BY date DESC, created_at DESC", [businessId]),
-      query("SELECT * FROM categories WHERE business_id = $1 ORDER BY sort_order, name", [businessId]),
-      query("SELECT * FROM products WHERE business_id = $1 AND is_active = true ORDER BY name", [businessId]),
+    const [txResult, catResult, prodResult, bizResult] = await Promise.all([
+      supabase
+        .from('transactions')
+        .select('*')
+        .eq('business_id', businessId)
+        .order('date', { ascending: false })
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('categories')
+        .select('*')
+        .eq('business_id', businessId)
+        .order('sort_order')
+        .order('name'),
+      supabase
+        .from('products')
+        .select('*')
+        .eq('business_id', businessId)
+        .eq('is_active', true)
+        .order('name'),
+      supabase
+        .from('businesses')
+        .select('*')
+        .eq('id', businessId)
+        .maybeSingle()
     ]);
 
-    const business = await query("SELECT * FROM businesses WHERE id = $1", [businessId]);
+    if (txResult.error) throw txResult.error;
+    if (catResult.error) throw catResult.error;
+    if (prodResult.error) throw prodResult.error;
+    if (bizResult.error) throw bizResult.error;
 
     return NextResponse.json({
-      business: business[0],
-      transactions,
-      categories,
-      products,
+      business: bizResult.data,
+      transactions: txResult.data || [],
+      categories: catResult.data || [],
+      products: prodResult.data || [],
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
@@ -61,56 +91,94 @@ export async function POST(request: Request) {
 
     if (action === "create_transaction") {
       const { type, client_name, vendor_name, description, amount, cost_qty, cost_amount, category_id, category_name, product_id, payment_method, date } = data;
-      const result = await query(
-        `INSERT INTO transactions (business_id, type, client_name, vendor_name, description, amount, cost_qty, cost_amount, category_id, category_name, product_id, payment_method, date)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
-        [business_id, type, client_name || null, vendor_name || null, description, amount, cost_qty || 0, cost_amount || 0, category_id || null, category_name || null, product_id || null, payment_method || "cash", date]
-      );
-      return NextResponse.json({ transaction: result[0] });
+      const { data: tx, error: txErr } = await supabase
+        .from('transactions')
+        .insert({
+          business_id,
+          type,
+          client_name: client_name || null,
+          vendor_name: vendor_name || null,
+          description,
+          amount,
+          cost_qty: cost_qty || 0,
+          cost_amount: cost_amount || 0,
+          category_id: category_id || null,
+          category_name: category_name || null,
+          product_id: product_id || null,
+          payment_method: payment_method || "cash",
+          date
+        })
+        .select('*')
+        .single();
+      if (txErr) throw txErr;
+      return NextResponse.json({ transaction: tx });
     }
 
     if (action === "update_transaction") {
       const { id, type, client_name, vendor_name, description, amount, cost_qty, cost_amount, category_id, category_name, product_id, payment_method, date } = data;
-      const result = await query(
-        `UPDATE transactions SET
-          type = COALESCE($1, type),
-          client_name = COALESCE($2, client_name),
-          vendor_name = COALESCE($3, vendor_name),
-          description = COALESCE($4, description),
-          amount = COALESCE($5, amount),
-          cost_qty = COALESCE($6, cost_qty),
-          cost_amount = COALESCE($7, cost_amount),
-          category_id = COALESCE($8, category_id),
-          category_name = COALESCE($9, category_name),
-          product_id = COALESCE($10, product_id),
-          payment_method = COALESCE($11, payment_method),
-          date = COALESCE($12, date),
-          updated_at = NOW()
-         WHERE id = $13 AND business_id = $14 RETURNING *`,
-        [type, client_name, vendor_name, description, amount, cost_qty, cost_amount, category_id, category_name, product_id, payment_method, date, id, business_id]
-      );
-      if (result.length === 0) return NextResponse.json({ error: "Not found" }, { status: 404 });
-      return NextResponse.json({ transaction: result[0] });
+      
+      const updateObj: any = { updated_at: new Date().toISOString() };
+      if (type !== undefined && type !== null) updateObj.type = type;
+      if (client_name !== undefined && client_name !== null) updateObj.client_name = client_name;
+      if (vendor_name !== undefined && vendor_name !== null) updateObj.vendor_name = vendor_name;
+      if (description !== undefined && description !== null) updateObj.description = description;
+      if (amount !== undefined && amount !== null) updateObj.amount = amount;
+      if (cost_qty !== undefined && cost_qty !== null) updateObj.cost_qty = cost_qty;
+      if (cost_amount !== undefined && cost_amount !== null) updateObj.cost_amount = cost_amount;
+      if (category_id !== undefined && category_id !== null) updateObj.category_id = category_id;
+      if (category_name !== undefined && category_name !== null) updateObj.category_name = category_name;
+      if (product_id !== undefined && product_id !== null) updateObj.product_id = product_id;
+      if (payment_method !== undefined && payment_method !== null) updateObj.payment_method = payment_method;
+      if (date !== undefined && date !== null) updateObj.date = date;
+
+      const { data: updatedTx, error: updateError } = await supabase
+        .from('transactions')
+        .update(updateObj)
+        .eq('id', id)
+        .eq('business_id', business_id)
+        .select('*')
+        .maybeSingle();
+
+      if (updateError) throw updateError;
+      if (!updatedTx) return NextResponse.json({ error: "Not found" }, { status: 404 });
+      return NextResponse.json({ transaction: updatedTx });
     }
 
     if (action === "create_category") {
       const { name, type, color } = data;
-      const result = await query(
-        `INSERT INTO categories (business_id, name, type, color) VALUES ($1, $2, $3, $4) RETURNING *`,
-        [business_id, name, type, color || null]
-      );
-      return NextResponse.json({ category: result[0] });
+      const { data: category, error: catError } = await supabase
+        .from('categories')
+        .insert({
+          business_id,
+          name,
+          type,
+          color: color || null
+        })
+        .select('*')
+        .single();
+      if (catError) throw catError;
+      return NextResponse.json({ category });
     }
 
     if (action === "delete_transaction") {
       const { id } = data;
-      await query("DELETE FROM transactions WHERE id = $1 AND business_id = $2", [id, business_id]);
+      const { error: deleteError } = await supabase
+        .from('transactions')
+        .delete()
+        .eq('id', id)
+        .eq('business_id', business_id);
+      if (deleteError) throw deleteError;
       return NextResponse.json({ success: true });
     }
 
     if (action === "delete_category") {
       const { id } = data;
-      await query("DELETE FROM categories WHERE id = $1 AND business_id = $2", [id, business_id]);
+      const { error: deleteError } = await supabase
+        .from('categories')
+        .delete()
+        .eq('id', id)
+        .eq('business_id', business_id);
+      if (deleteError) throw deleteError;
       return NextResponse.json({ success: true });
     }
 
@@ -133,26 +201,32 @@ export async function PUT(request: Request) {
     }
 
     const { type, client_name, vendor_name, description, amount, cost_qty, cost_amount, category_id, category_name, product_id, payment_method, date } = data;
-    const result = await query(
-      `UPDATE transactions SET
-        type = COALESCE($1, type),
-        client_name = COALESCE($2, client_name),
-        vendor_name = COALESCE($3, vendor_name),
-        description = COALESCE($4, description),
-        amount = COALESCE($5, amount),
-        cost_qty = COALESCE($6, cost_qty),
-        cost_amount = COALESCE($7, cost_amount),
-        category_id = COALESCE($8, category_id),
-        category_name = COALESCE($9, category_name),
-        product_id = COALESCE($10, product_id),
-        payment_method = COALESCE($11, payment_method),
-        date = COALESCE($12, date),
-        updated_at = NOW()
-       WHERE id = $13 AND business_id = $14 RETURNING *`,
-      [type, client_name, vendor_name, description, amount, cost_qty, cost_amount, category_id, category_name, product_id, payment_method, date, id, business_id]
-    );
-    if (result.length === 0) return NextResponse.json({ error: "Not found" }, { status: 404 });
-    return NextResponse.json({ transaction: result[0] });
+
+    const updateObj: any = { updated_at: new Date().toISOString() };
+    if (type !== undefined && type !== null) updateObj.type = type;
+    if (client_name !== undefined && client_name !== null) updateObj.client_name = client_name;
+    if (vendor_name !== undefined && vendor_name !== null) updateObj.vendor_name = vendor_name;
+    if (description !== undefined && description !== null) updateObj.description = description;
+    if (amount !== undefined && amount !== null) updateObj.amount = amount;
+    if (cost_qty !== undefined && cost_qty !== null) updateObj.cost_qty = cost_qty;
+    if (cost_amount !== undefined && cost_amount !== null) updateObj.cost_amount = cost_amount;
+    if (category_id !== undefined && category_id !== null) updateObj.category_id = category_id;
+    if (category_name !== undefined && category_name !== null) updateObj.category_name = category_name;
+    if (product_id !== undefined && product_id !== null) updateObj.product_id = product_id;
+    if (payment_method !== undefined && payment_method !== null) updateObj.payment_method = payment_method;
+    if (date !== undefined && date !== null) updateObj.date = date;
+
+    const { data: updatedTx, error: updateError } = await supabase
+      .from('transactions')
+      .update(updateObj)
+      .eq('id', id)
+      .eq('business_id', business_id)
+      .select('*')
+      .maybeSingle();
+
+    if (updateError) throw updateError;
+    if (!updatedTx) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    return NextResponse.json({ transaction: updatedTx });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
@@ -171,7 +245,13 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
 
-    await query("DELETE FROM transactions WHERE id = $1 AND business_id = $2", [id, businessId]);
+    const { error: deleteError } = await supabase
+      .from('transactions')
+      .delete()
+      .eq('id', id)
+      .eq('business_id', businessId);
+    if (deleteError) throw deleteError;
+
     return NextResponse.json({ success: true });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
