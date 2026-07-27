@@ -3,12 +3,12 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { BFLogo } from "@/components/bf-logo";
-import { Loader2, Mail, Lock, User, Building2, Eye, EyeOff, CheckCircle2 } from "lucide-react";
+import { Loader2, Mail, Lock, User, Building2, Eye, EyeOff, ArrowRight, ShieldCheck } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const PERKS = [
-  "14-day free trial, no card needed",
-  "Unlimited transactions & invoices",
+  "14-day free trial · no card needed",
+  "Invoices, expenses & profit tracking",
   "Multiple businesses, one account",
 ];
 
@@ -30,6 +30,12 @@ export default function RegisterPage() {
   function set(field: string, value: string) {
     setForm(f => ({ ...f, [field]: value }));
   }
+
+  const pwStrength = form.password.length === 0 ? 0
+    : form.password.length < 6 ? 1
+    : form.password.length < 10 ? 2 : 3;
+  const pwColors = ["", "bg-destructive", "bg-amber-500", "bg-emerald-500"];
+  const pwLabels = ["", "Too short", "Could be stronger", "Strong"];
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -62,135 +68,129 @@ export default function RegisterPage() {
     }
   }
 
+  const fields = [
+    { id: "fullName",     label: "Full Name",     icon: User,      type: "text",     placeholder: "Arthur Chibondo",     autocomplete: "name"          },
+    { id: "businessName", label: "Business Name", icon: Building2, type: "text",     placeholder: "Acme Agency",         autocomplete: "organization"  },
+    { id: "email",        label: "Email",         icon: Mail,      type: "email",    placeholder: "you@example.com",     autocomplete: "email"         },
+  ];
+
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-purple-50 px-4 py-6">
-      <div className="w-full max-w-sm">
-        {/* Logo + heading */}
-        <div className="text-center mb-4">
-          <div className="inline-flex items-center justify-center mb-2.5">
-            <BFLogo size={56} className="rounded-2xl shadow-lg" />
-          </div>
-          <h1 className="text-xl font-extrabold text-gray-900">Create your account</h1>
-          <p className="text-xs text-gray-500 mt-0.5">Start your 14-day free trial today</p>
-        </div>
+    <div className="min-h-screen flex flex-col bg-background">
+      {/* Top accent bar */}
+      <div className="h-1 w-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500" />
 
-        {/* Perks — compact */}
-        <div className="bg-indigo-50 rounded-xl px-3 py-2 mb-4 space-y-1">
-          {PERKS.map(p => (
-            <div key={p} className="flex items-center gap-2 text-xs text-indigo-700">
-              <CheckCircle2 className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-              <span>{p}</span>
-            </div>
-          ))}
-        </div>
+      <div className="flex flex-1 flex-col items-center justify-center px-5 py-10">
+        <div className="w-full max-w-[360px]">
 
-        <form onSubmit={handleSubmit} className="space-y-2.5">
-          {/* Full Name */}
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-gray-600" htmlFor="fullName">Full Name</label>
-            <div className="relative">
-              <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <input
-                id="fullName"
-                type="text"
-                autoComplete="name"
-                required
-                value={form.fullName}
-                onChange={e => set("fullName", e.target.value)}
-                placeholder="John Banda"
-                className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-200 bg-white text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
-              />
+          {/* Brand */}
+          <div className="flex items-center gap-3 mb-6">
+            <BFLogo size={44} className="rounded-xl shadow-md" />
+            <div>
+              <p className="text-xs font-medium text-muted-foreground tracking-widest uppercase">Brandfledger</p>
+              <h1 className="text-xl font-black text-foreground leading-tight">Get started free</h1>
             </div>
           </div>
 
-          {/* Business Name */}
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-gray-600" htmlFor="businessName">Business Name</label>
-            <div className="relative">
-              <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <input
-                id="businessName"
-                type="text"
-                required
-                value={form.businessName}
-                onChange={e => set("businessName", e.target.value)}
-                placeholder="My Business"
-                className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-200 bg-white text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
-              />
-            </div>
+          {/* Perks strip */}
+          <div className="flex flex-col gap-1 mb-5 px-3 py-2.5 rounded-xl bg-primary/5 border border-primary/15">
+            {PERKS.map(p => (
+              <div key={p} className="flex items-center gap-2 text-xs text-primary font-medium">
+                <ShieldCheck className="h-3.5 w-3.5 shrink-0 opacity-80" />
+                {p}
+              </div>
+            ))}
           </div>
 
-          {/* Email */}
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-gray-600" htmlFor="email">Email Address</label>
-            <div className="relative">
-              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <input
-                id="email"
-                type="email"
-                autoComplete="email"
-                required
-                value={form.email}
-                onChange={e => set("email", e.target.value)}
-                placeholder="you@example.com"
-                className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-200 bg-white text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
-              />
+          <form onSubmit={handleSubmit} className="space-y-3.5">
+            {fields.map(({ id, label, icon: Icon, type, placeholder, autocomplete }) => (
+              <div key={id}>
+                <label className="block text-xs font-semibold text-foreground mb-1.5" htmlFor={id}>{label}</label>
+                <div className="relative">
+                  <Icon className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                  <input
+                    id={id}
+                    type={type}
+                    autoComplete={autocomplete}
+                    required
+                    value={(form as any)[id]}
+                    onChange={e => set(id, e.target.value)}
+                    placeholder={placeholder}
+                    className="w-full pl-10 pr-4 py-3 rounded-xl border border-border bg-card text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/60 focus:border-primary transition-all shadow-sm"
+                  />
+                </div>
+              </div>
+            ))}
+
+            {/* Password with strength */}
+            <div>
+              <label className="block text-xs font-semibold text-foreground mb-1.5" htmlFor="password">Password</label>
+              <div className="relative">
+                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                <input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  autoComplete="new-password"
+                  required
+                  value={form.password}
+                  onChange={e => set("password", e.target.value)}
+                  placeholder="Min. 8 characters"
+                  className="w-full pl-10 pr-11 py-3 rounded-xl border border-border bg-card text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/60 focus:border-primary transition-all shadow-sm"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(s => !s)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+              {form.password.length > 0 && (
+                <div className="mt-1.5 flex items-center gap-2">
+                  <div className="flex gap-1 flex-1">
+                    {[1, 2, 3].map(i => (
+                      <div key={i} className={`h-1 flex-1 rounded-full transition-all ${i <= pwStrength ? pwColors[pwStrength] : "bg-border"}`} />
+                    ))}
+                  </div>
+                  <span className="text-[10px] text-muted-foreground">{pwLabels[pwStrength]}</span>
+                </div>
+              )}
             </div>
+
+            {/* CTA */}
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-primary hover:bg-primary/90 disabled:opacity-60 text-primary-foreground font-bold text-sm transition-all shadow-md active:scale-[0.98]"
+            >
+              {loading
+                ? <><Loader2 className="h-4 w-4 animate-spin" /> Creating account…</>
+                : <><span>Create my workspace</span><ArrowRight className="h-4 w-4" /></>
+              }
+            </button>
+          </form>
+
+          {/* Footer */}
+          <div className="flex items-center gap-3 my-4">
+            <div className="flex-1 h-px bg-border" />
+            <span className="text-xs text-muted-foreground">Have an account?</span>
+            <div className="flex-1 h-px bg-border" />
           </div>
 
-          {/* Password */}
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-gray-600" htmlFor="password">Password</label>
-            <div className="relative">
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <input
-                id="password"
-                type={showPassword ? "text" : "password"}
-                autoComplete="new-password"
-                required
-                value={form.password}
-                onChange={e => set("password", e.target.value)}
-                placeholder="Min. 8 characters"
-                className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-gray-200 bg-white text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(s => !s)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                tabIndex={-1}
-              >
-                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
-          </div>
-
-          {/* Submit */}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-semibold text-sm transition-colors shadow-sm mt-1"
+          <Link
+            href="/login"
+            className="flex items-center justify-center gap-2 w-full py-3 rounded-xl border-2 border-border bg-background hover:border-primary/40 hover:bg-primary/5 text-sm font-semibold text-foreground transition-all active:scale-[0.98]"
           >
-            {loading ? <><Loader2 className="h-4 w-4 animate-spin" /> Creating account…</> : "Create Free Account"}
-          </button>
-        </form>
+            Sign in instead
+          </Link>
 
-        <div className="relative my-3">
-          <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200" /></div>
-          <div className="relative flex justify-center"><span className="bg-white px-3 text-xs text-gray-400">Already have an account?</span></div>
+          <p className="text-center text-[11px] text-muted-foreground mt-4">
+            By creating an account you agree to our{" "}
+            <Link href="/terms" className="text-primary hover:underline">Terms</Link>
+            {" "}and{" "}
+            <Link href="/privacy" className="text-primary hover:underline">Privacy Policy</Link>.
+          </p>
         </div>
-
-        <Link
-          href="/login"
-          className="block w-full text-center py-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-sm font-semibold text-gray-700 transition-colors"
-        >
-          Sign In Instead
-        </Link>
-
-        <p className="text-center text-xs text-gray-400 mt-3">
-          By creating an account you agree to our{" "}
-          <Link href="/terms" className="text-indigo-600 hover:underline">Terms</Link> and{" "}
-          <Link href="/privacy" className="text-indigo-600 hover:underline">Privacy Policy</Link>.
-        </p>
       </div>
     </div>
   );
