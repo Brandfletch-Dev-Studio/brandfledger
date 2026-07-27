@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getDbUser, query } from "@/lib/db";
+import { getDbUser, supabase } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -7,9 +7,9 @@ export const runtime = "nodejs";
 // Helper: read a credential from platform_settings (stored base64-encoded)
 async function getCredential(key: string): Promise<string | null> {
   try {
-    const rows = await query("SELECT value FROM platform_settings WHERE key = $1", [key]);
-    if (!rows[0]?.value?.encoded) return null;
-    return Buffer.from(rows[0].value.encoded, "base64").toString("utf-8");
+    const { data } = await supabase.from("platform_settings").select("value").eq("key", key).maybeSingle();
+    if (!data?.value?.encoded) return null;
+    return Buffer.from(data.value.encoded, "base64").toString("utf-8");
   } catch {
     return null;
   }
