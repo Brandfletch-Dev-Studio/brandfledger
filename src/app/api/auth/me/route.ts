@@ -33,32 +33,33 @@ export async function GET(request: Request) {
     return NextResponse.json({ authenticated: false }, { status: 401 });
   }
 
-  const pg = await import("pg");
-  const Client = pg.Client;
-  const client = new (Client as any)({
-    connectionString: process.env.DATABASE_URL!,
-    ssl: { rejectUnauthorized: false },
-    connectionTimeoutMillis: 10000,
-  });
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
   try {
-    await client.connect();
-    const { rows } = await client.query(
-      "SELECT id, email, raw_user_meta_data->>'full_name' as full_name FROM auth.users WHERE id = $1",
-      [session.userId]
-    );
-    await client.end();
+    // Fetch user via Supabase Auth Admin API
+    const userRes = await fetch(`${supabaseUrl}/auth/v1/admin/users/${session.userId}`, {
+      headers: {
+        "apikey": serviceKey,
+        "Authorization": `Bearer ${serviceKey}`,
+      },
+    });
 
-    if (rows.length === 0) {
+    if (!userRes.ok) {
       return NextResponse.json({ authenticated: false }, { status: 401 });
     }
 
+    const userData = await userRes.json();
+
     return NextResponse.json({
       authenticated: true,
-      user: { id: rows[0].id, email: rows[0].email, fullName: rows[0].full_name },
+      user: {
+        id: userData.id,
+        email: userData.email,
+        fullName: userData.user_metadata?.full_name || "",
+      },
     });
   } catch {
-    try { await client.end(); } catch {}
     return NextResponse.json({ authenticated: false }, { status: 401 });
   }
 }
