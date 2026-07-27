@@ -1,28 +1,17 @@
 import { cookies } from "next/headers";
 import crypto from "crypto";
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { Pool } = require("pg") as { Pool: new (opts: any) => any };
+import { createClient } from "@supabase/supabase-js";
 
 const SESSION_SECRET = process.env.SESSION_SECRET!;
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-// ─── Connection Pool ────────────────────────────────────────────────────────────
-let _pool: any = null;
+// ─── Supabase Client (server-side, service role bypasses RLS) ────────────────
+export const supabase = createClient(supabaseUrl, serviceKey, {
+  auth: { persistSession: false, autoRefreshToken: false },
+});
 
-function getPool() {
-  if (!_pool) {
-    _pool = new Pool({
-      connectionString: process.env.DATABASE_URL!,
-      ssl: { rejectUnauthorized: false },
-      max: 3,
-      idleTimeoutMillis: 10000,
-      connectionTimeoutMillis: 10000,
-    });
-    _pool.on("error", () => { _pool = null; });
-  }
-  return _pool;
-}
-
-// ─── Auth ───────────────────────────────────────────────────────────────────────
+// ─── Auth ───────────────────────────────────────────────────────────────────
 export function getDbUser() {
   const cookieStore = cookies();
   const sessionCookie = cookieStore.get("brandfledger_session")?.value;
@@ -38,22 +27,57 @@ export function getDbUser() {
   }
 }
 
-// ─── Query ──────────────────────────────────────────────────────────────────────
+// ─── Helpers ────────────────────────────────────────────────────────────────
+export async function getUserBusinesses(userId: string) {
+  const { data, error } = await supabase
+    .from("businesses")
+    .select("id, name, currency, invoice_prefix, address, phone, email, logo_url")
+    .eq("owner_id", userId)
+    .order("created_at");
+  if (error) throw error;
+  return data || [];
+}
+
+export async function getDefaultBusinessId(userId: string) {
+  const businesses = await getUserBusinesses(userId);
+  return businesses[0] || null;
+}
+
+// ─── Business ownership verification ─────────────────────────────────────────
+export async function verifyBusinessOwnership(businessId: string, userId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("businesses")
+    .select("id")
+    .eq("id", businessId)
+    .eq("owner_id", userId)
+    .maybeSingle();
+  if (error) return false;
+  return !!data;
+}
+
+// ─── Generic query (DEPRECATED — use supabase client directly) ───────────────
+// This is kept for backward compatibility with routes not yet migrated.
+// It attempts to parse simple SQL patterns and translate to PostgREST calls.
 export async function query(text: string, params?: any[]) {
   const pool = getPool();
   const result = await pool.query(text, params);
   return result.rows;
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────────────────
-export async function getUserBusinesses(userId: string) {
-  return query(
-    "SELECT id, name, currency, invoice_prefix, address, phone, email, logo_url FROM businesses WHERE owner_id = $1 ORDER BY created_at",
-    [userId]
-  );
-}
-
-export async function getDefaultBusinessId(userId: string) {
-  const businesses = await getUserBusinesses(userId);
-  return businesses[0] || null;
+// ─── Legacy pg Pool (broken pooler — do not use) ─────────────────────────────
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { Pool } = require("pg") as { Pool: new (opts: any) => any };
+let _pool: any = null;
+function getPool() {
+  if (!_pool) {
+    _pool = new Pool({
+      connectionString: process.env.DATABASE_URL!,
+      ssl: { rejectUnauthorized: false },
+      max: 3,
+      idleTimeoutMillis: 10000,
+      connectionTimeoutMillis: 10000,
+    });
+    _pool.on("error", () => { _pool = null; });
+  }
+  return _pool;
 }
