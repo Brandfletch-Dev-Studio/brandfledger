@@ -1,27 +1,26 @@
 import { NextResponse } from "next/server";
-import { query, getDbUser } from "@/lib/db";
+import { supabase, getDbUser } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 async function getBusinessId(userId: string, requestedId?: string | null) {
   if (requestedId) {
-    const ownership = await query("SELECT id FROM businesses WHERE id = $1 AND owner_id = $2", [requestedId, userId]);
-    if (ownership.length === 0) return null;
+    const { data } = await supabase.from('businesses').select('id').eq('id', requestedId).eq('owner_id', userId).maybeSingle();
+    if (!data) return null;
     return requestedId;
   }
-  // Check cookie for active business selection
   try {
-    const { cookies } = await import("next/headers");
+    const { cookies } = await import('next/headers');
     const cookieStore = cookies();
-    const cookieId = cookieStore.get("activeBusinessId")?.value;
+    const cookieId = cookieStore.get('activeBusinessId')?.value;
     if (cookieId) {
-      const ownership = await query("SELECT id FROM businesses WHERE id = $1 AND owner_id = $2", [cookieId, userId]);
-      if (ownership.length > 0) return cookieId;
+      const { data } = await supabase.from('businesses').select('id').eq('id', cookieId).eq('owner_id', userId).maybeSingle();
+      if (data) return cookieId;
     }
   } catch {}
-  const businesses = await query("SELECT id FROM businesses WHERE owner_id = $1 ORDER BY created_at LIMIT 1", [userId]);
-  return businesses[0]?.id ?? null;
+  const { data } = await supabase.from('businesses').select('id').eq('owner_id', userId).order('created_at').limit(1).maybeSingle();
+  return data?.id ?? null;
 }
 
 export async function GET(request: Request) {
@@ -33,14 +32,21 @@ export async function GET(request: Request) {
     const businessId = await getBusinessId(user.userId, searchParams.get("business_id"));
     if (!businessId) return NextResponse.json({ error: "No business found" }, { status: 404 });
 
-    const [customers, incomeTx] = await Promise.all([
-      query("SELECT * FROM customers WHERE business_id = $1 ORDER BY name", [businessId]),
-      query("SELECT id, client_name, amount, cost_amount, profit, date, description, type, payment_method FROM transactions WHERE business_id = $1 AND type = 'income' ORDER BY date DESC", [businessId]),
+    const [customersRes, incomeTxRes, businessRes] = await Promise.all([
+      supabase.from('customers').select('*').eq('business_id', businessId).order('name'),
+      supabase.from('transactions').select('id, client_name, amount, cost_amount, profit, date, description, type, payment_method').eq('business_id', businessId).eq('type', 'income').order('date', { ascending: false }),
+      supabase.from('businesses').select('*').eq('id', businessId).maybeSingle()
     ]);
 
-    const business = await query("SELECT * FROM businesses WHERE id = $1", [businessId]);
+    if (customersRes.error) throw customersRes.error;
+    if (incomeTxRes.error) throw incomeTxRes.error;
+    if (businessRes.error) throw businessRes.error;
 
-    return NextResponse.json({ business: business[0], customers, incomeTx });
+    return NextResponse.json({
+      business: businessRes.data,
+      customers: customersRes.data,
+      incomeTx: incomeTxRes.data
+    });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
@@ -58,11 +64,22 @@ export async function POST(request: Request) {
     const businessId = await getBusinessId(user.userId, business_id);
     if (!businessId) return NextResponse.json({ error: "No business found" }, { status: 404 });
 
-    const result = await query(
-      "INSERT INTO customers (business_id, name, email, phone, address, notes, total_invoiced) VALUES ($1,$2,$3,$4,$5,$6,0) RETURNING *",
-      [businessId, name.trim(), email || null, phone || null, address || null, notes || null]
-    );
-    return NextResponse.json({ customer: result[0] });
+    const { data: customer, error } = await supabase
+      .from('customers')
+      .insert({
+        business_id: businessId,
+        name: name.trim(),
+        email: email || null,
+        phone: phone || null,
+        address: address || null,
+        notes: notes || null,
+        total_invoiced: 0
+      })
+      .select('*')
+      .single();
+
+    if (error) throw error;
+    return NextResponse.json({ customer });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
@@ -77,18 +94,42 @@ export async function PUT(request: Request) {
     const { id, name, email, phone, address, notes } = body;
     if (!id) return NextResponse.json({ error: "ID required" }, { status: 400 });
 
-    // Verify ownership via business
-    const ownership = await query(
-      "SELECT c.id FROM customers c JOIN businesses b ON b.id = c.business_id WHERE c.id = $1 AND b.owner_id = $2",
-      [id, user.userId]
-    );
-    if (ownership.length === 0) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    // Verify ownership via business (two-step)
+    const { data: customerCheck, error: checkError } = await supabase
+      .from('customers')
+      .select('business_id')
+      .eq('id', id)
+      .maybeSingle();
 
-    const result = await query(
-      "UPDATE customers SET name=$1, email=$2, phone=$3, address=$4, notes=$5, updated_at=NOW() WHERE id=$6 RETURNING *",
-      [name?.trim(), email || null, phone || null, address || null, notes || null, id]
-    );
-    return NextResponse.json({ customer: result[0] });
+    if (checkError) throw checkError;
+    if (!customerCheck) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+    const { data: businessCheck, error: bError } = await supabase
+      .from('businesses')
+      .select('id')
+      .eq('id', customerCheck.business_id)
+      .eq('owner_id', user.userId)
+      .maybeSingle();
+
+    if (bError) throw bError;
+    if (!businessCheck) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+    const { data: customer, error: updateError } = await supabase
+      .from('customers')
+      .update({
+        name: name?.trim() ?? null,
+        email: email || null,
+        phone: phone || null,
+        address: address || null,
+        notes: notes || null,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id)
+      .select('*')
+      .single();
+
+    if (updateError) throw updateError;
+    return NextResponse.json({ customer });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
@@ -103,13 +144,32 @@ export async function DELETE(request: Request) {
     const id = searchParams.get("id");
     if (!id) return NextResponse.json({ error: "ID required" }, { status: 400 });
 
-    const ownership = await query(
-      "SELECT c.id FROM customers c JOIN businesses b ON b.id = c.business_id WHERE c.id = $1 AND b.owner_id = $2",
-      [id, user.userId]
-    );
-    if (ownership.length === 0) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    // Verify ownership via business (two-step)
+    const { data: customerCheck, error: checkError } = await supabase
+      .from('customers')
+      .select('business_id')
+      .eq('id', id)
+      .maybeSingle();
 
-    await query("DELETE FROM customers WHERE id = $1", [id]);
+    if (checkError) throw checkError;
+    if (!customerCheck) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+    const { data: businessCheck, error: bError } = await supabase
+      .from('businesses')
+      .select('id')
+      .eq('id', customerCheck.business_id)
+      .eq('owner_id', user.userId)
+      .maybeSingle();
+
+    if (bError) throw bError;
+    if (!businessCheck) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+    const { error: deleteError } = await supabase
+      .from('customers')
+      .delete()
+      .eq('id', id);
+
+    if (deleteError) throw deleteError;
     return NextResponse.json({ success: true });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
