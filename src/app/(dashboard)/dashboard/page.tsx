@@ -1,4 +1,4 @@
-import { getDbUser, query } from "@/lib/db";
+import { getDbUser, supabase } from "@/lib/db";
 import { cookies } from "next/headers";
 import DashboardClient from "./dashboard-client";
 
@@ -50,32 +50,38 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
 
   try {
     // Get user's businesses
-    const businesses = await query("SELECT id, name, currency, invoice_prefix, address, phone, email, logo_url FROM businesses WHERE owner_id = $1 ORDER BY created_at", [user.userId]);
+    const { data: businesses } = await supabase.from("businesses").select("id, name, currency, invoice_prefix, address, phone, email, logo_url").eq("owner_id", user.userId).order("created_at");
     
     // Respect the active business selection (stored in cookie by the business switcher)
     const cookieStore = cookies();
     const activeBusinessId = cookieStore.get("activeBusinessId")?.value;
-    const business = (activeBusinessId && businesses.find((b: any) => b.id === activeBusinessId)) || businesses[0] || null;
+    const bizList = businesses || []; const business = (activeBusinessId && bizList.find((b: any) => b.id === activeBusinessId)) || bizList[0] || null;
 
     if (!business) {
       return <DashboardClient business={null} stats={null} setupStatus={{ hasBusiness: false, hasCustomer: false, hasProduct: false, hasInvoice: false }} period={period} />;
     }
 
     // Fetch all data in parallel
-    const [invoices, transactions, customers, hasCustomer, hasProduct, hasInvoice] = await Promise.all([
-      query("SELECT total, status, issue_date, created_at, id, invoice_number, customer_id FROM invoices WHERE business_id = $1 ORDER BY created_at DESC LIMIT 500", [business.id]),
-      query("SELECT * FROM transactions WHERE business_id = $1 ORDER BY date DESC", [business.id]),
-      query("SELECT id FROM customers WHERE business_id = $1", [business.id]),
-      query("SELECT id FROM customers WHERE business_id = $1 LIMIT 1", [business.id]),
-      query("SELECT id FROM products WHERE business_id = $1 LIMIT 1", [business.id]),
-      query("SELECT id FROM invoices WHERE business_id = $1 LIMIT 1", [business.id]),
+    const [invRes, txRes, custRes, hasCustomerRes, hasProductRes, hasInvoiceRes] = await Promise.all([
+      supabase.from("invoices").select("total, status, issue_date, created_at, id, invoice_number, customer_id").eq("business_id", business.id).order("created_at", { ascending: false }).limit(500),
+      supabase.from("transactions").select("*").eq("business_id", business.id).order("date", { ascending: false }),
+      supabase.from("customers").select("id").eq("business_id", business.id),
+      supabase.from("customers").select("id").eq("business_id", business.id).limit(1),
+      supabase.from("products").select("id").eq("business_id", business.id).limit(1),
+      supabase.from("invoices").select("id").eq("business_id", business.id).limit(1),
     ]);
+    const invoices = invRes.data || [];
+    const transactions = txRes.data || [];
+    const customers = custRes.data || [];
+    const hasCustomer = hasCustomerRes.data || [];
+    const hasProduct = hasProductRes.data || [];
+    const hasInvoice = hasInvoiceRes.data || [];
 
     // Get customer names for invoices
     const customerIds = Array.from(new Set(invoices.map((i: any) => i.customer_id).filter(Boolean))) as string[];
     let customerMap: Record<string, string> = {};
     if (customerIds.length > 0) {
-      const customersData = await query("SELECT id, name FROM customers WHERE id = ANY($1)", [customerIds]);
+      const { data: customersData } = await supabase.from("customers").select("id, name").in("id", customerIds);
       customerMap = Object.fromEntries(customersData.map((c: any) => [c.id, c.name]));
     }
 
