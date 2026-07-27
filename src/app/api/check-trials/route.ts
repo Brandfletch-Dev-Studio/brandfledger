@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { query } from "@/lib/db";
+import { supabase, getDbUser } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -12,18 +12,45 @@ export async function GET(request: Request) {
   }
 
   try {
+    const now = new Date();
+    const nowStr = now.toISOString();
+
     // 1. Find accounts where trial is about to expire (1, 3, 5 days out) — send reminders
-    const warningRows = await query(`
-      SELECT a.user_id, u.email, u.raw_user_meta_data->>'full_name' as full_name,
-             a.trial_ends_at,
-             EXTRACT(DAY FROM a.trial_ends_at - now()) as days_left
-      FROM accounts a
-      JOIN auth.users u ON u.id = a.user_id
-      WHERE a.subscription_status = 'trial'
-        AND a.trial_ends_at IS NOT NULL
-        AND a.trial_ends_at > now()
-        AND EXTRACT(DAY FROM a.trial_ends_at - now()) IN (1, 3, 5)
-    `);
+    const { data: accounts, error: accountsErr } = await supabase
+      .from("accounts")
+      .select("user_id, trial_ends_at")
+      .eq("subscription_status", "trial")
+      .gt("trial_ends_at", nowStr);
+
+    if (accountsErr) throw accountsErr;
+
+    const matchingAccounts = (accounts || []).filter(acc => {
+      const trialEnds = new Date(acc.trial_ends_at);
+      const diffTime = trialEnds.getTime() - now.getTime();
+      const daysLeft = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      return [1, 3, 5].includes(daysLeft);
+    });
+
+    const warningRows = [];
+    for (const acc of matchingAccounts) {
+      try {
+        const { data: userData, error: userErr } = await supabase.auth.admin.getUserById(acc.user_id);
+        if (!userErr && userData?.user) {
+          const user = userData.user;
+          const fullName = user.user_metadata?.full_name || null;
+          const email = user.email;
+          const trialEnds = new Date(acc.trial_ends_at);
+          const daysLeft = Math.floor((trialEnds.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+          warningRows.push({
+            user_id: acc.user_id,
+            email,
+            full_name: fullName,
+            trial_ends_at: acc.trial_ends_at,
+            days_left: daysLeft
+          });
+        }
+      } catch {}
+    }
 
     // Send reminder emails via Resend (if configured)
     const resendKey = await getResendKey();
@@ -56,27 +83,29 @@ export async function GET(request: Request) {
     }
 
     // 2. Expire accounts whose trial has ended
-    const expired = await query(`
-      UPDATE accounts
-      SET subscription_status = 'expired', updated_at = NOW()
-      WHERE subscription_status = 'trial'
-        AND trial_ends_at < NOW()
-      RETURNING user_id
-    `);
+    const { data: expired, error: expireErr } = await supabase
+      .from("accounts")
+      .update({ subscription_status: "expired", updated_at: nowStr })
+      .eq("subscription_status", "trial")
+      .lt("trial_ends_at", nowStr)
+      .select("user_id");
+
+    if (expireErr) throw expireErr;
 
     // 3. Expire active subscriptions that have run out
-    await query(`
-      UPDATE accounts
-      SET subscription_status = 'expired', updated_at = NOW()
-      WHERE subscription_status = 'active'
-        AND subscription_ends_at IS NOT NULL
-        AND subscription_ends_at < NOW()
-    `);
+    const { error: activeExpireErr } = await supabase
+      .from("accounts")
+      .update({ subscription_status: "expired", updated_at: nowStr })
+      .eq("subscription_status", "active")
+      .not("subscription_ends_at", "is", null)
+      .lt("subscription_ends_at", nowStr);
+
+    if (activeExpireErr) throw activeExpireErr;
 
     return NextResponse.json({
       success: true,
       reminders_sent: emailsSent,
-      trials_expired: expired.length,
+      trials_expired: expired ? expired.length : 0,
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
@@ -85,10 +114,13 @@ export async function GET(request: Request) {
 
 async function getResendKey(): Promise<string | null> {
   try {
-    const rows = await query(
-      "SELECT value FROM platform_settings WHERE key = 'resend_api_key' LIMIT 1"
-    );
-    if (rows[0]?.value) return Buffer.from(rows[0].value, "base64").toString();
+    const { data, error } = await supabase
+      .from("platform_settings")
+      .select("value")
+      .eq("key", "resend_api_key")
+      .limit(1)
+      .maybeSingle();
+    if (data?.value) return Buffer.from(data.value, "base64").toString();
   } catch {}
   return process.env.RESEND_API_KEY || null;
 }
