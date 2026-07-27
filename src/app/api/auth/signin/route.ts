@@ -19,52 +19,52 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Email and password required" }, { status: 400 });
   }
 
-  const pg = await import("pg");
-  const Client = pg.Client;
-
-  const client = new (Client as any)({
-    connectionString: process.env.DATABASE_URL!,
-    ssl: { rejectUnauthorized: false },
-    connectionTimeoutMillis: 15000,
-  });
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
   try {
-    await client.connect();
+    // 1. Authenticate via Supabase Auth API (password grant)
+    const authRes = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=password`, {
+      method: "POST",
+      headers: {
+        "apikey": serviceKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ email: email.toLowerCase().trim(), password }),
+    });
 
-    const { rows } = await client.query(
-      `SELECT
-         id,
-         email,
-         raw_user_meta_data->>'full_name' AS full_name,
-         (encrypted_password = crypt($2, encrypted_password)) AS password_ok
-       FROM auth.users
-       WHERE email = $1`,
-      [email.toLowerCase().trim(), password]
-    );
-
-    if (rows.length === 0) {
-      await client.end();
-      return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
+    if (!authRes.ok) {
+      const authData = await authRes.json();
+      return NextResponse.json(
+        { error: authData.message || authData.error_description || "Invalid email or password" },
+        { status: 401 }
+      );
     }
 
-    const user = rows[0];
-    if (!user.password_ok) {
-      await client.end();
-      return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
+    const authData = await authRes.json();
+    const userId = authData.user.id;
+    const userEmail = authData.user.email;
+    const fullName = authData.user.user_metadata?.full_name || "";
+
+    // 2. Fetch businesses via Supabase REST API
+    const bizRes = await fetch(`${supabaseUrl}/rest/v1/businesses?owner_id=eq.${userId}&select=id,name,currency&order=created_at.asc`, {
+      headers: {
+        "apikey": serviceKey,
+        "Authorization": `Bearer ${serviceKey}`,
+      },
+    });
+
+    let businesses = [];
+    if (bizRes.ok) {
+      businesses = await bizRes.json();
     }
 
-    const { rows: businesses } = await client.query(
-      "SELECT id, name, currency FROM businesses WHERE owner_id = $1 ORDER BY created_at",
-      [user.id]
-    );
-
-    await client.end();
-
-    const sessionToken = createSessionToken(user.id, user.email);
+    // 3. Create session token
+    const sessionToken = createSessionToken(userId, userEmail);
 
     const response = NextResponse.json({
       success: true,
-      user: { id: user.id, email: user.email, fullName: user.full_name },
+      user: { id: userId, email: userEmail, fullName },
       businesses,
     });
 
@@ -78,7 +78,6 @@ export async function POST(request: Request) {
 
     return response;
   } catch (err: any) {
-    try { await client.end(); } catch {}
     console.error("Signin error:", err.message);
     return NextResponse.json({ error: "Sign in failed. Please try again." }, { status: 500 });
   }
