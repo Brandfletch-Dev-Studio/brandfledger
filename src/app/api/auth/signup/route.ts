@@ -19,86 +19,98 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Email and password required" }, { status: 400 });
   }
 
-  const pg = await import("pg");
-  const Client = pg.Client;
-
-  const client = new (Client as any)({
-    connectionString: process.env.DATABASE_URL!,
-    ssl: { rejectUnauthorized: false },
-    connectionTimeoutMillis: 15000,
-  });
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
   try {
-    await client.connect();
+    // 1. Create user via Supabase Auth Admin API
+    const createRes = await fetch(`${supabaseUrl}/auth/v1/admin/users`, {
+      method: "POST",
+      headers: {
+        "apikey": serviceKey,
+        "Authorization": `Bearer ${serviceKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        email: email.toLowerCase().trim(),
+        password,
+        email_confirm: true,
+        user_metadata: { full_name: fullName || "" },
+      }),
+    });
 
-    const { rows: existing } = await client.query(
-      "SELECT id FROM auth.users WHERE email = $1",
-      [email.toLowerCase().trim()]
-    );
-
-    if (existing.length > 0) {
-      await client.end();
-      return NextResponse.json({ error: "An account with this email already exists" }, { status: 409 });
+    if (!createRes.ok) {
+      const errData = await createRes.json();
+      if (errData.error_code === "email_exists") {
+        return NextResponse.json({ error: "An account with this email already exists" }, { status: 409 });
+      }
+      return NextResponse.json({ error: errData.msg || "Failed to create account" }, { status: 400 });
     }
 
-    const userId = crypto.randomUUID();
+    const userData = await createRes.json();
+    const userId = userData.id;
+    const userEmail = userData.email;
+
+    // 2. Create account record via Supabase REST API
     const now = new Date().toISOString();
+    const trialEnds = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
 
-    const { rows: pwRows } = await client.query(
-      "SELECT crypt($1, gen_salt('bf', 10)) as hash",
-      [password]
-    );
-    const hashedPassword = pwRows[0].hash;
+    await fetch(`${supabaseUrl}/rest/v1/accounts`, {
+      method: "POST",
+      headers: {
+        "apikey": serviceKey,
+        "Authorization": `Bearer ${serviceKey}`,
+        "Content-Type": "application/json",
+        "Prefer": "return=minimal",
+      },
+      body: JSON.stringify({
+        user_id: userId,
+        subscription_status: "trial",
+        trial_ends_at: trialEnds,
+      }),
+    });
 
-    await client.query(
-      `INSERT INTO auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
-        created_at, updated_at, raw_app_meta_data, raw_user_meta_data)
-       VALUES ($1, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
-        $2, $3, $4, $5, $6, '{}'::jsonb, $7::jsonb)`,
-      [userId, email.toLowerCase().trim(), hashedPassword, now, now, now, JSON.stringify({ full_name: fullName || "" })]
-    );
-
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS accounts (
-        user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-        subscription_status TEXT NOT NULL DEFAULT 'trial',
-        plan TEXT,
-        trial_ends_at TIMESTAMPTZ,
-        subscription_ends_at TIMESTAMPTZ,
-        amount NUMERIC,
-        updated_at TIMESTAMPTZ DEFAULT NOW(),
-        created_at TIMESTAMPTZ DEFAULT NOW()
-      )
-    `);
-
-    await client.query(
-      `INSERT INTO accounts (user_id, subscription_status, trial_ends_at)
-       VALUES ($1, 'trial', $2::timestamptz + INTERVAL '14 days')
-       ON CONFLICT (user_id) DO NOTHING`,
-      [userId, now]
-    );
-
+    // 3. Create business if provided
     if (businessName) {
       const bizId = crypto.randomUUID();
-      await client.query(
-        `INSERT INTO businesses (id, name, currency, invoice_prefix, owner_id, created_at)
-         VALUES ($1, $2, 'MWK', 'INV', $3, $4)`,
-        [bizId, businessName, userId, now]
-      );
+      await fetch(`${supabaseUrl}/rest/v1/businesses`, {
+        method: "POST",
+        headers: {
+          "apikey": serviceKey,
+          "Authorization": `Bearer ${serviceKey}`,
+          "Content-Type": "application/json",
+          "Prefer": "return=minimal",
+        },
+        body: JSON.stringify({
+          id: bizId,
+          name: businessName,
+          currency: "MWK",
+          invoice_prefix: "INV",
+          owner_id: userId,
+          created_at: now,
+        }),
+      });
     }
 
-    const { rows: businesses } = await client.query(
-      "SELECT id, name, currency FROM businesses WHERE owner_id = $1",
-      [userId]
-    );
+    // 4. Fetch businesses
+    const bizRes = await fetch(`${supabaseUrl}/rest/v1/businesses?owner_id=eq.${userId}&select=id,name,currency&order=created_at.asc`, {
+      headers: {
+        "apikey": serviceKey,
+        "Authorization": `Bearer ${serviceKey}`,
+      },
+    });
 
-    await client.end();
+    let businesses = [];
+    if (bizRes.ok) {
+      businesses = await bizRes.json();
+    }
 
-    const sessionToken = createSessionToken(userId, email.toLowerCase().trim());
+    // 5. Create session token
+    const sessionToken = createSessionToken(userId, userEmail);
 
     const response = NextResponse.json({
       success: true,
-      user: { id: userId, email: email.toLowerCase().trim(), fullName },
+      user: { id: userId, email: userEmail, fullName },
       businesses,
     });
 
@@ -112,7 +124,6 @@ export async function POST(request: Request) {
 
     return response;
   } catch (err: any) {
-    try { await client.end(); } catch {}
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
