@@ -339,7 +339,7 @@ export default function TransactionsPage() {
                     {/* Product picker */}
                     {products.length > 0 && (
                       <SearchableSelect
-                        options={products.map((p: Product) => ({ value: p.id, label: `${p.name} — ${formatCurrency(p.price, cur)}` }))}
+                        options={products.map((p: Product) => ({ value: p.id, label: p.name }))}
                         value={li.product_id}
                         onChange={v => onLineProductChange(idx, v)}
                         placeholder="Pick product (optional)"
