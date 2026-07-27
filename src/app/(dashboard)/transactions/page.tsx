@@ -359,7 +359,7 @@ export default function TransactionsPage() {
                 </div>
 
                 {/* Inline edit panel */}
-                {editState?.id === t.id && editState && (
+                {editState !== null && editState?.id === t.id && (
                   <div className="border-t bg-muted/30 px-4 py-3 space-y-2.5">
                     <div className="grid grid-cols-2 gap-2">
                       {editState.type === "income" ? (
