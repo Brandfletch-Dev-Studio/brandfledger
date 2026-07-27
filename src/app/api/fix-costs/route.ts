@@ -1,48 +1,41 @@
 import { NextResponse } from "next/server";
-import { query } from "@/lib/db";
+import { supabase } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const BUSINESS_ID = "7ef9b060-7679-46ce-a17e-9c6aefa84320";
+const COST_RATE = 4300;
 
 export async function POST() {
   try {
-    // 1. Set cost_rate to 4300 (MK per USD)
-    await query(
-      `UPDATE businesses SET cost_rate = 4300, cost_rate_label = 'USD to MK rate', cost_rate_unit = 'MK/$' WHERE id = $1`,
-      [BUSINESS_ID]
-    );
+    await supabase
+      .from("businesses")
+      .update({ cost_rate: COST_RATE })
+      .eq("id", BUSINESS_ID);
 
-    // 2. Recalculate all income transactions with cost_qty > 0
-    // The trigger will recalculate cost_amount and profit on update
-    await query(
-      `UPDATE transactions 
-       SET cost_amount = cost_qty * 4300,
-           profit = amount - (cost_qty * 4300),
-           margin = CASE WHEN amount > 0 THEN ROUND((amount - cost_qty * 4300) / amount * 100, 2) ELSE 0 END
-       WHERE business_id = $1 AND type = 'income' AND cost_qty > 0`,
-      [BUSINESS_ID]
-    );
+    const { data: txns } = await supabase
+      .from("transactions")
+      .select("id, amount, cost_qty")
+      .eq("business_id", BUSINESS_ID)
+      .eq("type", "income")
+      .gt("cost_qty", 0);
 
-    // 3. Get updated summary
-    const summary = await query(`
-      SELECT 
-        COUNT(*) as total,
-        COUNT(*) FILTER (WHERE type = 'income') as income_count,
-        COUNT(*) FILTER (WHERE type = 'expense') as expense_count,
-        COALESCE(SUM(amount) FILTER (WHERE type = 'income'), 0) as total_income,
-        COALESCE(SUM(amount) FILTER (WHERE type = 'expense'), 0) as total_expenses,
-        COALESCE(SUM(cost_amount) FILTER (WHERE type = 'income'), 0) as total_ad_cost,
-        COALESCE(SUM(profit) FILTER (WHERE type = 'income'), 0) as gross_profit,
-        COALESCE(SUM(cost_qty) FILTER (WHERE type = 'income'), 0) as total_usd_ads
-      FROM transactions WHERE business_id = $1
-    `, [BUSINESS_ID]);
+    for (const t of txns || []) {
+      const cost = (Number(t.cost_qty) || 0) * COST_RATE;
+      const profit = Number(t.amount) - cost;
+      const margin = Number(t.amount) > 0
+        ? Math.round((profit / Number(t.amount)) * 10000) / 100
+        : 0;
+      await supabase
+        .from("transactions")
+        .update({ cost_amount: cost, profit, margin })
+        .eq("id", t.id);
+    }
 
     return NextResponse.json({
       success: true,
-      message: "Cost rate set to 4300 MK/$ and all transactions recalculated",
-      summary: summary[0],
+      message: `Cost rate set to ${COST_RATE} MK/$ and ${(txns || []).length} transactions recalculated`,
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
