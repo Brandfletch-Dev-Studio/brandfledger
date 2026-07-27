@@ -82,7 +82,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
     let customerMap: Record<string, string> = {};
     if (customerIds.length > 0) {
       const { data: customersData } = await supabase.from("customers").select("id, name").in("id", customerIds);
-      customerMap = Object.fromEntries(customersData.map((c: any) => [c.id, c.name]));
+      customerMap = Object.fromEntries((customersData || []).map((c: any) => [c.id, c.name]));
     }
 
     const allInvoices = invoices.map((i: any) => ({ ...i, customers: { name: customerMap[i.customer_id] ?? "Unknown" } }));
