@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { query, getDbUser } from "@/lib/db";
+import { supabase, getDbUser } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -7,6 +7,16 @@ export const runtime = "nodejs";
 const ADMIN_EMAIL = "geniuspulse22@gmail.com";
 function isAdmin(user: { email: string }) {
   return user.email.toLowerCase() === ADMIN_EMAIL;
+}
+
+async function getUsersMap() {
+  const { data: usersData, error } = await supabase.auth.admin.listUsers();
+  if (error || !usersData?.users) return {};
+  const map: Record<string, { email: string; name: string }> = {};
+  for (const u of usersData.users) {
+    map[u.id] = { email: u.email || "", name: (u.user_metadata as any)?.full_name || "" };
+  }
+  return map;
 }
 
 export async function GET(request: Request) {
@@ -19,164 +29,180 @@ export async function GET(request: Request) {
     const section = searchParams.get("section");
 
     if (section === "overview") {
-      // Auto-backfill accounts rows for any business owner not yet registered
-      // (handles users created before the accounts table existed)
-      try {
-        await query(`
-          INSERT INTO accounts (user_id, subscription_status, trial_ends_at)
-          SELECT DISTINCT b.owner_id, 'trial',
-            b.created_at + INTERVAL '14 days'
-          FROM businesses b
-          WHERE NOT EXISTS (SELECT 1 FROM accounts a WHERE a.user_id = b.owner_id)
-          ON CONFLICT (user_id) DO NOTHING
-        `, []);
-      } catch {}
-
       const now = new Date();
       const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400_000).toISOString();
-      const sevenDaysAgo  = new Date(now.getTime() -  7 * 86400_000).toISOString();
+      const sevenDaysAgo = new Date(now.getTime() - 7 * 86400_000).toISOString();
 
-      const [
-        accountRows,
-        subRows,
-        newThisMonthRows,
-        churnRows,
-        pendingRenewalRows,
-        expiredRows,
-        revenueRows,
-        recentExpiredRows,
-      ] = await Promise.all([
-        // Total unique user accounts (from accounts table, backfilled above)
-        query(`SELECT COUNT(*) as count FROM accounts`, []),
-        // Subscription breakdown
-        query(`
-          SELECT subscription_status, COUNT(*) as count
-          FROM accounts
-          GROUP BY subscription_status
-        `, []),
-        // New signups last 30 days
-        query(`SELECT COUNT(*) as count FROM businesses WHERE created_at >= $1`, [thirtyDaysAgo]),
-        // Churned in last 30 days: went from active/trial to expired
-        query(`SELECT COUNT(*) as count FROM accounts WHERE subscription_status = 'expired' AND updated_at >= $1`, [thirtyDaysAgo]),
-        // Pending renewals: active subs expiring in next 7 days
-        query(`
-          SELECT a.user_id, u.email, u.raw_user_meta_data->>'full_name' as name,
-                 a.subscription_ends_at,
-                 EXTRACT(DAY FROM a.subscription_ends_at - now()) as days_left
-          FROM accounts a
-          JOIN auth.users u ON u.id = a.user_id
-          WHERE a.subscription_status = 'active'
-            AND a.subscription_ends_at IS NOT NULL
-            AND a.subscription_ends_at > now()
-            AND a.subscription_ends_at <= now() + INTERVAL '7 days'
-          ORDER BY a.subscription_ends_at ASC
-        `, []),
-        // Recently expired (last 7 days) — candidates for manual reminder
-        query(`
-          SELECT a.user_id, u.email, u.raw_user_meta_data->>'full_name' as name,
-                 a.trial_ends_at, a.updated_at
-          FROM accounts a
-          JOIN auth.users u ON u.id = a.user_id
-          WHERE a.subscription_status = 'expired'
-            AND a.updated_at >= $1
-          ORDER BY a.updated_at DESC
-          LIMIT 20
-        `, [sevenDaysAgo]),
-        // Platform subscription revenue (from subscriptions table)
-        query(`
-          SELECT
-            COALESCE(SUM(CASE WHEN plan = 'monthly' THEN amount ELSE 0 END), 0) as monthly_revenue,
-            COALESCE(SUM(CASE WHEN plan = 'annual'  THEN amount ELSE 0 END), 0) as annual_revenue,
-            COALESCE(SUM(amount), 0) as total_revenue,
-            COUNT(*) as total_payments
-          FROM subscriptions
-          WHERE status = 'active'
-        `, []),
-        // All expired accounts for the expired users list
-        query(`
-          SELECT a.user_id, u.email, u.raw_user_meta_data->>'full_name' as name,
-                 a.trial_ends_at, a.updated_at,
-                 b.name as business_name
-          FROM accounts a
-          JOIN auth.users u ON u.id = a.user_id
-          LEFT JOIN businesses b ON b.owner_id = a.user_id
-          WHERE a.subscription_status = 'expired'
-          ORDER BY a.updated_at DESC
-          LIMIT 30
-        `, []),
+      const [accounts, businesses, subscriptions, expiredAccounts] = await Promise.all([
+        supabase.from('accounts').select('*'),
+        supabase.from('businesses').select('id, owner_id, created_at').gte('created_at', thirtyDaysAgo),
+        supabase.from('subscriptions').select('plan, amount, status').eq('status', 'active'),
+        supabase.from('accounts').select('*').eq('subscription_status', 'expired').gte('updated_at', sevenDaysAgo),
       ]);
 
-      // Parse subscription breakdown
+      const accountList = accounts.data || [];
       const subMap: Record<string, number> = {};
-      for (const row of subRows) {
-        subMap[row.subscription_status] = parseInt(row.count);
+      for (const a of accountList) {
+        const s = a.subscription_status || "trial";
+        subMap[s] = (subMap[s] || 0) + 1;
       }
+
+      const churnCount = (expiredAccounts.data || []).length;
+      const subRows = subscriptions.data || [];
+      let monthlyRev = 0, annualRev = 0, totalRev = 0;
+      for (const s of subRows) {
+        const amt = Number(s.amount || 0);
+        totalRev += amt;
+        if (s.plan === "monthly") monthlyRev += amt;
+        else if (s.plan === "annual") annualRev += amt;
+      }
+
+      // Pending renewals: active subs expiring in next 7 days
+      const { data: activeAccounts } = await supabase
+        .from('accounts')
+        .select('user_id, subscription_ends_at')
+        .eq('subscription_status', 'active')
+        .not('subscription_ends_at', 'is', null);
+
+      const usersMap = await getUsersMap();
+      const pendingRenewals = (activeAccounts || [])
+        .filter(a => {
+          if (!a.subscription_ends_at) return false;
+          const ends = new Date(a.subscription_ends_at);
+          return ends > now && ends <= new Date(now.getTime() + 7 * 86400_000);
+        })
+        .map(a => ({
+          user_id: a.user_id,
+          email: usersMap[a.user_id]?.email || "",
+          name: usersMap[a.user_id]?.name || "",
+          subscription_ends_at: a.subscription_ends_at,
+          days_left: Math.ceil((new Date(a.subscription_ends_at!).getTime() - now.getTime()) / 86400000),
+        }));
+
+      const recentExpired = (expiredAccounts.data || []).map(a => ({
+        user_id: a.user_id,
+        email: usersMap[a.user_id]?.email || "",
+        name: usersMap[a.user_id]?.name || "",
+        trial_ends_at: a.trial_ends_at,
+        updated_at: a.updated_at,
+      }));
 
       return NextResponse.json({
         stats: {
-          totalAccounts:    parseInt(accountRows[0]?.count ?? "0"),
-          activeSubscribers: subMap["active"]  ?? 0,
-          trialUsers:        subMap["trial"]   ?? 0,
-          expiredUsers:      subMap["expired"] ?? 0,
-          newThisMonth:      parseInt(newThisMonthRows[0]?.count ?? "0"),
-          churnLast30Days:   parseInt(churnRows[0]?.count ?? "0"),
-          pendingRenewals:   pendingRenewalRows.length,
-          totalRevenue:      parseFloat(revenueRows[0]?.total_revenue ?? "0"),
-          monthlyRevenue:    parseFloat(revenueRows[0]?.monthly_revenue ?? "0"),
-          annualRevenue:     parseFloat(revenueRows[0]?.annual_revenue ?? "0"),
-          totalPayments:     parseInt(revenueRows[0]?.total_payments ?? "0"),
+          totalAccounts: accountList.length,
+          activeSubscribers: subMap["active"] ?? 0,
+          trialUsers: subMap["trial"] ?? 0,
+          expiredUsers: subMap["expired"] ?? 0,
+          newThisMonth: (businesses.data || []).length,
+          churnLast30Days: churnCount,
+          pendingRenewals: pendingRenewals.length,
+          totalRevenue: totalRev,
+          monthlyRevenue: monthlyRev,
+          annualRevenue: annualRev,
+          totalPayments: subRows.length,
         },
-        pendingRenewals: pendingRenewalRows,
-        recentExpired:   recentExpiredRows,
-        expiredAccounts: recentExpiredRows,
+        pendingRenewals,
+        recentExpired,
+        expiredAccounts: recentExpired,
       });
     }
 
     if (section === "users") {
-      const users = await query(
-        `SELECT a.user_id, u.email, u.raw_user_meta_data->>'full_name' as name,
-                a.subscription_status, a.trial_ends_at, a.subscription_ends_at, a.plan,
-                b.name as business_name, b.created_at
-         FROM accounts a
-         JOIN auth.users u ON u.id = a.user_id
-         LEFT JOIN businesses b ON b.owner_id = a.user_id
-         ORDER BY b.created_at DESC`,
-        []
-      );
+      const [accounts, businesses] = await Promise.all([
+        supabase.from('accounts').select('*'),
+        supabase.from('businesses').select('id, owner_id, name, created_at').order('created_at', { ascending: false }),
+      ]);
+
+      const usersMap = await getUsersMap();
+      const bizByOwner: Record<string, any> = {};
+      for (const b of (businesses.data || [])) {
+        if (!bizByOwner[b.owner_id]) bizByOwner[b.owner_id] = b;
+      }
+
+      const users = (accounts.data || []).map(a => {
+        const biz = bizByOwner[a.user_id];
+        return {
+          user_id: a.user_id,
+          email: usersMap[a.user_id]?.email || "",
+          name: usersMap[a.user_id]?.name || "",
+          subscription_status: a.subscription_status,
+          trial_ends_at: a.trial_ends_at,
+          subscription_ends_at: a.subscription_ends_at,
+          plan: a.plan,
+          business_name: biz?.name || null,
+          created_at: biz?.created_at || null,
+        };
+      });
+
       return NextResponse.json({ users });
     }
 
     if (section === "pricing") {
-      let pricing = null;
-      try {
-        const rows = await query("SELECT value FROM platform_settings WHERE key = $1", ["pricing"]);
-        if (rows.length > 0) pricing = rows[0].value;
-      } catch {}
-      return NextResponse.json({ pricing });
+      const { data } = await supabase.from('platform_settings').select('value').eq('key', 'pricing').maybeSingle();
+      return NextResponse.json({ pricing: data?.value || null });
     }
 
     if (section === "businesses") {
-      const businesses = await query(
-        `SELECT b.id, b.name, b.currency, b.created_at,
-                a.subscription_status, a.trial_ends_at, a.subscription_ends_at,
-                u.email as owner_email,
-                (SELECT COUNT(*) FROM transactions WHERE business_id = b.id) as tx_count,
-                (SELECT COUNT(*) FROM customers WHERE business_id = b.id) as cust_count,
-                (SELECT COUNT(*) FROM products WHERE business_id = b.id) as prod_count
-         FROM businesses b
-         LEFT JOIN accounts a ON a.user_id = b.owner_id
-         LEFT JOIN auth.users u ON u.id = b.owner_id
-         ORDER BY b.created_at DESC`,
-        []
-      );
-      return NextResponse.json({ businesses });
+      const [businesses, accounts] = await Promise.all([
+        supabase.from('businesses').select('id, name, currency, created_at, owner_id').order('created_at', { ascending: false }),
+        supabase.from('accounts').select('user_id, subscription_status, trial_ends_at, subscription_ends_at'),
+      ]);
+
+      const usersMap = await getUsersMap();
+      const acctMap: Record<string, any> = {};
+      for (const a of (accounts.data || [])) {
+        acctMap[a.user_id] = a;
+      }
+
+      // Get counts per business
+      const [txCounts, custCounts, prodCounts] = await Promise.all([
+        supabase.from('transactions').select('business_id'),
+        supabase.from('customers').select('business_id'),
+        supabase.from('products').select('business_id'),
+      ]);
+
+      const txMap: Record<string, number> = {};
+      for (const t of (txCounts.data || [])) {
+        txMap[t.business_id] = (txMap[t.business_id] || 0) + 1;
+      }
+      const custMap: Record<string, number> = {};
+      for (const c of (custCounts.data || [])) {
+        custMap[c.business_id] = (custMap[c.business_id] || 0) + 1;
+      }
+      const prodMap: Record<string, number> = {};
+      for (const p of (prodCounts.data || [])) {
+        prodMap[p.business_id] = (prodMap[p.business_id] || 0) + 1;
+      }
+
+      const bizList = (businesses.data || []).map(b => {
+        const a = acctMap[b.owner_id];
+        return {
+          id: b.id,
+          name: b.name,
+          currency: b.currency,
+          created_at: b.created_at,
+          subscription_status: a?.subscription_status || null,
+          trial_ends_at: a?.trial_ends_at || null,
+          subscription_ends_at: a?.subscription_ends_at || null,
+          owner_email: usersMap[b.owner_id]?.email || "",
+          tx_count: txMap[b.id] || 0,
+          cust_count: custMap[b.id] || 0,
+          prod_count: prodMap[b.id] || 0,
+        };
+      });
+
+      return NextResponse.json({ businesses: bizList });
     }
 
     if (section === "settings") {
-      const rows = await query("SELECT key, value FROM platform_settings WHERE key IN ('paychangu_configured','resend_configured')", []);
+      const { data } = await supabase
+        .from('platform_settings')
+        .select('key, value')
+        .in('key', ['paychangu_configured', 'resend_configured']);
+
       const status: Record<string, boolean> = {};
-      for (const row of rows) {
-        status[row.key.replace("_configured", "")] = !!row.value?.configured;
+      for (const row of (data || [])) {
+        status[row.key.replace("_configured", "")] = !!(row.value as any)?.configured;
       }
       return NextResponse.json({ status: { paychangu_configured: !!status.paychangu, resend_configured: !!status.resend } });
     }
@@ -196,7 +222,6 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { section, action } = body;
 
-    // Manual reminder email to an expired/trial user
     if (action === "send_reminder") {
       const { user_id, email, name } = body;
       const resendKey = await getResendKey();
@@ -209,13 +234,7 @@ export async function POST(request: Request) {
           from: "Brandfledger <no-reply@brandfledger.com>",
           to: [email],
           subject: "Your Brandfledger account — quick note",
-          html: `
-            <p>Hi ${name || "there"},</p>
-            <p>We noticed your Brandfledger subscription has lapsed. Your data is safe — we just wanted to reach out.</p>
-            <p>Upgrade now to regain full access:</p>
-            <p><a href="https://brandfledger-three.vercel.app/subscription" style="background:#6366f1;color:white;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block">Upgrade Now</a></p>
-            <p>— The Brandfledger Team</p>
-          `,
+          html: `<p>Hi ${name || "there"},</p><p>We noticed your Brandfledger subscription has lapsed. Your data is safe — we just wanted to reach out.</p><p>Upgrade now to regain full access:</p><p><a href="https://brandfledger-three.vercel.app/subscription" style="background:#6366f1;color:white;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block">Upgrade Now</a></p><p>— The Brandfledger Team</p>`,
         }),
       });
       return NextResponse.json({ success: true });
@@ -223,19 +242,20 @@ export async function POST(request: Request) {
 
     if (section === "settings") {
       const { paychangu_secret_key, paychangu_webhook_secret, resend_api_key } = body;
+      const upserts: { key: string; value: any }[] = [];
       if (paychangu_secret_key?.trim()) {
-        const encoded = Buffer.from(paychangu_secret_key.trim()).toString("base64");
-        await query(`INSERT INTO platform_settings (key, value) VALUES ('paychangu_secret_key', $1) ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`, [JSON.stringify({ encoded })]);
-        await query(`INSERT INTO platform_settings (key, value) VALUES ('paychangu_configured', $1) ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`, [JSON.stringify({ configured: true })]);
+        upserts.push({ key: 'paychangu_secret_key', value: { encoded: Buffer.from(paychangu_secret_key.trim()).toString("base64") } });
+        upserts.push({ key: 'paychangu_configured', value: { configured: true } });
       }
       if (paychangu_webhook_secret?.trim()) {
-        const encoded = Buffer.from(paychangu_webhook_secret.trim()).toString("base64");
-        await query(`INSERT INTO platform_settings (key, value) VALUES ('paychangu_webhook_secret', $1) ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`, [JSON.stringify({ encoded })]);
+        upserts.push({ key: 'paychangu_webhook_secret', value: { encoded: Buffer.from(paychangu_webhook_secret.trim()).toString("base64") } });
       }
       if (resend_api_key?.trim()) {
-        const encoded = Buffer.from(resend_api_key.trim()).toString("base64");
-        await query(`INSERT INTO platform_settings (key, value) VALUES ('resend_api_key', $1) ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`, [JSON.stringify({ encoded })]);
-        await query(`INSERT INTO platform_settings (key, value) VALUES ('resend_configured', $1) ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`, [JSON.stringify({ configured: true })]);
+        upserts.push({ key: 'resend_api_key', value: { encoded: Buffer.from(resend_api_key.trim()).toString("base64") } });
+        upserts.push({ key: 'resend_configured', value: { configured: true } });
+      }
+      for (const u of upserts) {
+        await supabase.from('platform_settings').upsert({ key: u.key, value: u.value, updated_at: new Date().toISOString() }, { onConflict: 'key' });
       }
       return NextResponse.json({ success: true });
     }
@@ -256,23 +276,21 @@ export async function PUT(request: Request) {
     const { action, ...data } = body;
 
     if (action === "update_pricing") {
-      await query(
-        `INSERT INTO platform_settings (key, value) VALUES ('pricing', $1) ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
-        [JSON.stringify(data.pricing)]
-      );
+      await supabase.from('platform_settings').upsert({ key: 'pricing', value: data.pricing, updated_at: new Date().toISOString() }, { onConflict: 'key' });
       return NextResponse.json({ success: true });
     }
 
     if (action === "extend_trial") {
       const { user_id, days } = data;
-      await query(
-        `UPDATE accounts SET
-           trial_ends_at = GREATEST(trial_ends_at, NOW()) + INTERVAL '1 day' * $1,
-           subscription_status = 'trial',
-           updated_at = NOW()
-         WHERE user_id = $2`,
-        [days, user_id]
-      );
+      const { data: account } = await supabase.from('accounts').select('trial_ends_at').eq('user_id', user_id).maybeSingle();
+      const currentEnd = account?.trial_ends_at ? new Date(account.trial_ends_at) : new Date();
+      const baseDate = currentEnd > new Date() ? currentEnd : new Date();
+      const newEnd = new Date(baseDate.getTime() + days * 86400000).toISOString();
+      await supabase.from('accounts').update({
+        trial_ends_at: newEnd,
+        subscription_status: 'trial',
+        updated_at: new Date().toISOString(),
+      }).eq('user_id', user_id);
       return NextResponse.json({ success: true });
     }
 
@@ -284,8 +302,8 @@ export async function PUT(request: Request) {
 
 async function getResendKey(): Promise<string | null> {
   try {
-    const rows = await query("SELECT value FROM platform_settings WHERE key = 'resend_api_key' LIMIT 1", []);
-    if (rows[0]?.value?.encoded) return Buffer.from(rows[0].value.encoded, "base64").toString();
+    const { data } = await supabase.from('platform_settings').select('value').eq('key', 'resend_api_key').maybeSingle();
+    if (data?.value?.encoded) return Buffer.from(data.value.encoded, "base64").toString();
   } catch {}
   return process.env.RESEND_API_KEY || null;
 }
