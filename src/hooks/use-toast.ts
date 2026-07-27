@@ -3,13 +3,14 @@ import * as React from "react";
 import type { ToastActionElement, ToastProps } from "@/components/ui/toast";
 
 const TOAST_LIMIT = 1;
-const TOAST_REMOVE_DELAY = 1000000;
+const TOAST_REMOVE_DELAY = 300; // ms after close animation before cleanup
 
 type ToasterToast = ToastProps & {
   id: string;
   title?: React.ReactNode;
   description?: React.ReactNode;
   action?: ToastActionElement;
+  duration?: number; // ms; 0 = sticky
 };
 
 const actionTypes = {
@@ -67,11 +68,16 @@ function dispatch(action: Action) {
 
 type Toast = Omit<ToasterToast, "id">;
 
-function toast({ ...props }: Toast) {
+function toast({ duration, ...props }: Toast) {
   const id = genId();
+  // Default: 2500ms for success/default, sticky (0) for destructive errors
+  const autoDismissMs = duration !== undefined ? duration : (props.variant === "destructive" ? 0 : 2500);
   const update = (props: ToasterToast) => dispatch({ type: "UPDATE_TOAST", toast: { ...props, id } });
   const dismiss = () => dispatch({ type: "DISMISS_TOAST", toastId: id });
   dispatch({ type: "ADD_TOAST", toast: { ...props, id, open: true, onOpenChange: (open) => { if (!open) dismiss(); } } });
+  if (autoDismissMs > 0) {
+    setTimeout(() => dismiss(), autoDismissMs);
+  }
   return { id, dismiss, update };
 }
 
