@@ -1,4 +1,4 @@
-import { getDbUser, query } from "@/lib/db";
+import { getDbUser, supabase } from "@/lib/db";
 import { TopBar } from "@/components/layout/top-bar";
 import { BottomNav } from "@/components/layout/bottom-nav";
 import { TrialBanner } from "@/components/trial-banner";
@@ -8,7 +8,6 @@ import { SplashScreen } from "@/components/splash-screen";
 
 export const dynamic = "force-dynamic";
 
-// Admin emails — only these users see the Admin link
 const ADMIN_EMAILS = ["geniuspulse22@gmail.com"];
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -21,8 +20,13 @@ export default async function DashboardLayout({ children }: { children: React.Re
     if (user) {
       userEmail = user.email;
       isAdmin = ADMIN_EMAILS.includes(user.email.toLowerCase());
-      const businesses = await query("SELECT name FROM businesses WHERE owner_id = $1 ORDER BY created_at LIMIT 1", [user.userId]);
-      businessName = businesses[0]?.name;
+      const { data: businesses } = await supabase
+        .from("businesses")
+        .select("name")
+        .eq("owner_id", user.userId)
+        .order("created_at")
+        .limit(1);
+      businessName = businesses?.[0]?.name;
     }
   } catch (err) {
     console.error("Layout error:", err);
