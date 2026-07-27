@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { query } from "@/lib/db";
+import { supabase, getDbUser } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -231,11 +231,18 @@ export async function POST() {
     // 1. Insert all income transactions
     for (const entry of incomeEntries) {
       try {
-        await query(
-          `INSERT INTO transactions (business_id, type, client_name, description, amount, cost_qty, category_name, date, payment_method)
-           VALUES ($1, 'income', $2, $3, $4, $5, $6, $7, 'cash')`,
-          [BUSINESS_ID, entry.client_name, entry.description, entry.amount, entry.cost_qty || 0, entry.category_name, entry.date]
-        );
+        const { error } = await supabase.from('transactions').insert({
+          business_id: BUSINESS_ID,
+          type: 'income',
+          client_name: entry.client_name,
+          description: entry.description,
+          amount: entry.amount,
+          cost_qty: entry.cost_qty || 0,
+          category_name: entry.category_name,
+          date: entry.date,
+          payment_method: 'cash'
+        });
+        if (error) throw error;
         incomeCount++;
       } catch (err: any) {
         errors.push(`Income ${entry.date} ${entry.client_name}: ${err.message}`);
@@ -245,11 +252,17 @@ export async function POST() {
     // 2. Insert all expense transactions
     for (const entry of expenseEntries) {
       try {
-        await query(
-          `INSERT INTO transactions (business_id, type, vendor_name, description, amount, category_name, date, payment_method)
-           VALUES ($1, 'expense', $2, $3, $4, $5, $6, 'cash')`,
-          [BUSINESS_ID, entry.vendor_name || null, entry.description, entry.amount, entry.category_name, entry.date]
-        );
+        const { error } = await supabase.from('transactions').insert({
+          business_id: BUSINESS_ID,
+          type: 'expense',
+          vendor_name: entry.vendor_name || null,
+          description: entry.description,
+          amount: entry.amount,
+          category_name: entry.category_name,
+          date: entry.date,
+          payment_method: 'cash'
+        });
+        if (error) throw error;
         expenseCount++;
       } catch (err: any) {
         errors.push(`Expense ${entry.date} ${entry.description}: ${err.message}`);
@@ -258,68 +271,113 @@ export async function POST() {
 
     // 3. Create invoices for "invoiced" entries
     // First, get the current max invoice number
-    const maxInv = await query(
-      `SELECT invoice_number FROM invoices WHERE business_id = $1 ORDER BY invoice_number DESC LIMIT 1`,
-      [BUSINESS_ID]
-    );
+    const { data: maxInvData, error: maxInvError } = await supabase
+      .from('invoices')
+      .select('invoice_number')
+      .eq('business_id', BUSINESS_ID)
+      .order('invoice_number', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (maxInvError) throw maxInvError;
+
     let invNum = 1;
-    if (maxInv.length > 0) {
-      const match = maxInv[0].invoice_number.match(/(\d+)$/);
+    if (maxInvData) {
+      const match = maxInvData.invoice_number.match(/(\d+)$/);
       if (match) invNum = parseInt(match[1]) + 1;
     }
 
     for (const inv of invoiceEntries) {
       try {
         // Find or create customer
-        let customer = await query(
-          `SELECT id FROM customers WHERE business_id = $1 AND name = $2 LIMIT 1`,
-          [BUSINESS_ID, inv.customer_name]
-        );
+        const { data: customerData, error: customerError } = await supabase
+          .from('customers')
+          .select('id')
+          .eq('business_id', BUSINESS_ID)
+          .eq('name', inv.customer_name)
+          .limit(1)
+          .maybeSingle();
+
+        if (customerError) throw customerError;
+
         let customerId: string;
-        if (customer.length === 0) {
-          const newCust = await query(
-            `INSERT INTO customers (business_id, name) VALUES ($1, $2) RETURNING id`,
-            [BUSINESS_ID, inv.customer_name]
-          );
-          customerId = newCust[0].id;
+        if (!customerData) {
+          const { data: newCust, error: newCustError } = await supabase
+            .from('customers')
+            .insert({ business_id: BUSINESS_ID, name: inv.customer_name })
+            .select('id')
+            .single();
+
+          if (newCustError) throw newCustError;
+          customerId = newCust.id;
         } else {
-          customerId = customer[0].id;
+          customerId = customerData.id;
         }
 
         const invoiceNumber = `BFA-${String(invNum).padStart(5, "0")}`;
         invNum++;
 
-        await query(
-          `INSERT INTO invoices (business_id, customer_id, invoice_number, status, issue_date, due_date, items, subtotal, total)
-           VALUES ($1, $2, $3, 'sent', $4, $5, $6, $7, $7)`,
-          [
-            BUSINESS_ID,
-            customerId,
-            invoiceNumber,
-            inv.date,
-            inv.date,
-            JSON.stringify([{ name: inv.description, total: inv.total, quantity: 1, unit_price: inv.total, description: "" }]),
-            inv.total
-          ]
-        );
+        const { error: insertInvError } = await supabase
+          .from('invoices')
+          .insert({
+            business_id: BUSINESS_ID,
+            customer_id: customerId,
+            invoice_number: invoiceNumber,
+            status: 'sent',
+            issue_date: inv.date,
+            due_date: inv.date,
+            items: [{ name: inv.description, total: inv.total, quantity: 1, unit_price: inv.total, description: "" }],
+            subtotal: inv.total,
+            total: inv.total
+          });
+        if (insertInvError) throw insertInvError;
+
         invoiceCount++;
       } catch (err: any) {
         errors.push(`Invoice ${inv.date} ${inv.customer_name}: ${err.message}`);
       }
     }
 
-    // Get summary
-    const summary = await query(`
-      SELECT 
-        COUNT(*) as total,
-        COUNT(*) FILTER (WHERE type = 'income') as income_count,
-        COUNT(*) FILTER (WHERE type = 'expense') as expense_count,
-        COALESCE(SUM(amount) FILTER (WHERE type = 'income'), 0) as total_income,
-        COALESCE(SUM(amount) FILTER (WHERE type = 'expense'), 0) as total_expenses,
-        COALESCE(SUM(cost_amount) FILTER (WHERE type = 'income'), 0) as total_cost,
-        COALESCE(SUM(profit) FILTER (WHERE type = 'income'), 0) as total_profit
-      FROM transactions WHERE business_id = $1
-    `, [BUSINESS_ID]);
+    // Get summary by fetching all records and computing in JS
+    const { data: txs, error: txsError } = await supabase
+      .from('transactions')
+      .select('*')
+      .eq('business_id', BUSINESS_ID);
+
+    if (txsError) throw txsError;
+
+    let total = 0;
+    let income_count = 0;
+    let expense_count = 0;
+    let total_income = 0;
+    let total_expenses = 0;
+    let total_cost = 0;
+    let total_profit = 0;
+
+    if (txs) {
+      total = txs.length;
+      for (const tx of txs) {
+        if (tx.type === 'income') {
+          income_count++;
+          total_income += Number(tx.amount || 0);
+          total_cost += Number(tx.cost_amount || 0);
+          total_profit += Number(tx.profit || 0);
+        } else if (tx.type === 'expense') {
+          expense_count++;
+          total_expenses += Number(tx.amount || 0);
+        }
+      }
+    }
+
+    const summaryObj = {
+      total,
+      income_count,
+      expense_count,
+      total_income,
+      total_expenses,
+      total_cost,
+      total_profit
+    };
 
     return NextResponse.json({
       success: true,
@@ -329,7 +387,7 @@ export async function POST() {
         invoices: invoiceCount,
         total: incomeCount + expenseCount + invoiceCount,
       },
-      summary: summary[0],
+      summary: summaryObj,
       errors: errors.length > 0 ? errors.slice(0, 10) : undefined,
     });
   } catch (err: any) {
