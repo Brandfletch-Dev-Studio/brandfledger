@@ -146,6 +146,45 @@ export async function PUT(request: Request) {
 
     if (status) {
       await query("UPDATE invoices SET status = $1, updated_at = NOW() WHERE id = $2", [status, id]);
+
+      if (status === "paid") {
+        // Fetch the full invoice with its customer name
+        const invoices = await query(
+          "SELECT i.*, c.name as customer_name FROM invoices i LEFT JOIN customers c ON c.id = i.customer_id WHERE i.id = $1",
+          [id]
+        );
+        if (invoices.length > 0) {
+          const invoice = invoices[0];
+          // Check if a transaction already exists for this invoice to avoid duplicates
+          const existingTx = await query(
+            "SELECT id FROM transactions WHERE invoice_id = $1 LIMIT 1",
+            [id]
+          );
+          if (existingTx.length === 0) {
+            // If no transaction exists, insert one
+            const clientName = invoice.customer_name || ("Invoice " + invoice.invoice_number);
+            const description = "Invoice " + invoice.invoice_number;
+            const currentDate = new Date().toISOString().split("T")[0];
+
+            await query(
+              `INSERT INTO transactions (
+                business_id, type, client_name, description, amount, cost_amount,
+                payment_method, date, invoice_id, created_at
+              ) VALUES (
+                $1, 'income', $2, $3, $4, 0, 'invoice', $5, $6, NOW()
+              )`,
+              [
+                invoice.business_id,
+                clientName,
+                description,
+                invoice.total,
+                currentDate,
+                invoice.id,
+              ]
+            );
+          }
+        }
+      }
     }
 
     if (notes !== undefined || due_date !== undefined) {
