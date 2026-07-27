@@ -4,7 +4,6 @@ import { getDbUser, supabase } from "@/lib/db";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-// Paychangu MoMo operator ref IDs (Malawi)
 const OPERATORS: Record<string, string> = {
   airtel: "20be6c20-adeb-4b5b-a7ba-0769820df4fb",
   tnm:    "27494cb5-ba9e-437f-a114-4e7a7686bcca",
@@ -18,28 +17,32 @@ async function getCredential(key: string): Promise<string | null> {
   } catch { return null; }
 }
 
-/** Detect operator from phone number prefix */
+/** Detect operator from phone number */
 function detectOperator(phone: string): string {
   const digits = phone.replace(/\D/g, "").replace(/^265/, "").replace(/^0/, "");
-  // TNM starts with 88/89, Airtel starts with 99/98/97/96/95
   if (/^(88|89)/.test(digits)) return "tnm";
-  return "airtel"; // default
+  return "airtel";
 }
 
-/** Normalise phone to 265XXXXXXXXX */
+/**
+ * Normalise to exactly 9 digits (what Paychangu expects)
+ * e.g. 0991234567 → 991234567
+ *      265991234567 → 991234567
+ *      +265991234567 → 991234567
+ *      991234567 → 991234567
+ */
 function normalisePhone(phone: string): string {
-  const digits = phone.replace(/\D/g, "");
-  if (digits.startsWith("265")) return digits;
-  if (digits.startsWith("0")) return "265" + digits.slice(1);
-  return "265" + digits;
+  let digits = phone.replace(/\D/g, "");
+  if (digits.startsWith("265")) digits = digits.slice(3);
+  if (digits.startsWith("0"))   digits = digits.slice(1);
+  return digits;
 }
 
 export async function GET() {
-  // Return supported operators list
   return NextResponse.json({
     operators: [
-      { id: "airtel", name: "Airtel Money",  ref_id: OPERATORS.airtel },
-      { id: "tnm",    name: "TNM Mpamba",    ref_id: OPERATORS.tnm   },
+      { id: "airtel", name: "Airtel Money", ref_id: OPERATORS.airtel },
+      { id: "tnm",    name: "TNM Mpamba",   ref_id: OPERATORS.tnm   },
     ],
   });
 }
@@ -56,17 +59,26 @@ export async function POST(req: NextRequest) {
       operator?: string;
     };
 
-    if (!phone) return NextResponse.json({ error: "Phone number is required for mobile money payment." }, { status: 400 });
+    if (!phone) {
+      return NextResponse.json({ error: "Phone number is required." }, { status: 400 });
+    }
 
     const normalised = normalisePhone(phone);
-    if (normalised.length < 12) return NextResponse.json({ error: "Invalid phone number." }, { status: 400 });
+    if (normalised.length !== 9) {
+      return NextResponse.json({
+        error: `Invalid phone number. Enter your 9-digit number (e.g. 991234567). Got ${normalised.length} digits.`
+      }, { status: 400 });
+    }
 
     const operatorKey = operator || detectOperator(phone);
     const operatorRefId = OPERATORS[operatorKey];
-    if (!operatorRefId) return NextResponse.json({ error: "Unsupported operator." }, { status: 400 });
+    if (!operatorRefId) {
+      return NextResponse.json({ error: "Unsupported operator." }, { status: 400 });
+    }
 
     // Pricing
-    const { data: pricingRow } = await supabase.from("platform_settings").select("value").eq("key", "pricing").maybeSingle();
+    const { data: pricingRow } = await supabase
+      .from("platform_settings").select("value").eq("key", "pricing").maybeSingle();
     const pricing = pricingRow?.value ?? { monthly_rate: 15000, annual_rate: 150000, currency: "MWK" };
     const amount = plan === "annual" ? pricing.annual_rate : pricing.monthly_rate;
 
@@ -94,10 +106,12 @@ export async function POST(req: NextRequest) {
       process.env.PAYCHANGU_SECRET_KEY || "";
 
     if (!PAYCHANGU_SECRET) {
-      return NextResponse.json({ error: "Payment not configured. Contact support." }, { status: 503 });
+      return NextResponse.json({
+        error: "Payment not configured. Contact support."
+      }, { status: 503 });
     }
 
-    // Direct Charge API call
+    // Paychangu Direct Charge — mobile is 9 digits, no country code
     const response = await fetch("https://api.paychangu.com/mobile-money/payments/initialize", {
       method: "POST",
       headers: {
@@ -119,10 +133,11 @@ export async function POST(req: NextRequest) {
     const result = await response.json();
 
     if (!response.ok || result.status !== "success") {
-      return NextResponse.json(
-        { error: result.message || result.error || "Payment initiation failed. Please try again." },
-        { status: 400 }
-      );
+      // Clean up the pending subscription record
+      await supabase.from("subscriptions").delete().eq("paychangu_tx_ref", chargeId);
+      return NextResponse.json({
+        error: result.message || result.error || "Payment initiation failed. Please try again."
+      }, { status: 400 });
     }
 
     return NextResponse.json({
