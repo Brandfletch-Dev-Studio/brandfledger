@@ -1,17 +1,26 @@
 import { NextResponse } from "next/server";
-import { query, getDbUser } from "@/lib/db";
+import { supabase, getDbUser } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 async function getBusinessId(userId: string, requestedId?: string | null) {
   if (requestedId) {
-    const ownership = await query("SELECT id FROM businesses WHERE id = $1 AND owner_id = $2", [requestedId, userId]);
-    if (ownership.length === 0) return null;
+    const { data } = await supabase.from('businesses').select('id').eq('id', requestedId).eq('owner_id', userId).maybeSingle();
+    if (!data) return null;
     return requestedId;
   }
-  const businesses = await query("SELECT id FROM businesses WHERE owner_id = $1 ORDER BY created_at LIMIT 1", [userId]);
-  return businesses[0]?.id ?? null;
+  try {
+    const { cookies } = await import("next/headers");
+    const cookieStore = cookies();
+    const cookieId = cookieStore.get("activeBusinessId")?.value;
+    if (cookieId) {
+      const { data } = await supabase.from('businesses').select('id').eq('id', cookieId).eq('owner_id', userId).maybeSingle();
+      if (data) return cookieId;
+    }
+  } catch {}
+  const { data } = await supabase.from('businesses').select('id').eq('owner_id', userId).order('created_at').limit(1).maybeSingle();
+  return data?.id ?? null;
 }
 
 export async function GET(request: Request) {
@@ -24,20 +33,22 @@ export async function GET(request: Request) {
     const businessId = await getBusinessId(user.userId, searchParams.get("business_id"));
     if (!businessId) return NextResponse.json({ error: "No business found" }, { status: 404 });
 
-    const business = await query("SELECT * FROM businesses WHERE id = $1", [businessId]);
+    const { data: business } = await supabase.from('businesses').select('*').eq('id', businessId).maybeSingle();
 
-    // Get all transactions for the period
     const fromDate = new Date();
     fromDate.setMonth(fromDate.getMonth() - months + 1);
     fromDate.setDate(1);
     const fromStr = fromDate.toISOString().split("T")[0];
 
-    const transactions = await query(
-      `SELECT * FROM transactions WHERE business_id = $1 AND date >= $2 ORDER BY date DESC`,
-      [businessId, fromStr]
-    );
+    const { data: transactions } = await supabase
+      .from('transactions')
+      .select('*')
+      .eq('business_id', businessId)
+      .gte('date', fromStr)
+      .order('date', { ascending: false });
 
-    // Build monthly summary
+    const txns = transactions || [];
+
     const monthMap: Record<string, { month: string; revenue: number; expenses: number; profit: number }> = {};
     for (let i = 0; i < months; i++) {
       const d = new Date();
@@ -50,11 +61,10 @@ export async function GET(request: Request) {
     let totalRevenue = 0;
     let totalExpenses = 0;
     let totalCost = 0;
-
     const incomeByCategory: Record<string, number> = {};
     const expenseByCategory: Record<string, number> = {};
 
-    for (const tx of transactions) {
+    for (const tx of txns) {
       const txDate = tx.date instanceof Date ? tx.date : new Date(tx.date);
       const key = `${txDate.getFullYear()}-${String(txDate.getMonth() + 1).padStart(2, "0")}`;
       if (monthMap[key]) {
@@ -79,9 +89,8 @@ export async function GET(request: Request) {
     const grossProfit = totalRevenue - totalCost;
     const netProfit = grossProfit - totalExpenses;
 
-    // Top customers by revenue
     const customerRevenue: Record<string, { name: string; revenue: number; count: number }> = {};
-    for (const tx of transactions) {
+    for (const tx of txns) {
       if (tx.type === "income" && tx.client_name) {
         if (!customerRevenue[tx.client_name]) {
           customerRevenue[tx.client_name] = { name: tx.client_name, revenue: 0, count: 0 };
@@ -92,16 +101,8 @@ export async function GET(request: Request) {
     }
     const topCustomers = Object.values(customerRevenue).sort((a, b) => b.revenue - a.revenue).slice(0, 10);
 
-    // Top products by revenue
-    const productRevenue: Record<string, { name: string; revenue: number; count: number; profit: number }> = {};
-    for (const tx of transactions) {
-      if (tx.type === "income" && tx.product_id) {
-        // Need product name — fetch if not in map
-      }
-    }
-
     return NextResponse.json({
-      business: business[0],
+      business,
       monthlyData,
       summary: {
         revenue: totalRevenue,
@@ -109,7 +110,7 @@ export async function GET(request: Request) {
         cost: totalCost,
         grossProfit,
         netProfit,
-        transactionCount: transactions.length,
+        transactionCount: txns.length,
       },
       incomeByCategory: Object.entries(incomeByCategory).map(([name, value]) => ({ name, value })),
       expenseByCategory: Object.entries(expenseByCategory).map(([name, value]) => ({ name, value })),
