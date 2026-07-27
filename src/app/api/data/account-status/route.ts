@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getDbUser, query } from "@/lib/db";
+import { supabase, getDbUser } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -10,38 +10,57 @@ export async function GET() {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     // Fetch from accounts table (one row per user)
-    let rows = await query(
-      "SELECT subscription_status, trial_ends_at, subscription_ends_at, plan FROM accounts WHERE user_id = $1",
-      [user.userId]
-    );
+    let { data: account, error: accError } = await supabase
+      .from('accounts')
+      .select('subscription_status, trial_ends_at, subscription_ends_at, plan')
+      .eq('user_id', user.userId)
+      .maybeSingle();
+    if (accError) throw accError;
 
     // If no account row exists yet, auto-create it (handles legacy users)
-    if (rows.length === 0) {
+    if (!account) {
       // Check if user has a business with trial info
-      const bizRows = await query(
-        "SELECT subscription_status, trial_ends_at, subscription_ends_at FROM businesses WHERE owner_id = $1 ORDER BY created_at LIMIT 1",
-        [user.userId]
-      );
-      const biz = bizRows[0];
+      const { data: bizRows, error: bizError } = await supabase
+        .from('businesses')
+        .select('subscription_status, trial_ends_at, subscription_ends_at')
+        .eq('owner_id', user.userId)
+        .order('created_at', { ascending: true })
+        .limit(1);
+      if (bizError) throw bizError;
+      
+      const biz = bizRows && bizRows.length > 0 ? bizRows[0] : null;
       const status = biz?.subscription_status || "trial";
       const trialEndsAt = biz?.trial_ends_at || new Date(Date.now() + 14 * 86400_000).toISOString();
 
-      await query(
-        `INSERT INTO accounts (user_id, subscription_status, trial_ends_at, subscription_ends_at)
-         VALUES ($1, $2, $3, $4)
-         ON CONFLICT (user_id) DO NOTHING`,
-        [user.userId, status, trialEndsAt, biz?.subscription_ends_at || null]
-      );
+      const { error: insertError } = await supabase
+        .from('accounts')
+        .insert({
+          user_id: user.userId,
+          subscription_status: status,
+          trial_ends_at: trialEndsAt,
+          subscription_ends_at: biz?.subscription_ends_at || null
+        });
 
-      rows = await query(
-        "SELECT subscription_status, trial_ends_at, subscription_ends_at, plan FROM accounts WHERE user_id = $1",
-        [user.userId]
-      );
+      // Ignore unique constraint violation (conflict)
+      if (insertError && insertError.code !== '23505') {
+        throw insertError;
+      }
+
+      const { data: refetchedAccount, error: refetchError } = await supabase
+        .from('accounts')
+        .select('subscription_status, trial_ends_at, subscription_ends_at, plan')
+        .eq('user_id', user.userId)
+        .maybeSingle();
+      if (refetchError) throw refetchError;
+      
+      account = refetchedAccount;
     }
 
-    const account = rows[0];
-    const now = new Date();
+    if (!account) {
+      throw new Error("Account row not found and could not be created");
+    }
 
+    const now = new Date();
     let accessStatus: "active" | "trial" | "expired" = "expired";
 
     if (account.subscription_status === "active") {
