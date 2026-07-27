@@ -3,6 +3,10 @@
     {
       "path": "/api/check-trials",
       "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/paychangu/cancel-pending",
+      "schedule": "*/15 * * * *"
     }
   ]
 }
