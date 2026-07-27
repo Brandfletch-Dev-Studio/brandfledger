@@ -217,8 +217,8 @@ export default function TransactionsPage() {
     <div className="flex flex-col h-full">
       <Header
         title="Transactions"
-        subtitle="Log income & expenses with auto-profit tracking"
-        action={
+        description="Log income & expenses with auto-profit tracking"
+        actions={
           <div className="flex items-center gap-2">
             <button onClick={() => { clearCache(`transactions_v2:${bizId ?? "default"}`); refetch(); }}
               className="h-8 w-8 rounded-lg border flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors" disabled={refreshing}>
