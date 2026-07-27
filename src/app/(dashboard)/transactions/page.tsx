@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { Header } from "@/components/layout/header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Search, TrendingUp, TrendingDown, Loader2, Trash2, RefreshCw } from "lucide-react";
+import { Plus, Search, TrendingUp, TrendingDown, Loader2, Trash2, RefreshCw, Pencil, X, Check } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useCachedFetch, clearCache } from "@/hooks/use-cached-fetch";
@@ -17,21 +17,26 @@ import { PAYMENT_METHODS } from "@/types";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 
 const BLANK_LINE = { product_id: "", description: "", qty: "1", unit_price: "", unit_cost: "" };
-const BLANK_INCOME = {
-  client_name: "",
-  payment_method: "cash",
-  date: new Date().toISOString().split("T")[0],
-};
-const BLANK_EXPENSE = {
-  description: "",
-  amount: "",
-  vendor_name: "",
-  payment_method: "cash",
-  date: new Date().toISOString().split("T")[0],
-};
+const BLANK_INCOME = { client_name: "", payment_method: "cash", date: new Date().toISOString().split("T")[0] };
+const BLANK_EXPENSE = { description: "", amount: "", vendor_name: "", payment_method: "cash", date: new Date().toISOString().split("T")[0] };
+
+/** Inline edit row state */
+interface EditState {
+  id: string;
+  type: "income" | "expense";
+  client_name: string;
+  vendor_name: string;
+  description: string;
+  amount: string;
+  cost_amount: string;
+  payment_method: string;
+  date: string;
+}
 
 export default function TransactionsPage() {
   const { toast } = useToast();
+  const toastRef = useRef(toast); toastRef.current = toast;
+
   const [business, setBusiness] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
@@ -41,6 +46,10 @@ export default function TransactionsPage() {
   const [incomeForm, setIncomeForm] = useState(BLANK_INCOME);
   const [lineItems, setLineItems] = useState([{ ...BLANK_LINE }]);
   const [expenseForm, setExpenseForm] = useState(BLANK_EXPENSE);
+
+  // Edit state — null = no transaction is being edited
+  const [editState, setEditState] = useState<EditState | null>(null);
+  const [editLoading, setEditLoading] = useState(false);
 
   const bizId = typeof window !== "undefined" ? localStorage.getItem("activeBusinessId") : null;
 
@@ -59,7 +68,6 @@ export default function TransactionsPage() {
     },
   });
 
-  // Also load customers for client selection
   const [customers, setCustomers] = useState<any[]>([]);
   useEffect(() => {
     const url = bizId ? `/api/data/customers?business_id=${bizId}` : "/api/data/customers";
@@ -126,6 +134,57 @@ export default function TransactionsPage() {
     });
   }, [transactions, search, typeFilter]);
 
+  function startEdit(t: any) {
+    setEditState({
+      id: t.id,
+      type: t.type,
+      client_name: t.client_name || "",
+      vendor_name: t.vendor_name || "",
+      description: t.description || "",
+      amount: String(t.amount || ""),
+      cost_amount: String(t.cost_amount || ""),
+      payment_method: t.payment_method || "cash",
+      date: t.date ? t.date.split("T")[0] : new Date().toISOString().split("T")[0],
+    });
+  }
+
+  async function saveEdit() {
+    if (!editState || !business?.id) return;
+    if (!editState.amount || parseFloat(editState.amount) <= 0) {
+      toast({ title: "Invalid amount", variant: "destructive" });
+      return;
+    }
+    setEditLoading(true);
+    try {
+      const res = await fetch("/api/data/transactions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "update_transaction",
+          business_id: business.id,
+          id: editState.id,
+          type: editState.type,
+          client_name: editState.client_name || null,
+          vendor_name: editState.vendor_name || null,
+          description: editState.description || null,
+          amount: parseFloat(editState.amount),
+          cost_amount: parseFloat(editState.cost_amount) || 0,
+          payment_method: editState.payment_method,
+          date: editState.date,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Update failed");
+      toast({ title: "Transaction updated" });
+      setEditState(null);
+      clearCache(`transactions_v2:${bizId ?? "default"}`);
+      refetch();
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
+    setEditLoading(false);
+  }
+
   async function handleAddIncome() {
     const validLines = lineItems.filter(li => li.unit_price && parseFloat(li.unit_price) > 0);
     if (!incomeForm.client_name.trim() || validLines.length === 0 || !business) {
@@ -155,10 +214,7 @@ export default function TransactionsPage() {
         }),
       });
       if (res.ok) succeeded++;
-      else {
-        const err = await res.json();
-        toast({ title: "Error", description: err.error || "Failed", variant: "destructive" });
-      }
+      else { const err = await res.json(); toast({ title: "Error", description: err.error || "Failed", variant: "destructive" }); }
     }
     if (succeeded > 0) {
       toast({ title: `${succeeded} transaction${succeeded > 1 ? "s" : ""} logged`, description: `${incomeForm.client_name} — ${formatCurrency(lineTotals.totalAmount, business.currency)}` });
@@ -191,10 +247,8 @@ export default function TransactionsPage() {
         date: expenseForm.date,
       }),
     });
-    if (!res.ok) {
-      const err = await res.json();
-      toast({ title: "Error", description: err.error || "Failed", variant: "destructive" });
-    } else {
+    if (!res.ok) { const err = await res.json(); toast({ title: "Error", description: err.error || "Failed", variant: "destructive" }); }
+    else {
       toast({ title: "Expense logged" });
       setExpenseForm({ ...BLANK_EXPENSE, date: new Date().toISOString().split("T")[0] });
       setOpen(false);
@@ -271,24 +325,123 @@ export default function TransactionsPage() {
         ) : (
           <div className="space-y-2">
             {filtered.map((t: any) => (
-              <div key={t.id} className="rounded-xl border bg-card px-4 py-3 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className={`h-8 w-8 rounded-full flex items-center justify-center shrink-0 ${t.type === "income" ? "bg-emerald-100 text-emerald-600" : "bg-rose-100 text-rose-500"}`}>
-                    {t.type === "income" ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
+              <div key={t.id} className="rounded-xl border bg-card overflow-hidden">
+                {/* Normal row */}
+                <div className="px-4 py-3 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className={`h-8 w-8 rounded-full flex items-center justify-center shrink-0 ${t.type === "income" ? "bg-emerald-100 text-emerald-600" : "bg-rose-100 text-rose-500"}`}>
+                      {t.type === "income" ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold truncate">{t.client_name || t.vendor_name || t.description}</p>
+                      <p className="text-xs text-muted-foreground truncate">{t.description} · {formatDate(t.date)}</p>
+                    </div>
                   </div>
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold truncate">{t.client_name || t.vendor_name || t.description}</p>
-                    <p className="text-xs text-muted-foreground truncate">{t.description} · {formatDate(t.date)}</p>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <p className={`text-sm font-bold ${t.type === "income" ? "text-emerald-600" : "text-rose-500"}`}>
+                      {t.type === "income" ? "+" : "-"}{formatCurrency(Number(t.amount), cur)}
+                    </p>
+                    <button
+                      onClick={() => editState?.id === t.id ? setEditState(null) : startEdit(t)}
+                      className="h-7 w-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                      title="Edit"
+                    >
+                      {editState?.id === t.id ? <X className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
+                    </button>
+                    <button
+                      onClick={() => deleteTransaction(t.id)}
+                      className="h-7 w-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-rose-500 hover:bg-rose-50 transition-colors"
+                      title="Delete"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <p className={`text-sm font-bold ${t.type === "income" ? "text-emerald-600" : "text-rose-500"}`}>
-                    {t.type === "income" ? "+" : "-"}{formatCurrency(Number(t.amount), cur)}
-                  </p>
-                  <button onClick={() => deleteTransaction(t.id)} className="text-muted-foreground hover:text-rose-500 transition-colors">
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
+
+                {/* Inline edit panel */}
+                {editState?.id === t.id && (
+                  <div className="border-t bg-muted/30 px-4 py-3 space-y-2.5">
+                    <div className="grid grid-cols-2 gap-2">
+                      {editState.type === "income" ? (
+                        <div>
+                          <Label className="text-xs mb-1 block">Client</Label>
+                          <Input
+                            value={editState.client_name}
+                            onChange={e => setEditState(s => s ? { ...s, client_name: e.target.value } : s)}
+                            className="h-8 text-sm"
+                          />
+                        </div>
+                      ) : (
+                        <div>
+                          <Label className="text-xs mb-1 block">Vendor</Label>
+                          <Input
+                            value={editState.vendor_name}
+                            onChange={e => setEditState(s => s ? { ...s, vendor_name: e.target.value } : s)}
+                            className="h-8 text-sm"
+                          />
+                        </div>
+                      )}
+                      <div>
+                        <Label className="text-xs mb-1 block">Amount</Label>
+                        <Input
+                          type="number"
+                          value={editState.amount}
+                          onChange={e => setEditState(s => s ? { ...s, amount: e.target.value } : s)}
+                          className="h-8 text-sm"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-xs mb-1 block">Description</Label>
+                      <Input
+                        value={editState.description}
+                        onChange={e => setEditState(s => s ? { ...s, description: e.target.value } : s)}
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <Label className="text-xs mb-1 block">Date</Label>
+                        <Input
+                          type="date"
+                          value={editState.date}
+                          onChange={e => setEditState(s => s ? { ...s, date: e.target.value } : s)}
+                          className="h-8 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs mb-1 block">Payment</Label>
+                        <Select value={editState.payment_method} onValueChange={v => setEditState(s => s ? { ...s, payment_method: v } : s)}>
+                          <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {PAYMENT_METHODS.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    {editState.type === "income" && (
+                      <div>
+                        <Label className="text-xs mb-1 block">Cost amount</Label>
+                        <Input
+                          type="number"
+                          value={editState.cost_amount}
+                          onChange={e => setEditState(s => s ? { ...s, cost_amount: e.target.value } : s)}
+                          className="h-8 text-sm"
+                          placeholder="0"
+                        />
+                      </div>
+                    )}
+                    <div className="flex gap-2 pt-1">
+                      <Button size="sm" variant="outline" className="flex-1 h-8" onClick={() => setEditState(null)}>
+                        Cancel
+                      </Button>
+                      <Button size="sm" className="flex-1 h-8 gap-1" onClick={saveEdit} disabled={editLoading}>
+                        {editLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                        Save
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -298,45 +451,33 @@ export default function TransactionsPage() {
       {/* Add Transaction Dialog */}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-sm mx-auto max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>New Transaction</DialogTitle>
-          </DialogHeader>
-
+          <DialogHeader><DialogTitle>New Transaction</DialogTitle></DialogHeader>
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="grid grid-cols-2 w-full">
               <TabsTrigger value="income" className="gap-1.5"><TrendingUp className="h-3.5 w-3.5" /> Income</TabsTrigger>
               <TabsTrigger value="expense" className="gap-1.5"><TrendingDown className="h-3.5 w-3.5" /> Expense</TabsTrigger>
             </TabsList>
 
-            {/* ── INCOME TAB ── */}
             <TabsContent value="income" className="space-y-3 mt-3">
               <div>
                 <Label className="text-xs mb-1 block">Client Name *</Label>
                 {customers.length > 0 ? (
                   <SearchableSelect
-                    options={[
-                      ...customers.map((c: any) => ({ value: c.name, label: c.name })),
-                    ]}
+                    options={customers.map((c: any) => ({ value: c.name, label: c.name }))}
                     value={incomeForm.client_name}
                     onChange={v => setIncomeForm(f => ({ ...f, client_name: v }))}
                     placeholder="Select or type client..."
                     allowCustom
                   />
                 ) : (
-                  <Input
-                    placeholder="e.g. Radiant Son"
-                    value={incomeForm.client_name}
-                    onChange={e => setIncomeForm(f => ({ ...f, client_name: e.target.value }))}
-                  />
+                  <Input placeholder="e.g. Radiant Son" value={incomeForm.client_name}
+                    onChange={e => setIncomeForm(f => ({ ...f, client_name: e.target.value }))} />
                 )}
               </div>
-
-              {/* Line items */}
               <div className="space-y-2">
                 <Label className="text-xs">Items</Label>
                 {lineItems.map((li, idx) => (
                   <div key={idx} className="space-y-1.5 border rounded-lg p-2">
-                    {/* Product picker */}
                     {products.length > 0 && (
                       <SearchableSelect
                         options={products.map((p: Product) => ({ value: p.id, label: p.name }))}
@@ -345,37 +486,20 @@ export default function TransactionsPage() {
                         placeholder="Pick product (optional)"
                       />
                     )}
-                    <Input
-                      placeholder="Description"
-                      value={li.description}
-                      onChange={e => updateLine(idx, "description", e.target.value)}
-                      className="text-sm"
-                    />
+                    <Input placeholder="Description" value={li.description}
+                      onChange={e => updateLine(idx, "description", e.target.value)} className="text-sm" />
                     <div className="grid grid-cols-3 gap-1.5">
-                      <div>
-                        <Label className="text-xs text-muted-foreground">Qty</Label>
-                        <Input type="number" min="1" value={li.qty}
-                          onChange={e => updateLine(idx, "qty", e.target.value)} className="text-sm" />
-                      </div>
-                      <div>
-                        <Label className="text-xs text-muted-foreground">Price</Label>
-                        <Input type="number" min="0" value={li.unit_price}
-                          onChange={e => updateLine(idx, "unit_price", e.target.value)} className="text-sm" />
-                      </div>
-                      <div>
-                        <Label className="text-xs text-muted-foreground">Cost</Label>
-                        <Input type="number" min="0" value={li.unit_cost}
-                          onChange={e => updateLine(idx, "unit_cost", e.target.value)} className="text-sm" />
-                      </div>
+                      <div><Label className="text-xs text-muted-foreground">Qty</Label>
+                        <Input type="number" min="1" value={li.qty} onChange={e => updateLine(idx, "qty", e.target.value)} className="text-sm" /></div>
+                      <div><Label className="text-xs text-muted-foreground">Price</Label>
+                        <Input type="number" min="0" value={li.unit_price} onChange={e => updateLine(idx, "unit_price", e.target.value)} className="text-sm" /></div>
+                      <div><Label className="text-xs text-muted-foreground">Cost</Label>
+                        <Input type="number" min="0" value={li.unit_cost} onChange={e => updateLine(idx, "unit_cost", e.target.value)} className="text-sm" /></div>
                     </div>
-                    {lineItems.length > 1 && (
-                      <button onClick={() => removeLine(idx)} className="text-xs text-rose-500 hover:underline">Remove</button>
-                    )}
+                    {lineItems.length > 1 && <button onClick={() => removeLine(idx)} className="text-xs text-rose-500 hover:underline">Remove</button>}
                   </div>
                 ))}
-                <button onClick={addLine} className="text-xs text-primary hover:underline flex items-center gap-1">
-                  <Plus className="h-3 w-3" /> Add item
-                </button>
+                <button onClick={addLine} className="text-xs text-primary hover:underline flex items-center gap-1"><Plus className="h-3 w-3" /> Add item</button>
                 {lineTotals.totalAmount > 0 && (
                   <div className="text-xs text-muted-foreground flex justify-between pt-1 border-t">
                     <span>Total: <strong>{formatCurrency(lineTotals.totalAmount, cur)}</strong></span>
@@ -383,70 +507,41 @@ export default function TransactionsPage() {
                   </div>
                 )}
               </div>
-
               <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <Label className="text-xs mb-1 block">Payment</Label>
+                <div><Label className="text-xs mb-1 block">Payment</Label>
                   <Select value={incomeForm.payment_method} onValueChange={v => setIncomeForm(f => ({ ...f, payment_method: v }))}>
                     <SelectTrigger className="text-sm"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {PAYMENT_METHODS.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label className="text-xs mb-1 block">Date</Label>
-                  <Input type="date" value={incomeForm.date}
-                    onChange={e => setIncomeForm(f => ({ ...f, date: e.target.value }))} className="text-sm" />
-                </div>
+                    <SelectContent>{PAYMENT_METHODS.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
+                  </Select></div>
+                <div><Label className="text-xs mb-1 block">Date</Label>
+                  <Input type="date" value={incomeForm.date} onChange={e => setIncomeForm(f => ({ ...f, date: e.target.value }))} className="text-sm" /></div>
               </div>
-
               <Button className="w-full" onClick={handleAddIncome} disabled={loading}>
-                {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                Log Income
+                {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null} Log Income
               </Button>
             </TabsContent>
 
-            {/* ── EXPENSE TAB ── */}
             <TabsContent value="expense" className="space-y-3 mt-3">
-              <div>
-                <Label className="text-xs mb-1 block">Description *</Label>
-                <Input placeholder="e.g. Fuel, Rent, Supplies"
-                  value={expenseForm.description}
-                  onChange={e => setExpenseForm(f => ({ ...f, description: e.target.value }))} />
-              </div>
-              <div>
-                <Label className="text-xs mb-1 block">Amount *</Label>
-                <Input type="number" min="0" placeholder="0"
-                  value={expenseForm.amount}
-                  onChange={e => setExpenseForm(f => ({ ...f, amount: e.target.value }))} />
-              </div>
-              <div>
-                <Label className="text-xs mb-1 block">Vendor / Supplier</Label>
-                <Input placeholder="e.g. Total, Shoprite"
-                  value={expenseForm.vendor_name}
-                  onChange={e => setExpenseForm(f => ({ ...f, vendor_name: e.target.value }))} />
-              </div>
+              <div><Label className="text-xs mb-1 block">Vendor (optional)</Label>
+                <Input placeholder="e.g. Paychangu" value={expenseForm.vendor_name}
+                  onChange={e => setExpenseForm(f => ({ ...f, vendor_name: e.target.value }))} /></div>
+              <div><Label className="text-xs mb-1 block">Description *</Label>
+                <Input placeholder="e.g. Office supplies" value={expenseForm.description}
+                  onChange={e => setExpenseForm(f => ({ ...f, description: e.target.value }))} /></div>
+              <div><Label className="text-xs mb-1 block">Amount *</Label>
+                <Input type="number" min="0" placeholder="0" value={expenseForm.amount}
+                  onChange={e => setExpenseForm(f => ({ ...f, amount: e.target.value }))} /></div>
               <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <Label className="text-xs mb-1 block">Payment</Label>
+                <div><Label className="text-xs mb-1 block">Payment</Label>
                   <Select value={expenseForm.payment_method} onValueChange={v => setExpenseForm(f => ({ ...f, payment_method: v }))}>
                     <SelectTrigger className="text-sm"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {PAYMENT_METHODS.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label className="text-xs mb-1 block">Date</Label>
-                  <Input type="date" value={expenseForm.date}
-                    onChange={e => setExpenseForm(f => ({ ...f, date: e.target.value }))} className="text-sm" />
-                </div>
+                    <SelectContent>{PAYMENT_METHODS.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
+                  </Select></div>
+                <div><Label className="text-xs mb-1 block">Date</Label>
+                  <Input type="date" value={expenseForm.date} onChange={e => setExpenseForm(f => ({ ...f, date: e.target.value }))} className="text-sm" /></div>
               </div>
-
               <Button className="w-full" onClick={handleAddExpense} disabled={loading}>
-                {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                Log Expense
+                {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null} Log Expense
               </Button>
             </TabsContent>
           </Tabs>
