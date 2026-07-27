@@ -6,12 +6,11 @@ const SESSION_SECRET = process.env.SESSION_SECRET!;
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-// ─── Supabase Client (server-side, service role bypasses RLS) ────────────────
+// Supabase client - service role, bypasses RLS
 export const supabase = createClient(supabaseUrl, serviceKey, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
-// ─── Auth ───────────────────────────────────────────────────────────────────
 export function getDbUser() {
   const cookieStore = cookies();
   const sessionCookie = cookieStore.get("brandfledger_session")?.value;
@@ -27,7 +26,6 @@ export function getDbUser() {
   }
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
 export async function getUserBusinesses(userId: string) {
   const { data, error } = await supabase
     .from("businesses")
@@ -43,7 +41,6 @@ export async function getDefaultBusinessId(userId: string) {
   return businesses[0] || null;
 }
 
-// ─── Business ownership verification ─────────────────────────────────────────
 export async function verifyBusinessOwnership(businessId: string, userId: string): Promise<boolean> {
   const { data, error } = await supabase
     .from("businesses")
@@ -53,31 +50,4 @@ export async function verifyBusinessOwnership(businessId: string, userId: string
     .maybeSingle();
   if (error) return false;
   return !!data;
-}
-
-// ─── Generic query (DEPRECATED — use supabase client directly) ───────────────
-// This is kept for backward compatibility with routes not yet migrated.
-// It attempts to parse simple SQL patterns and translate to PostgREST calls.
-export async function query(text: string, params?: any[]) {
-  const pool = getPool();
-  const result = await pool.query(text, params);
-  return result.rows;
-}
-
-// ─── Legacy pg Pool (broken pooler — do not use) ─────────────────────────────
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { Pool } = require("pg") as { Pool: new (opts: any) => any };
-let _pool: any = null;
-function getPool() {
-  if (!_pool) {
-    _pool = new Pool({
-      connectionString: process.env.DATABASE_URL!,
-      ssl: { rejectUnauthorized: false },
-      max: 3,
-      idleTimeoutMillis: 10000,
-      connectionTimeoutMillis: 10000,
-    });
-    _pool.on("error", () => { _pool = null; });
-  }
-  return _pool;
 }
