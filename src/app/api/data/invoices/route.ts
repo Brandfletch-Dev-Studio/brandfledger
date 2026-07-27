@@ -1,27 +1,31 @@
 import { NextResponse } from "next/server";
-import { query, getDbUser } from "@/lib/db";
+import { supabase, getDbUser } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 async function getBusinessId(userId: string, requestedId?: string | null) {
   if (requestedId) {
-    const ownership = await query("SELECT id FROM businesses WHERE id = $1 AND owner_id = $2", [requestedId, userId]);
-    if (ownership.length === 0) return null;
+    const { data } = await supabase.from('businesses').select('id').eq('id', requestedId).eq('owner_id', userId).maybeSingle();
+    if (!data) return null;
     return requestedId;
   }
-  // Check cookie for active business selection
   try {
-    const { cookies } = await import("next/headers");
+    const { cookies } = await import('next/headers');
     const cookieStore = cookies();
-    const cookieId = cookieStore.get("activeBusinessId")?.value;
+    const cookieId = cookieStore.get('activeBusinessId')?.value;
     if (cookieId) {
-      const ownership = await query("SELECT id FROM businesses WHERE id = $1 AND owner_id = $2", [cookieId, userId]);
-      if (ownership.length > 0) return cookieId;
+      const { data } = await supabase.from('businesses').select('id').eq('id', cookieId).eq('owner_id', userId).maybeSingle();
+      if (data) return cookieId;
     }
   } catch {}
-  const businesses = await query("SELECT id FROM businesses WHERE owner_id = $1 ORDER BY created_at LIMIT 1", [userId]);
-  return businesses[0]?.id ?? null;
+  const { data } = await supabase.from('businesses').select('id').eq('owner_id', userId).order('created_at').limit(1).maybeSingle();
+  return data?.id ?? null;
+}
+
+async function verifyOwnership(businessId: string, userId: string) {
+  const { data } = await supabase.from('businesses').select('id').eq('id', businessId).eq('owner_id', userId).maybeSingle();
+  return !!data;
 }
 
 export async function GET(request: Request) {
@@ -33,25 +37,51 @@ export async function GET(request: Request) {
     const businessId = await getBusinessId(user.userId, searchParams.get("business_id"));
     if (!businessId) return NextResponse.json({ error: "No business found" }, { status: 404 });
 
-    const [invoices, customers, products, business] = await Promise.all([
-      query(
-        `SELECT i.*, c.name AS customer_name, c.email AS customer_email, c.phone AS customer_phone
-         FROM invoices i
-         LEFT JOIN customers c ON c.id = i.customer_id
-         WHERE i.business_id = $1
-         ORDER BY i.issue_date DESC NULLS LAST, i.created_at DESC`,
-        [businessId]
-      ),
-      query("SELECT id, name, email, phone FROM customers WHERE business_id = $1 ORDER BY name", [businessId]),
-      query("SELECT id, name, price, cost FROM products WHERE business_id = $1 AND is_active = true ORDER BY name", [businessId]),
-      query("SELECT * FROM businesses WHERE id = $1", [businessId]),
+    const [invoicesResult, customersResult, productsResult, businessResult] = await Promise.all([
+      supabase
+        .from('invoices')
+        .select('*, customers (name, email, phone)')
+        .eq('business_id', businessId)
+        .order('issue_date', { ascending: false, nullsFirst: false })
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('customers')
+        .select('id, name, email, phone')
+        .eq('business_id', businessId)
+        .order('name'),
+      supabase
+        .from('products')
+        .select('id, name, price, cost')
+        .eq('business_id', businessId)
+        .eq('is_active', true)
+        .order('name'),
+      supabase
+        .from('businesses')
+        .select('*')
+        .eq('id', businessId)
+        .maybeSingle(),
     ]);
 
+    if (invoicesResult.error) throw invoicesResult.error;
+    if (customersResult.error) throw customersResult.error;
+    if (productsResult.error) throw productsResult.error;
+    if (businessResult.error) throw businessResult.error;
+
+    const invoices = (invoicesResult.data || []).map((inv: any) => {
+      const { customers, ...rest } = inv;
+      return {
+        ...rest,
+        customer_name: customers?.name ?? null,
+        customer_email: customers?.email ?? null,
+        customer_phone: customers?.phone ?? null,
+      };
+    });
+
     return NextResponse.json({
-      business: business[0],
+      business: businessResult.data,
       invoices,
-      customers,
-      products,
+      customers: customersResult.data || [],
+      products: productsResult.data || [],
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
@@ -70,10 +100,21 @@ export async function POST(request: Request) {
     const { customer_id, customer_name, issue_date, due_date, status, notes, items, tax_rate } = body;
 
     // Generate invoice number
-    const biz = await query("SELECT invoice_prefix FROM businesses WHERE id = $1", [businessId]);
-    const prefix = biz[0]?.invoice_prefix || "INV";
-    const count = await query("SELECT COUNT(*) as count FROM invoices WHERE business_id = $1", [businessId]);
-    const num = parseInt(count[0].count) + 1;
+    const { data: biz, error: bizError } = await supabase
+      .from('businesses')
+      .select('invoice_prefix')
+      .eq('id', businessId)
+      .maybeSingle();
+    if (bizError) throw bizError;
+    const prefix = biz?.invoice_prefix || "INV";
+
+    const { count, error: countError } = await supabase
+      .from('invoices')
+      .select('*', { count: 'exact', head: true })
+      .eq('business_id', businessId);
+    if (countError) throw countError;
+    const num = (count || 0) + 1;
+
     const year = new Date().getFullYear();
     const invNumber = `${prefix}-${year}-${String(num).padStart(4, "0")}`;
 
@@ -98,28 +139,46 @@ export async function POST(request: Request) {
     const taxAmount = subtotal * (parseFloat(tax_rate) || 0) / 100;
     const total = subtotal + taxAmount;
 
-    const result = await query(
-      `INSERT INTO invoices (business_id, customer_id, invoice_number, status, issue_date, due_date, items, subtotal, tax_rate, tax_amount, total, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
-      [businessId, customer_id || null, invNumber, status || "draft",
-       issue_date || new Date().toISOString().split("T")[0],
-       due_date || null,
-       JSON.stringify(processedItems),
-       subtotal,
-       parseFloat(tax_rate) || 0,
-       taxAmount,
-       total,
-       notes || null]
-    );
-
-    const invoice = result[0];
+    const { data: invoice, error: insertError } = await supabase
+      .from('invoices')
+      .insert({
+        business_id: businessId,
+        customer_id: customer_id || null,
+        invoice_number: invNumber,
+        status: status || "draft",
+        issue_date: issue_date || new Date().toISOString().split("T")[0],
+        due_date: due_date || null,
+        items: processedItems,
+        subtotal,
+        tax_rate: parseFloat(tax_rate) || 0,
+        tax_amount: taxAmount,
+        total,
+        notes: notes || null
+      })
+      .select('*')
+      .single();
+    if (insertError) throw insertError;
 
     // Update customer total_invoiced
     if (customer_id) {
-      await query(
-        `UPDATE customers SET total_invoiced = total_invoiced + $1, updated_at = NOW() WHERE id = $2`,
-        [total, customer_id]
-      );
+      const { data: customer, error: customerError } = await supabase
+        .from('customers')
+        .select('total_invoiced')
+        .eq('id', customer_id)
+        .maybeSingle();
+      if (customerError) throw customerError;
+      if (customer) {
+        const currentTotalInvoiced = Number(customer.total_invoiced) || 0;
+        const newTotalInvoiced = currentTotalInvoiced + total;
+        const { error: updateCustError } = await supabase
+          .from('customers')
+          .update({
+            total_invoiced: newTotalInvoiced,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', customer_id);
+        if (updateCustError) throw updateCustError;
+      }
     }
 
     return NextResponse.json({ invoice });
@@ -138,64 +197,93 @@ export async function PUT(request: Request) {
     if (!id) return NextResponse.json({ error: "ID required" }, { status: 400 });
 
     // Verify ownership
-    const ownership = await query(
-      "SELECT i.id FROM invoices i JOIN businesses b ON b.id = i.business_id WHERE i.id = $1 AND b.owner_id = $2",
-      [id, user.userId]
-    );
-    if (ownership.length === 0) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    const { data: inv, error: invErr } = await supabase
+      .from('invoices')
+      .select('business_id')
+      .eq('id', id)
+      .maybeSingle();
+    if (invErr) throw invErr;
+    if (!inv) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+    const isOwner = await verifyOwnership(inv.business_id, user.userId);
+    if (!isOwner) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
     if (status) {
-      await query("UPDATE invoices SET status = $1, updated_at = NOW() WHERE id = $2", [status, id]);
+      const { error: updateStatusError } = await supabase
+        .from('invoices')
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq('id', id);
+      if (updateStatusError) throw updateStatusError;
 
       if (status === "paid") {
         // Fetch the full invoice with its customer name
-        const invoices = await query(
-          "SELECT i.*, c.name as customer_name FROM invoices i LEFT JOIN customers c ON c.id = i.customer_id WHERE i.id = $1",
-          [id]
-        );
-        if (invoices.length > 0) {
-          const invoice = invoices[0];
+        const { data: invData, error: invDataError } = await supabase
+          .from('invoices')
+          .select('*, customers (name)')
+          .eq('id', id)
+          .maybeSingle();
+        if (invDataError) throw invDataError;
+
+        if (invData) {
+          const invoice = {
+            ...invData,
+            customer_name: invData.customers?.name ?? null
+          };
           // Check if a transaction already exists for this invoice to avoid duplicates
-          const existingTx = await query(
-            "SELECT id FROM transactions WHERE invoice_id = $1 LIMIT 1",
-            [id]
-          );
-          if (existingTx.length === 0) {
+          const { data: existingTx, error: txError } = await supabase
+            .from('transactions')
+            .select('id')
+            .eq('invoice_id', id)
+            .limit(1)
+            .maybeSingle();
+          if (txError) throw txError;
+
+          if (!existingTx) {
             // If no transaction exists, insert one
             const clientName = invoice.customer_name || ("Invoice " + invoice.invoice_number);
             const description = "Invoice " + invoice.invoice_number;
             const currentDate = new Date().toISOString().split("T")[0];
 
-            await query(
-              `INSERT INTO transactions (
-                business_id, type, client_name, description, amount, cost_amount,
-                payment_method, date, invoice_id, created_at
-              ) VALUES (
-                $1, 'income', $2, $3, $4, 0, 'invoice', $5, $6, NOW()
-              )`,
-              [
-                invoice.business_id,
-                clientName,
-                description,
-                invoice.total,
-                currentDate,
-                invoice.id,
-              ]
-            );
+            const { error: insertTxError } = await supabase
+              .from('transactions')
+              .insert({
+                business_id: invoice.business_id,
+                type: 'income',
+                client_name: clientName,
+                description: description,
+                amount: invoice.total,
+                cost_amount: 0,
+                payment_method: 'invoice',
+                date: currentDate,
+                invoice_id: invoice.id,
+                created_at: new Date().toISOString()
+              });
+            if (insertTxError) throw insertTxError;
           }
         }
       }
     }
 
     if (notes !== undefined || due_date !== undefined) {
-      await query(
-        `UPDATE invoices SET notes = COALESCE($1, notes), due_date = COALESCE($2, due_date), updated_at = NOW() WHERE id = $3`,
-        [notes || null, due_date || null, id]
-      );
+      const updateObj: any = { updated_at: new Date().toISOString() };
+      if (notes !== undefined) updateObj.notes = notes || null;
+      if (due_date !== undefined) updateObj.due_date = due_date || null;
+
+      const { error: updateInvoiceError } = await supabase
+        .from('invoices')
+        .update(updateObj)
+        .eq('id', id);
+      if (updateInvoiceError) throw updateInvoiceError;
     }
 
-    const updated = await query("SELECT * FROM invoices WHERE id = $1", [id]);
-    return NextResponse.json({ invoice: updated[0] });
+    const { data: updated, error: updatedError } = await supabase
+      .from('invoices')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+    if (updatedError) throw updatedError;
+
+    return NextResponse.json({ invoice: updated });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
@@ -210,13 +298,23 @@ export async function DELETE(request: Request) {
     const id = searchParams.get("id");
     if (!id) return NextResponse.json({ error: "ID required" }, { status: 400 });
 
-    const ownership = await query(
-      "SELECT i.id FROM invoices i JOIN businesses b ON b.id = i.business_id WHERE i.id = $1 AND b.owner_id = $2",
-      [id, user.userId]
-    );
-    if (ownership.length === 0) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    const { data: inv, error: invErr } = await supabase
+      .from('invoices')
+      .select('business_id')
+      .eq('id', id)
+      .maybeSingle();
+    if (invErr) throw invErr;
+    if (!inv) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-    await query("DELETE FROM invoices WHERE id = $1", [id]);
+    const isOwner = await verifyOwnership(inv.business_id, user.userId);
+    if (!isOwner) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+    const { error: deleteError } = await supabase
+      .from('invoices')
+      .delete()
+      .eq('id', id);
+    if (deleteError) throw deleteError;
+
     return NextResponse.json({ success: true });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
