@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { query, getDbUser } from "@/lib/db";
+import { supabase, getDbUser } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -13,45 +13,120 @@ export async function GET(request: Request) {
     let businessId = searchParams.get("business_id");
     
     if (!businessId) {
-      const businesses = await query("SELECT id FROM businesses WHERE owner_id = $1 ORDER BY created_at LIMIT 1", [user.userId]);
-      if (businesses.length === 0) return NextResponse.json({ error: "No business found" }, { status: 404 });
+      const { data: businesses, error: bizError } = await supabase
+        .from('businesses')
+        .select('id')
+        .eq('owner_id', user.userId)
+        .order('created_at', { ascending: true })
+        .limit(1);
+      if (bizError) throw bizError;
+      if (!businesses || businesses.length === 0) {
+        return NextResponse.json({ error: "No business found" }, { status: 404 });
+      }
       businessId = businesses[0].id;
     }
 
     // Verify ownership
-    const ownership = await query("SELECT id FROM businesses WHERE id = $1 AND owner_id = $2", [businessId, user.userId]);
-    if (ownership.length === 0) return NextResponse.json({ error: "Access denied" }, { status: 403 });
+    const { data: ownership, error: ownerError } = await supabase
+      .from('businesses')
+      .select('id')
+      .eq('id', businessId)
+      .eq('owner_id', user.userId)
+      .maybeSingle();
+    if (ownerError) throw ownerError;
+    if (!ownership) return NextResponse.json({ error: "Access denied" }, { status: 403 });
 
     // Fetch dashboard data
-    const [summary, recentTransactions, dailyData, business] = await Promise.all([
-      query(`
-        SELECT 
-          COUNT(*) FILTER (WHERE type = 'income') as sales_count,
-          COALESCE(SUM(amount) FILTER (WHERE type = 'income'), 0) as revenue,
-          COALESCE(SUM(cost_amount) FILTER (WHERE type = 'income'), 0) as cost_of_sales,
-          COALESCE(SUM(profit) FILTER (WHERE type = 'income'), 0) as gross_profit,
-          COALESCE(SUM(amount) FILTER (WHERE type = 'expense'), 0) as expenses,
-          COALESCE(AVG(margin) FILTER (WHERE type = 'income' AND margin > 0), 0) as avg_margin
-        FROM transactions WHERE business_id = $1
-      `, [businessId]),
-      query("SELECT * FROM transactions WHERE business_id = $1 ORDER BY date DESC, created_at DESC LIMIT 10", [businessId]),
-      query(`
-        SELECT date,
-          SUM(amount) FILTER (WHERE type = 'income') as income,
-          SUM(amount) FILTER (WHERE type = 'expense') as expenses
-        FROM transactions WHERE business_id = $1
-        GROUP BY date ORDER BY date ASC
-      `, [businessId]),
-      query("SELECT * FROM businesses WHERE id = $1", [businessId]),
+    const [transactionsResult, businessResult] = await Promise.all([
+      supabase
+        .from('transactions')
+        .select('*')
+        .eq('business_id', businessId),
+      supabase
+        .from('businesses')
+        .select('*')
+        .eq('id', businessId)
+        .maybeSingle()
     ]);
 
+    if (transactionsResult.error) throw transactionsResult.error;
+    if (businessResult.error) throw businessResult.error;
+
+    const transactions = transactionsResult.data || [];
+    const business = businessResult.data;
+
+    // Aggregate summary
+    let sales_count = 0;
+    let revenue = 0;
+    let cost_of_sales = 0;
+    let gross_profit = 0;
+    let expenses = 0;
+    let margin_sum = 0;
+    let margin_count = 0;
+
+    for (const tx of transactions) {
+      const amount = parseFloat(tx.amount || 0);
+      const cost_amount = parseFloat(tx.cost_amount || 0);
+      const profit = parseFloat(tx.profit || 0);
+      const margin = parseFloat(tx.margin || 0);
+
+      if (tx.type === 'income') {
+        sales_count++;
+        revenue += amount;
+        cost_of_sales += cost_amount;
+        gross_profit += profit;
+        if (margin > 0) {
+          margin_sum += margin;
+          margin_count++;
+        }
+      } else if (tx.type === 'expense') {
+        expenses += amount;
+      }
+    }
+
+    const avg_margin = margin_count > 0 ? (margin_sum / margin_count) : 0;
+
+    const summary = {
+      sales_count: sales_count.toString(),
+      revenue: revenue.toString(),
+      cost_of_sales: cost_of_sales.toString(),
+      gross_profit: gross_profit.toString(),
+      expenses: expenses.toString(),
+      avg_margin: avg_margin.toString(),
+    };
+
     // Calculate net profit
-    const netProfit = parseFloat(summary[0].gross_profit) - parseFloat(summary[0].expenses);
+    const netProfit = parseFloat(summary.gross_profit) - parseFloat(summary.expenses);
+
+    // Get recent transactions (limit 10, order by date desc, created_at desc)
+    const recentTransactions = [...transactions]
+      .sort((a, b) => {
+        const dateCompare = (b.date || "").localeCompare(a.date || "");
+        if (dateCompare !== 0) return dateCompare;
+        return (b.created_at || "").localeCompare(a.created_at || "");
+      })
+      .slice(0, 10);
+
+    // Group transactions by date for daily data (ordered by date asc)
+    const dailyMap: { [date: string]: { date: string; income: number | null; expenses: number | null } } = {};
+    for (const tx of transactions) {
+      const date = tx.date;
+      const amount = parseFloat(tx.amount || 0);
+      if (!dailyMap[date]) {
+        dailyMap[date] = { date, income: null, expenses: null };
+      }
+      if (tx.type === 'income') {
+        dailyMap[date].income = (dailyMap[date].income || 0) + amount;
+      } else if (tx.type === 'expense') {
+        dailyMap[date].expenses = (dailyMap[date].expenses || 0) + amount;
+      }
+    }
+    const dailyData = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
 
     return NextResponse.json({
-      business: business[0],
+      business,
       summary: {
-        ...summary[0],
+        ...summary,
         net_profit: netProfit,
       },
       recentTransactions,
