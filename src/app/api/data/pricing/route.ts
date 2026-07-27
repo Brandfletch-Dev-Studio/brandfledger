@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { query, getDbUser } from "@/lib/db";
+import { supabase, getDbUser } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -23,23 +23,24 @@ export async function GET(request: Request) {
   try {
     const user = getDbUser();
 
-    // Get pricing from platform_settings
     let pricing = DEFAULT_PRICING;
     try {
-      const rows = await query("SELECT value FROM platform_settings WHERE key = $1", ["pricing"]);
-      if (rows.length > 0 && rows[0].value) {
-        pricing = { ...DEFAULT_PRICING, ...rows[0].value };
+      const { data } = await supabase.from('platform_settings').select('value').eq('key', 'pricing').maybeSingle();
+      if (data?.value) {
+        pricing = { ...DEFAULT_PRICING, ...data.value };
       }
-    } catch {
-      // table might not exist yet, use defaults
-    }
+    } catch {}
 
-    // Get business subscription status if authenticated
     let subscription = null;
     if (user) {
-      const businesses = await query("SELECT subscription_status, trial_ends_at, subscription_ends_at FROM businesses WHERE owner_id = $1 ORDER BY created_at LIMIT 1", [user.userId]);
-      if (businesses.length > 0) {
-        const biz = businesses[0];
+      const { data: biz } = await supabase
+        .from('businesses')
+        .select('subscription_status, trial_ends_at, subscription_ends_at')
+        .eq('owner_id', user.userId)
+        .order('created_at')
+        .limit(1)
+        .maybeSingle();
+      if (biz) {
         const status = biz.subscription_status || "trial";
         let daysLeft = 0;
         if (status === "trial" && biz.trial_ends_at) {
