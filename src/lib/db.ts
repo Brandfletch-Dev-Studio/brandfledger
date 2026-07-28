@@ -37,6 +37,22 @@ export async function getUserBusinesses(userId: string) {
 }
 
 export async function getDefaultBusinessId(userId: string) {
+  // BUG FIX: Read the activeBusinessId cookie first, matching business switcher behavior
+  try {
+    const cookieStore = cookies();
+    const cookieId = cookieStore.get("activeBusinessId")?.value;
+    if (cookieId) {
+      const { data } = await supabase
+        .from("businesses")
+        .select("id")
+        .eq("id", cookieId)
+        .eq("owner_id", userId)
+        .maybeSingle();
+      if (data) return data;
+    }
+  } catch {}
+  
+  // Fall back to first business
   const businesses = await getUserBusinesses(userId);
   return businesses[0] || null;
 }
