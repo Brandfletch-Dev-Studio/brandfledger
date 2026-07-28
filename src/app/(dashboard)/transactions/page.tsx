@@ -324,8 +324,8 @@ export default function TransactionsPage() {
         }
       />
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {/* Stats */}
+      {/* Stats + Period — outside scroll so dropdown isn't clipped by overflow */}
+      <div className="px-4 pt-4 space-y-3">
         <div className="grid grid-cols-2 gap-3">
           <div className="rounded-xl border bg-card p-3">
             <p className="text-xs text-muted-foreground mb-1">Revenue</p>
@@ -337,7 +337,6 @@ export default function TransactionsPage() {
           </div>
         </div>
 
-        {/* Period Selector */}
         <Select value={period} onValueChange={setPeriod}>
           <SelectTrigger className="w-full h-9 flex items-center gap-2">
             <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
@@ -352,7 +351,9 @@ export default function TransactionsPage() {
             <SelectItem value="all_time">All Time</SelectItem>
           </SelectContent>
         </Select>
+      </div>
 
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {/* Filters */}
         <div className="flex gap-2">
           <div className="relative flex-1">
