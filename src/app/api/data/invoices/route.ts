@@ -118,12 +118,26 @@ export async function POST(request: Request) {
     const year = new Date().getFullYear();
     const invNumber = `${prefix}-${year}-${String(num).padStart(4, "0")}`;
 
+    // Fetch product costs for items with product_id (for accurate COGS on mark-as-paid)
+    const productIds = (items || []).map((i: any) => i.product_id).filter(Boolean);
+    const productCosts: Record<string, number> = {};
+    if (productIds.length > 0) {
+      const { data: products } = await supabase
+        .from('products')
+        .select('id, cost')
+        .in('id', productIds);
+      (products || []).forEach((p: any) => {
+        productCosts[p.id] = parseFloat(p.cost) || 0;
+      });
+    }
+
     // Calculate totals and build items JSONB
     let subtotal = 0;
     const processedItems = (items || []).map((item: any, idx: number) => {
       const qty = parseFloat(item.quantity) || 1;
       const price = parseFloat(item.price) || 0;
       const lineTotal = qty * price;
+      const unitCost = item.product_id ? (productCosts[item.product_id] || 0) : (parseFloat(item.cost) || 0);
       subtotal += lineTotal;
       return {
         product_id: item.product_id || null,
@@ -131,6 +145,8 @@ export async function POST(request: Request) {
         description: item.description || "",
         quantity: qty,
         unit_price: price,
+        unit_cost: unitCost,
+        cost: unitCost,
         total: lineTotal,
         sort_order: idx,
       };
