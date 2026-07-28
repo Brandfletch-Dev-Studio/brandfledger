@@ -18,13 +18,13 @@ async function getUsersMap() {
     if (error || !usersData?.users?.length) break;
     for (const u of usersData.users) {
       const meta = (u.user_metadata as any) || {};
-      const rawMeta = (u.raw_user_meta_data as any) || {};
+      const uAny = u as any;
       // Try every possible key Supabase or OAuth providers might use
       const name =
         meta.full_name ||
         meta.name ||
-        rawMeta.full_name ||
-        rawMeta.name ||
+        uAny.raw_user_meta_data?.full_name ||
+        uAny.raw_user_meta_data?.name ||
         u.email?.split("@")[0] ||
         "";
       map[u.id] = { email: u.email || "", name };
