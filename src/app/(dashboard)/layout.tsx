@@ -5,6 +5,7 @@ import { TrialBanner } from "@/components/trial-banner";
 import { NavProgress } from "@/components/layout/nav-progress";
 import { Paywall } from "@/components/paywall";
 import { SplashScreen } from "@/components/splash-screen";
+import { cookies } from "next/headers";
 
 export const dynamic = "force-dynamic";
 
@@ -20,13 +21,32 @@ export default async function DashboardLayout({ children }: { children: React.Re
     if (user) {
       userEmail = user.email;
       isAdmin = ADMIN_EMAILS.includes(user.email.toLowerCase());
-      const { data: businesses } = await supabase
-        .from("businesses")
-        .select("name")
-        .eq("owner_id", user.userId)
-        .order("created_at")
-        .limit(1);
-      businessName = businesses?.[0]?.name;
+
+      // Read active business from cookie (set by BusinessSwitcher on switch)
+      const cookieStore = cookies();
+      const activeBusinessId = cookieStore.get("activeBusinessId")?.value;
+
+      if (activeBusinessId) {
+        // Fetch the active business directly
+        const { data: activeBiz } = await supabase
+          .from("businesses")
+          .select("name")
+          .eq("id", activeBusinessId)
+          .eq("owner_id", user.userId)
+          .maybeSingle();
+        businessName = activeBiz?.name;
+      }
+
+      // Fallback: use first business if no cookie or cookie doesn't match
+      if (!businessName) {
+        const { data: businesses } = await supabase
+          .from("businesses")
+          .select("name")
+          .eq("owner_id", user.userId)
+          .order("created_at")
+          .limit(1);
+        businessName = businesses?.[0]?.name;
+      }
     }
   } catch (err) {
     console.error("Layout error:", err);
