@@ -109,7 +109,7 @@ export async function POST(request: Request) {
         .insert({
           business_id,
           type,
-          client_name: client_name || null,
+          client_name: client_name ? client_name.trim() : null,
           vendor_name: vendor_name || null,
           description,
           amount,
@@ -174,7 +174,7 @@ export async function POST(request: Request) {
 
       const updateObj: any = { updated_at: new Date().toISOString() };
       if (type !== undefined && type !== null) updateObj.type = type;
-      if (client_name !== undefined && client_name !== null) updateObj.client_name = client_name;
+      if (client_name !== undefined && client_name !== null) updateObj.client_name = client_name.trim();
       if (vendor_name !== undefined && vendor_name !== null) updateObj.vendor_name = vendor_name;
       if (description !== undefined && description !== null) updateObj.description = description;
       if (amount !== undefined && amount !== null) updateObj.amount = amount;
@@ -306,7 +306,7 @@ export async function PUT(request: Request) {
 
     const updateObj: any = { updated_at: new Date().toISOString() };
     if (type !== undefined && type !== null) updateObj.type = type;
-    if (client_name !== undefined && client_name !== null) updateObj.client_name = client_name;
+    if (client_name !== undefined && client_name !== null) updateObj.client_name = client_name.trim();
     if (vendor_name !== undefined && vendor_name !== null) updateObj.vendor_name = vendor_name;
     if (description !== undefined && description !== null) updateObj.description = description;
     if (amount !== undefined && amount !== null) updateObj.amount = amount;
