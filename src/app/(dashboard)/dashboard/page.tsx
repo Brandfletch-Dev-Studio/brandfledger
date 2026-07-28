@@ -148,7 +148,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
     });
     const topCustomers = Object.values(customerTotals).sort((a, b) => b.total - a.total).slice(0, 5);
 
-    const recentIncome = allTransactions.filter((t: any) => t.type === "income").slice(0, 5);
+    const recentIncome = allTransactions.filter((t: any) => t.type === "income").slice(0, 10);
 
     return (
       <DashboardClient
