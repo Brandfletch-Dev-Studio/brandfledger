@@ -51,6 +51,7 @@ interface Props {
     outstandingAmount: number;
     outstandingCount: number;
     customerCount: number;
+    salesCount: number;
   } | null;
   recentInvoices?: { id: string; total: number; status: string; created_at: string; invoice_number: string }[];
   recentIncome?: Transaction[];
@@ -202,7 +203,7 @@ export default function DashboardClient({
             label="Revenue"
             value={fmt(stats.totalRevenue)}
             fullValue={formatCurrencyFull(stats.totalRevenue, business.currency)}
-            sub={`${recentIncome.length} sale${recentIncome.length !== 1 ? "s" : ""}`}
+            sub={`${stats.salesCount} sale${stats.salesCount !== 1 ? "s" : ""}`}
             valueClassName="text-emerald-600 dark:text-emerald-400"
           />
           <StatCard
@@ -223,7 +224,7 @@ export default function DashboardClient({
             label="Net Profit"
             value={fmt(stats.netProfit)}
             fullValue={formatCurrencyFull(stats.netProfit, business.currency)}
-            sub="After expenses"
+            sub={`${stats.totalRevenue > 0 ? ((stats.netProfit / stats.totalRevenue) * 100).toFixed(1) : 0}% margin`}
             valueClassName={isNetProfitPositive ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}
           />
         </div>
@@ -277,7 +278,7 @@ export default function DashboardClient({
               </div>
             ) : (
               <div className="space-y-4">
-                {recentIncome.slice(0, 6).map((tx) => {
+                {recentIncome.slice(0, 10).map((tx) => {
                   const isIncome = tx.type === "income";
                   return (
                     <div key={tx.id} className="flex items-center justify-between gap-4 py-2 border-b last:border-0 last:pb-0">
