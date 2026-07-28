@@ -111,6 +111,39 @@ export async function POST(request: Request) {
         .select('*')
         .single();
       if (txErr) throw txErr;
+
+      // Auto-create customer if client_name doesn't exist (income transactions only)
+      if (type === "income" && client_name) {
+        const trimmedName = client_name.trim();
+        const { data: existingCustomer } = await supabase
+          .from('customers')
+          .select('id, total_invoiced')
+          .eq('business_id', business_id)
+          .ilike('name', trimmedName)
+          .maybeSingle();
+
+        if (!existingCustomer) {
+          await supabase
+            .from('customers')
+            .insert({
+              business_id,
+              name: trimmedName,
+              total_invoiced: amount,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            });
+        } else {
+          // Update total_invoiced for existing customer
+          await supabase
+            .from('customers')
+            .update({
+              total_invoiced: Number(existingCustomer.total_invoiced || 0) + amount,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', existingCustomer.id);
+        }
+      }
+
       return NextResponse.json({ transaction: tx });
     }
 
