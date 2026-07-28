@@ -3,17 +3,14 @@ import { useState } from "react";
 import Link from "next/link";
 import {
   DollarSign, TrendingUp, TrendingDown, Clock, Users, FileText,
-  CheckCircle2, Circle, Building2, UserPlus, Package, Zap,
-  ChevronDown, ChevronUp, Loader2, ArrowRight, AlertCircle,
-  BarChart3, Plus, Download, Bell, ShoppingCart, ArrowLeftRight,
+  CheckCircle2, Circle, Building2, UserPlus, Package, Zap, ArrowRight, AlertCircle,
+  BarChart3, Plus, Download, Bell, ShoppingCart, ArrowLeftRight
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { PeriodSelect } from "./period-select";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import { useRouter } from "next/navigation";
@@ -85,22 +82,18 @@ function StatCard({ label, value, fullValue, sub, valueClassName }: { label: str
 function SetupChecklist({ initialStatus }: { initialStatus: SetupStatus }) {
   const router = useRouter();
   const [status, setStatus] = useState(initialStatus);
-  const [expanded, setExpanded] = useState<string | null>(!initialStatus.hasBusiness ? "business" : !initialStatus.hasCustomer ? "customer" : !initialStatus.hasProduct ? "product" : null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [bizForm, setBizForm] = useState({ name: "", email: "", currency: "USD", invoice_prefix: "INV" });
-  const [custForm, setCustForm] = useState({ name: "", email: "", phone: "" });
-  const [prodForm, setProdForm] = useState({ name: "", price: "", category: "" });
 
   const completedCount = [status.hasBusiness, status.hasCustomer, status.hasProduct, status.hasInvoice].filter(Boolean).length;
   const allDone = completedCount === 4;
   if (allDone) return null;
 
   const steps = [
-    { id: "business", label: "Set up your business", icon: Building2, done: status.hasBusiness },
-    { id: "customer", label: "Add your first customer", icon: UserPlus, done: status.hasCustomer },
-    { id: "product", label: "Add a product or service", icon: Package, done: status.hasProduct },
-    { id: "invoice", label: "Create your first invoice", icon: FileText, done: status.hasInvoice, href: "/transactions" },
+    { id: "business", label: "Set up your business", icon: Building2, done: status.hasBusiness, href: "/settings" },
+    { id: "customer", label: "Add your first customer", icon: UserPlus, done: status.hasCustomer, href: "/customers" },
+    { id: "product", label: "Add a product or service", icon: Package, done: status.hasProduct, href: "/products" },
+    { id: "invoice", label: "Create your first invoice", icon: FileText, done: status.hasInvoice, href: "/invoices/create" },
   ];
 
   return (
@@ -117,98 +110,17 @@ function SetupChecklist({ initialStatus }: { initialStatus: SetupStatus }) {
       <CardContent className="space-y-2">
         {steps.map((step) => (
           <div key={step.id} className={`rounded-lg border bg-card overflow-hidden transition-opacity ${step.done ? "opacity-60" : "shadow-sm"}`}>
-            <button
-              className="flex w-full items-center gap-3 p-4 text-left"
-              onClick={() => !step.done && !step.href && setExpanded(expanded === step.id ? null : step.id)}
-            >
-              {step.done ? <CheckCircle2 className="h-5 w-5 text-green-500 shrink-0" /> : <Circle className="h-5 w-5 text-muted-foreground shrink-0" />}
-              <span className={`text-sm font-medium flex-1 ${step.done ? "line-through text-muted-foreground" : ""}`}>{step.label}</span>
-              {!step.done && step.href ? (
-                <Link href={step.href} className="text-xs text-primary hover:underline flex items-center gap-1">Go <ArrowRight className="h-3 w-3" /></Link>
-              ) : !step.done && (
-                expanded === step.id ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />
-              )}
-            </button>
-            {!step.done && expanded === step.id && step.id === "business" && (
-              <div className="px-4 pb-4 space-y-3 border-t pt-3">
-                {error && <p className="text-xs text-destructive">{error}</p>}
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="col-span-2 space-y-1"><Label className="text-xs">Business name *</Label><Input className="h-8 text-sm" placeholder="Acme Ltd" value={bizForm.name} onChange={e => setBizForm(p => ({ ...p, name: e.target.value }))} /></div>
-                  <div className="space-y-1"><Label className="text-xs">Invoice prefix</Label><Input className="h-8 text-sm" placeholder="INV" value={bizForm.invoice_prefix} onChange={e => setBizForm(p => ({ ...p, invoice_prefix: e.target.value.toUpperCase() }))} /></div>
-                  <div className="space-y-1"><Label className="text-xs">Currency</Label><Select value={bizForm.currency} onValueChange={v => setBizForm(p => ({ ...p, currency: v }))}><SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger><SelectContent>{currencies.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select></div>
-                </div>
-                <Button size="sm" disabled={loading || !bizForm.name} onClick={async () => {
-                  setLoading(true); setError("");
-                  try {
-                    const res = await fetch("/api/onboarding", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ step: "business", data: bizForm }),
-                    });
-                    const json = await res.json();
-                    if (!res.ok) { setError(json.error ?? "Something went wrong"); setLoading(false); return; }
-                    setStatus(s => ({ ...s, hasBusiness: true })); setExpanded("customer"); setLoading(false); router.refresh();
-                  } catch {
-                    setError("Something went wrong. Please try again."); setLoading(false);
-                  }
-                }}>{loading ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}Save business</Button>
+            {step.done ? (
+              <div className="flex items-center gap-3 p-3 cursor-default">
+                <CheckCircle2 className="h-5 w-5 text-green-500 shrink-0" />
+                <span className="text-sm font-medium flex-1 line-through text-muted-foreground">{step.label}</span>
               </div>
-            )}
-            {!step.done && expanded === step.id && step.id === "customer" && (
-              <div className="px-4 pb-4 space-y-3 border-t pt-3">
-                {error && <p className="text-xs text-destructive">{error}</p>}
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="col-span-2 space-y-1"><Label className="text-xs">Name *</Label><Input className="h-8 text-sm" placeholder="Jane Smith" value={custForm.name} onChange={e => setCustForm(p => ({ ...p, name: e.target.value }))} /></div>
-                  <div className="space-y-1"><Label className="text-xs">Email</Label><Input className="h-8 text-sm" type="email" value={custForm.email} onChange={e => setCustForm(p => ({ ...p, email: e.target.value }))} /></div>
-                  <div className="space-y-1"><Label className="text-xs">Phone</Label><Input className="h-8 text-sm" value={custForm.phone} onChange={e => setCustForm(p => ({ ...p, phone: e.target.value }))} /></div>
-                </div>
-                <div className="flex gap-2">
-                  <Button size="sm" disabled={loading || !custForm.name} onClick={async () => {
-                    setLoading(true); setError("");
-                    try {
-                      const res = await fetch("/api/onboarding", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ step: "customer", data: custForm }),
-                      });
-                      const json = await res.json();
-                      if (!res.ok) { setError(json.error ?? "Something went wrong"); setLoading(false); return; }
-                      setStatus(s => ({ ...s, hasCustomer: true })); setExpanded("product"); setLoading(false);
-                    } catch {
-                      setError("Something went wrong. Please try again."); setLoading(false);
-                    }
-                  }}>{loading ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}Add customer</Button>
-                  <Button size="sm" variant="ghost" onClick={() => { setError(""); setStatus(s => ({ ...s, hasCustomer: true })); setExpanded("product"); }}>Skip</Button>
-                </div>
-              </div>
-            )}
-            {!step.done && expanded === step.id && step.id === "product" && (
-              <div className="px-4 pb-4 space-y-3 border-t pt-3">
-                {error && <p className="text-xs text-destructive">{error}</p>}
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="col-span-2 space-y-1"><Label className="text-xs">Name *</Label><Input className="h-8 text-sm" placeholder="Web design" value={prodForm.name} onChange={e => setProdForm(p => ({ ...p, name: e.target.value }))} /></div>
-                  <div className="space-y-1"><Label className="text-xs">Price</Label><Input className="h-8 text-sm" type="number" value={prodForm.price} onChange={e => setProdForm(p => ({ ...p, price: e.target.value }))} /></div>
-                  <div className="space-y-1"><Label className="text-xs">Category</Label><Input className="h-8 text-sm" placeholder="Services" value={prodForm.category} onChange={e => setProdForm(p => ({ ...p, category: e.target.value }))} /></div>
-                </div>
-                <div className="flex gap-2">
-                  <Button size="sm" disabled={loading || !prodForm.name} onClick={async () => {
-                    setLoading(true); setError("");
-                    try {
-                      const res = await fetch("/api/onboarding", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ step: "product", data: prodForm }),
-                      });
-                      const json = await res.json();
-                      if (!res.ok) { setError(json.error ?? "Something went wrong"); setLoading(false); return; }
-                      setStatus(s => ({ ...s, hasProduct: true })); setExpanded(null); setLoading(false);
-                    } catch {
-                      setError("Something went wrong. Please try again."); setLoading(false);
-                    }
-                  }}>{loading ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}Add product</Button>
-                  <Button size="sm" variant="ghost" onClick={() => { setError(""); setStatus(s => ({ ...s, hasProduct: true })); setExpanded(null); }}>Skip</Button>
-                </div>
-              </div>
+            ) : (
+              <Link href={step.href ?? "#"} className="flex items-center gap-3 p-3 w-full text-left">
+                <Circle className="h-5 w-5 text-muted-foreground shrink-0" />
+                <span className="text-sm font-medium flex-1">{step.label}</span>
+                <span className="text-xs text-primary flex items-center gap-1 font-medium">Go <ArrowRight className="h-3 w-3" /></span>
+              </Link>
             )}
           </div>
         ))}
