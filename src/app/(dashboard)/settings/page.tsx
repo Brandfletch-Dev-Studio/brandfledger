@@ -121,6 +121,24 @@ export default function SettingsPage() {
     }
   }
 
+  async function disconnectWhatsapp() {
+    setWaSaving(true);
+    try {
+      const res = await fetch("/api/data/whatsapp-link", { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Failed to disconnect");
+      }
+      setWaLinked(false);
+      setWaNumber("");
+      toast({ title: "WhatsApp disconnected", description: "Your number has been unlinked. You can reconnect anytime." });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setWaSaving(false);
+    }
+  }
+
   if (pageLoading) return (
     <div>
       <Header title="Settings" description="Manage your business settings" icon={Building2} />
@@ -205,10 +223,17 @@ export default function SettingsPage() {
               <p className="text-xs text-muted-foreground">Enter the number you use on WhatsApp (country code, no +)</p>
             </div>
 
-            <Button onClick={saveWhatsappLink} disabled={waSaving} variant="outline" className="w-full">
-              {waSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <MessageCircle className="mr-2 h-4 w-4" />}
-              {waLinked ? "Update Number" : "Link My WhatsApp"}
-            </Button>
+            <div className="flex gap-2">
+              <Button onClick={saveWhatsappLink} disabled={waSaving} variant="outline" className="flex-1">
+                {waSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <MessageCircle className="mr-2 h-4 w-4" />}
+                {waLinked ? "Update Number" : "Link My WhatsApp"}
+              </Button>
+              {waLinked && (
+                <Button onClick={disconnectWhatsapp} disabled={waSaving} variant="ghost" size="icon" className="text-destructive hover:text-destructive">
+                  <AlertCircle className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
 
             {waLinked && waMeLink && (
               <a href={waMeLink} target="_blank" rel="noopener noreferrer">

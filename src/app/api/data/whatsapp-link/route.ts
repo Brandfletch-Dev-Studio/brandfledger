@@ -53,7 +53,7 @@ export async function GET() {
   }
 }
 
-// PUT — save the client's WhatsApp number to business_members
+// PUT — save the client's WhatsApp number to business_members (with uniqueness check)
 export async function PUT(request: Request) {
   try {
     const user = getDbUser();
@@ -76,6 +76,20 @@ export async function PUT(request: Request) {
     }
     const businessId = businesses[0].id;
 
+    // Check if this number is already linked to a DIFFERENT business
+    const { data: existingLink } = await supabase
+      .from("business_members")
+      .select("business_id")
+      .eq("whatsapp_number", whatsapp_number)
+      .neq("business_id", businessId)
+      .limit(1);
+
+    if (existingLink && existingLink.length > 0) {
+      return NextResponse.json({
+        error: "This WhatsApp number is already linked to another business. Each number can only be connected to one business.",
+      }, { status: 409 });
+    }
+
     // Upsert business_members record
     const { data: existing } = await supabase
       .from("business_members")
@@ -96,6 +110,53 @@ export async function PUT(request: Request) {
     }
 
     return NextResponse.json({ success: true, linked_number: whatsapp_number });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
+
+// DELETE — unlink the client's WhatsApp number
+export async function DELETE() {
+  try {
+    const user = getDbUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    // Get the active business
+    const { data: businesses } = await supabase
+      .from("businesses")
+      .select("id")
+      .eq("owner_id", user.userId)
+      .order("created_at", { ascending: true })
+      .limit(1);
+    if (!businesses || businesses.length === 0) {
+      return NextResponse.json({ error: "No business found" }, { status: 404 });
+    }
+    const businessId = businesses[0].id;
+
+    // Set whatsapp_number to NULL (don't delete the member record)
+    const { data: existing } = await supabase
+      .from("business_members")
+      .select("id")
+      .eq("business_id", businessId)
+      .eq("user_id", user.userId)
+      .maybeSingle();
+
+    if (existing) {
+      await supabase
+        .from("business_members")
+        .update({ whatsapp_number: null })
+        .eq("id", existing.id);
+    }
+
+    // Also clear any conversation context for this number
+    // We need to find the old number first — but since we just cleared it,
+    // we'll clean up by business_id
+    await supabase
+      .from("whatsapp_conversation_context")
+      .delete()
+      .eq("business_id", businessId);
+
+    return NextResponse.json({ success: true, message: "WhatsApp number disconnected." });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
