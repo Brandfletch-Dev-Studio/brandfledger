@@ -18,6 +18,19 @@ export async function GET(request: Request) {
     let businessId: string | null = searchParams.get("business_id");
     
     if (!businessId) {
+      // Read from cookie first (matches business switcher behavior)
+      try {
+        const { cookies } = await import('next/headers');
+        const cookieStore = cookies();
+        const cookieId = cookieStore.get('activeBusinessId')?.value;
+        if (cookieId) {
+          const { data } = await supabase.from('businesses').select('id').eq('id', cookieId).eq('owner_id', user.userId).maybeSingle();
+          if (data) businessId = cookieId;
+        }
+      } catch {}
+    }
+    
+    if (!businessId) {
       const { data: businesses, error: bizError } = await supabase
         .from('businesses')
         .select('id')
@@ -30,7 +43,7 @@ export async function GET(request: Request) {
       businessId = businesses.id;
     }
 
-    if (!businessId || !await verifyOwnership(businessId, user.userId)) {
+    if (!await verifyOwnership(businessId, user.userId)) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
 
@@ -112,36 +125,13 @@ export async function POST(request: Request) {
         .single();
       if (txErr) throw txErr;
 
-      // Auto-create customer if client_name doesn't exist (income transactions only)
+      // Auto-create or update customer atomically via SQL function (no race condition)
       if (type === "income" && client_name) {
-        const trimmedName = client_name.trim();
-        const { data: existingCustomer } = await supabase
-          .from('customers')
-          .select('id, total_invoiced')
-          .eq('business_id', business_id)
-          .ilike('name', trimmedName)
-          .maybeSingle();
-
-        if (!existingCustomer) {
-          await supabase
-            .from('customers')
-            .insert({
-              business_id,
-              name: trimmedName,
-              total_invoiced: amount,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString()
-            });
-        } else {
-          // Update total_invoiced for existing customer
-          await supabase
-            .from('customers')
-            .update({
-              total_invoiced: Number(existingCustomer.total_invoiced || 0) + amount,
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', existingCustomer.id);
-        }
+        await supabase.rpc('upsert_customer_and_increment', {
+          p_business_id: business_id,
+          p_name: client_name.trim(),
+          p_amount: amount
+        });
       }
 
       return NextResponse.json({ transaction: tx });
@@ -150,6 +140,38 @@ export async function POST(request: Request) {
     if (action === "update_transaction") {
       const { id, type, client_name, vendor_name, description, amount, cost_qty, cost_amount, category_id, category_name, product_id, payment_method, date } = data;
       
+      // If amount or client_name changed on an income transaction, adjust total_invoiced
+      if (id) {
+        const { data: oldTx } = await supabase
+          .from('transactions')
+          .select('type, client_name, amount, invoice_id')
+          .eq('id', id)
+          .eq('business_id', business_id)
+          .maybeSingle();
+        
+        if (oldTx && oldTx.type === "income" && oldTx.client_name && !oldTx.invoice_id) {
+          // Don't adjust total_invoiced for invoice-linked transactions
+          await supabase.rpc('decrement_customer_total', {
+            p_business_id: business_id,
+            p_name: oldTx.client_name,
+            p_amount: Number(oldTx.amount) || 0
+          });
+        }
+        
+        const newType = type !== undefined ? type : oldTx?.type;
+        const newName = client_name !== undefined && client_name !== null ? client_name : oldTx?.client_name;
+        const newAmount = amount !== undefined && amount !== null ? amount : oldTx?.amount;
+        
+        if (newType === "income" && newName && !oldTx?.invoice_id) {
+          // Don't adjust for invoice-linked transactions
+          await supabase.rpc('upsert_customer_and_increment', {
+            p_business_id: business_id,
+            p_name: newName.trim(),
+            p_amount: Number(newAmount) || 0
+          });
+        }
+      }
+
       const updateObj: any = { updated_at: new Date().toISOString() };
       if (type !== undefined && type !== null) updateObj.type = type;
       if (client_name !== undefined && client_name !== null) updateObj.client_name = client_name;
@@ -195,6 +217,25 @@ export async function POST(request: Request) {
 
     if (action === "delete_transaction") {
       const { id } = data;
+      
+      // BUG FIX: Before deleting, fetch the transaction to decrement customer total_invoiced
+      const { data: txToDelete } = await supabase
+        .from('transactions')
+        .select('type, client_name, amount, invoice_id')
+        .eq('id', id)
+        .eq('business_id', business_id)
+        .maybeSingle();
+      
+      if (txToDelete && txToDelete.type === "income" && txToDelete.client_name && !txToDelete.invoice_id) {
+        // Only decrement if this is NOT a linked invoice transaction
+        // (invoice-linked transactions are P&L reflections; total_invoiced was set by the invoice)
+        await supabase.rpc('decrement_customer_total', {
+          p_business_id: business_id,
+          p_name: txToDelete.client_name,
+          p_amount: Number(txToDelete.amount) || 0
+        });
+      }
+      
       const { error: deleteError } = await supabase
         .from('transactions')
         .delete()
@@ -235,6 +276,34 @@ export async function PUT(request: Request) {
 
     const { type, client_name, vendor_name, description, amount, cost_qty, cost_amount, category_id, category_name, product_id, payment_method, date } = data;
 
+    // If amount or client_name changed on an income transaction, adjust total_invoiced
+    const { data: oldTx } = await supabase
+      .from('transactions')
+      .select('type, client_name, amount, invoice_id')
+      .eq('id', id)
+      .eq('business_id', business_id)
+      .maybeSingle();
+    
+    if (oldTx && oldTx.type === "income" && oldTx.client_name && !oldTx.invoice_id) {
+      await supabase.rpc('decrement_customer_total', {
+        p_business_id: business_id,
+        p_name: oldTx.client_name,
+        p_amount: Number(oldTx.amount) || 0
+      });
+    }
+    
+    const newType = type !== undefined ? type : oldTx?.type;
+    const newName = client_name !== undefined && client_name !== null ? client_name : oldTx?.client_name;
+    const newAmount = amount !== undefined && amount !== null ? amount : oldTx?.amount;
+    
+    if (newType === "income" && newName && !oldTx?.invoice_id) {
+      await supabase.rpc('upsert_customer_and_increment', {
+        p_business_id: business_id,
+        p_name: newName.trim(),
+        p_amount: Number(newAmount) || 0
+      });
+    }
+
     const updateObj: any = { updated_at: new Date().toISOString() };
     if (type !== undefined && type !== null) updateObj.type = type;
     if (client_name !== undefined && client_name !== null) updateObj.client_name = client_name;
@@ -260,32 +329,6 @@ export async function PUT(request: Request) {
     if (updateError) throw updateError;
     if (!updatedTx) return NextResponse.json({ error: "Not found" }, { status: 404 });
     return NextResponse.json({ transaction: updatedTx });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
-  }
-}
-
-export async function DELETE(request: Request) {
-  try {
-    const user = getDbUser();
-    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-    const { searchParams } = new URL(request.url);
-    const id = searchParams.get("id");
-    const businessId = searchParams.get("business_id");
-    if (!id || !businessId) return NextResponse.json({ error: "id and business_id required" }, { status: 400 });
-    if (!await verifyOwnership(businessId, user.userId)) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 });
-    }
-
-    const { error: deleteError } = await supabase
-      .from('transactions')
-      .delete()
-      .eq('id', id)
-      .eq('business_id', businessId);
-    if (deleteError) throw deleteError;
-
-    return NextResponse.json({ success: true });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
