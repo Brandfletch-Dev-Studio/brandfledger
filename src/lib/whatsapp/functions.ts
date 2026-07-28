@@ -15,17 +15,51 @@ export interface FunctionContext {
 
 function dateRange(period?: string): { start: string; end: string } {
   const now = new Date();
-  const end = now.toISOString().split("T")[0];
+  const today = now.toISOString().split("T")[0];
   let start = new Date();
+  let end = today;
+
   switch (period) {
-    case "today": start = new Date(); break;
-    case "yesterday": start = new Date(now.getTime() - 86400000); break;
-    case "this_month": start = new Date(now.getFullYear(), now.getMonth(), 1); break;
-    case "last_month": start = new Date(now.getFullYear(), now.getMonth() - 1, 1); break;
-    case "this_week": { const d = now.getDay() || 7; start = new Date(now.getTime() - (d - 1) * 86400000); break; }
-    case "last_week": { const d = now.getDay() || 7; start = new Date(now.getTime() - (d + 6) * 86400000); break; }
-    case "this_year": start = new Date(now.getFullYear(), 0, 1); break;
-    default: start = new Date(now.getTime() - 30 * 86400000);
+    case "today":
+      start = new Date();
+      end = today;
+      break;
+    case "yesterday": {
+      const y = new Date(now.getTime() - 86400000);
+      const yStr = y.toISOString().split("T")[0];
+      start = y;
+      end = yStr;  // FIX: end should be yesterday, not today
+      break;
+    }
+    case "this_month":
+      start = new Date(now.getFullYear(), now.getMonth(), 1);
+      end = today;  // up to today — correct
+      break;
+    case "last_month": {
+      start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      // Last day of last month = day before first day of this month
+      end = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().split("T")[0];  // FIX
+      break;
+    }
+    case "this_week": {
+      const d = now.getDay() || 7;
+      start = new Date(now.getTime() - (d - 1) * 86400000);
+      end = today;  // up to today — correct
+      break;
+    }
+    case "last_week": {
+      const d = now.getDay() || 7;
+      start = new Date(now.getTime() - (d + 6) * 86400000);  // Monday of last week
+      end = new Date(now.getTime() - d * 86400000).toISOString().split("T")[0];  // FIX: Sunday of last week
+      break;
+    }
+    case "this_year":
+      start = new Date(now.getFullYear(), 0, 1);
+      end = today;  // up to today — correct
+      break;
+    default:
+      start = new Date(now.getTime() - 30 * 86400000);
+      end = today;  // last 30 days up to today — correct
   }
   return { start: start.toISOString().split("T")[0], end };
 }
@@ -450,9 +484,6 @@ export async function recordPayment(
     date: date || new Date().toISOString().split("T")[0],
     invoice_id: invoice_id,
   });
-
-  // BUG FIX: Do NOT increment total_invoiced on payment — total_invoiced tracks invoices, not payments.
-  // The payment is already tracked via invoice.amount_paid and the transactions table.
 
   return {
     invoice_id,
