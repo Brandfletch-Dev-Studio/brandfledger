@@ -299,9 +299,19 @@ export default function TransactionsPage() {
 
   async function deleteTransaction(id: string) {
     if (!business?.id || !confirm("Delete this transaction?")) return;
-    await fetch(`/api/data/transactions?id=${id}&business_id=${business.id}`, { method: "DELETE" });
+    const res = await fetch("/api/data/transactions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "delete_transaction", business_id: business.id, id }),
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      toast({ title: "Delete failed", description: d.error || "Unknown error", variant: "destructive" });
+      return;
+    }
     clearCache(`transactions_v2:${bizId ?? "default"}`);
     refetch();
+    refreshCustomers();
   }
 
   const cur = business?.currency ?? "MWK";
