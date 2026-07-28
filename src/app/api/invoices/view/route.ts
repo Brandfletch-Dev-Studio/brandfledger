@@ -10,6 +10,9 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
     if (!id) return NextResponse.json({ error: "ID required" }, { status: 400 });
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+      return NextResponse.json({ error: "Invalid invoice ID" }, { status: 400 });
+    }
 
     const { data: invoice, error: invoiceErr } = await supabase
       .from("invoices")
