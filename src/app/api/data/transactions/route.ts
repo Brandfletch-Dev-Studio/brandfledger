@@ -43,7 +43,7 @@ export async function GET(request: Request) {
       businessId = businesses.id;
     }
 
-    if (!await verifyOwnership(businessId, user.userId)) {
+    if (!businessId || !await verifyOwnership(businessId, user.userId)) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 });
     }
 
