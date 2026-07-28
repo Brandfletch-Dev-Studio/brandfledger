@@ -325,7 +325,9 @@ export async function POST(request: Request) {
     }
 
     if (section === "settings") {
-      const { paychangu_secret_key, paychangu_webhook_secret, resend_api_key } = body;
+      const { paychangu_secret_key, paychangu_webhook_secret, resend_api_key,
+              whatsapp_access_token, whatsapp_phone_number_id, whatsapp_verify_token,
+              openai_api_key } = body;
       const upserts: { key: string; value: any }[] = [];
       if (paychangu_secret_key?.trim()) {
         upserts.push({ key: 'paychangu_secret_key', value: { encoded: Buffer.from(paychangu_secret_key.trim()).toString("base64") } });
@@ -337,6 +339,20 @@ export async function POST(request: Request) {
       if (resend_api_key?.trim()) {
         upserts.push({ key: 'resend_api_key', value: { encoded: Buffer.from(resend_api_key.trim()).toString("base64") } });
         upserts.push({ key: 'resend_configured', value: { configured: true } });
+      }
+      if (whatsapp_access_token?.trim()) {
+        upserts.push({ key: 'whatsapp_access_token', value: { encoded: Buffer.from(whatsapp_access_token.trim()).toString("base64") } });
+        upserts.push({ key: 'whatsapp_configured', value: { configured: true } });
+      }
+      if (whatsapp_phone_number_id?.trim()) {
+        upserts.push({ key: 'whatsapp_phone_number_id', value: { value: whatsapp_phone_number_id.trim() } });
+      }
+      if (whatsapp_verify_token?.trim()) {
+        upserts.push({ key: 'whatsapp_verify_token', value: { value: whatsapp_verify_token.trim() } });
+      }
+      if (openai_api_key?.trim()) {
+        upserts.push({ key: 'openai_api_key', value: { encoded: Buffer.from(openai_api_key.trim()).toString("base64") } });
+        upserts.push({ key: 'openai_configured', value: { configured: true } });
       }
       for (const u of upserts) {
         await supabase.from('platform_settings').upsert({ key: u.key, value: u.value, updated_at: new Date().toISOString() }, { onConflict: 'key' });

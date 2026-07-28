@@ -18,14 +18,16 @@ export async function GET(request: Request) {
   const challenge = searchParams.get("hub.challenge");
 
   if (mode === "subscribe") {
-    // Look up verify token from any business that has one configured
+    // Look up verify token from platform_settings
     const { data } = await supabase
-      .from("businesses")
-      .select("whatsapp_verify_token")
-      .not("whatsapp_verify_token", "is", null)
-      .limit(1);
+      .from("platform_settings")
+      .select("value")
+      .eq("key", "whatsapp_verify_token")
+      .maybeSingle();
 
-    const verifyToken = data?.[0]?.whatsapp_verify_token;
+    const verifyToken = data?.value?.value || data?.value?.encoded
+      ? (data.value.value || Buffer.from(data.value.encoded, "base64").toString("utf-8"))
+      : null;
 
     if (token === verifyToken && verifyToken) {
       return new Response(challenge, { status: 200 });
