@@ -244,37 +244,39 @@ async function analyzeCashFlow(ctx: FunctionContext) {
     .lt("due_date", today)
     .in("status", ["sent", "draft"]);
 
+  const totalReceivables = sum(receivables, "balance_due");
+  const monthlyAvgExpenses = recentExp ? sum(recentExp, "amount") / 3 : 0;
+  const totalOverdue = sum(overdueInv?.filter((inv: any) => Number(inv.balance_due || 0) > 0), "balance_due");
+
   return {
     current_cash: currentCash,
-    expected_receivables: sum(receivables, "balance_due"),
-    overdue_receivables: sum(overdueInv, "balance_due"),
-    monthly_expense_average: Math.round(sum(recentExp, "amount") / 3),
-    available_after_obligations: currentCash - Math.round(sum(recentExp, "amount") / 3),
+    expected_receivables: totalReceivables,
+    overdue_amount: totalOverdue,
+    monthly_expense_average: Math.round(monthlyAvgExpenses),
+    projected_cash: currentCash + totalReceivables,
   };
 }
 
 async function comparePeriods(ctx: FunctionContext, period1?: string, period2?: string) {
-  const p1 = dateRange(period1 || "last_month");
-  const p2 = dateRange(period2 || "this_month");
+  const p1 = dateRange(period1 || "this_month");
+  const p2 = dateRange(period2 || "last_month");
 
-  async function getStats(start: string, end: string) {
-    const { data } = await supabase
-      .from("transactions")
-      .select("amount, type")
-      .eq("business_id", ctx.business_id)
-      .gte("date", start)
-      .lte("date", end);
-    const income = sum(data?.filter((t) => t.type === "income"), "amount");
-    const expenses = sum(data?.filter((t) => t.type === "expense"), "amount");
-    return { income, expenses, net: income - expenses, count: data?.length || 0 };
-  }
-  const stats1 = await getStats(p1.start, p1.end);
-  const stats2 = await getStats(p2.start, p2.end);
+  const [d1, d2] = await Promise.all([
+    supabase.from("transactions").select("amount, type").eq("business_id", ctx.business_id).gte("date", p1.start).lte("date", p1.end),
+    supabase.from("transactions").select("amount, type").eq("business_id", ctx.business_id).gte("date", p2.start).lte("date", p2.end),
+  ]);
+
+  const rev1 = sum(d1.data?.filter((t) => t.type === "income"), "amount");
+  const rev2 = sum(d2.data?.filter((t) => t.type === "income"), "amount");
+  const exp1 = sum(d1.data?.filter((t) => t.type === "expense"), "amount");
+  const exp2 = sum(d2.data?.filter((t) => t.type === "expense"), "amount");
+
   return {
-    period1: { label: period1 || "last_month", ...stats1 },
-    period2: { label: period2 || "this_month", ...stats2 },
-    income_change: stats2.income - stats1.income,
-    expense_change: stats2.expenses - stats1.expenses,
+    period_1: { label: period1, revenue: rev1, expenses: exp1, net: rev1 - exp1 },
+    period_2: { label: period2, revenue: rev2, expenses: exp2, net: rev2 - exp2 },
+    revenue_change: rev1 - rev2,
+    expense_change: exp1 - exp2,
+    revenue_change_pct: rev2 > 0 ? Math.round((rev1 - rev2) / rev2 * 100) : 0,
   };
 }
 
@@ -298,20 +300,21 @@ async function topCustomers(ctx: FunctionContext, period?: string) {
 }
 
 // ============================================================
-// WRITE FUNCTIONS (only called after user confirms a preview)
+// WRITE FUNCTIONS (only called via executePendingAction after confirmation)
 // ============================================================
 
-async function recordTransaction(
+export async function recordTransaction(
   ctx: FunctionContext,
   params: { type: string; amount: number; description?: string; client_name?: string; vendor_name?: string; category_name?: string; payment_method?: string; date?: string }
 ) {
   const { type, amount, description, client_name, vendor_name, category_name, payment_method, date } = params;
+  const trimmedClientName = client_name?.trim() || null;
   const { data: tx, error } = await supabase
     .from("transactions")
     .insert({
       business_id: ctx.business_id,
       type,
-      client_name: client_name ? client_name.trim() : null,
+      client_name: trimmedClientName,
       vendor_name: vendor_name || null,
       description: description || null,
       amount: Number(amount),
@@ -323,17 +326,17 @@ async function recordTransaction(
     .single();
   if (error) throw error;
 
-  if (type === "income" && client_name) {
+  if (type === "income" && trimmedClientName) {
     await supabase.rpc("upsert_customer_and_increment", {
       p_business_id: ctx.business_id,
-      p_name: client_name.trim(),
+      p_name: trimmedClientName,
       p_amount: Number(amount),
     });
   }
   return { transaction: tx };
 }
 
-async function createInvoice(
+export async function createInvoice(
   ctx: FunctionContext,
   params: { customer_name: string; items: Array<{ description: string; amount: number; quantity?: number }>; due_date?: string; notes?: string }
 ) {
@@ -364,11 +367,23 @@ async function createInvoice(
   });
   const total = subtotal;
 
+  // Resolve or create customer first to get customer_id
+  let customerId: string | null = null;
+  if (customer_name) {
+    const { data: custId } = await supabase.rpc("upsert_customer_and_increment", {
+      p_business_id: ctx.business_id,
+      p_name: customer_name.trim(),
+      p_amount: total,
+    });
+    customerId = custId;
+  }
+
   const { data: invoice, error } = await supabase
     .from("invoices")
     .insert({
       business_id: ctx.business_id,
       invoice_number: invNumber,
+      customer_id: customerId,
       status: "draft",
       issue_date: new Date().toISOString().split("T")[0],
       due_date: due_date || null,
@@ -383,20 +398,10 @@ async function createInvoice(
     .single();
   if (error) throw error;
 
-  if (customer_name) {
-    const { data: custId } = await supabase.rpc("upsert_customer_and_increment", {
-      p_business_id: ctx.business_id,
-      p_name: customer_name.trim(),
-      p_amount: total,
-    });
-    if (custId) {
-      await supabase.from("invoices").update({ customer_id: custId }).eq("id", invoice.id);
-    }
-  }
   return { invoice, invoice_number: invNumber, total };
 }
 
-async function recordPayment(
+export async function recordPayment(
   ctx: FunctionContext,
   params: { invoice_id: string; amount: number; customer_name?: string; payment_method?: string; date?: string }
 ) {
@@ -446,13 +451,8 @@ async function recordPayment(
     invoice_id: invoice_id,
   });
 
-  if (clientName) {
-    await supabase.rpc("upsert_customer_and_increment", {
-      p_business_id: ctx.business_id,
-      p_name: clientName.trim(),
-      p_amount: Number(amount),
-    });
-  }
+  // BUG FIX: Do NOT increment total_invoiced on payment — total_invoiced tracks invoices, not payments.
+  // The payment is already tracked via invoice.amount_paid and the transactions table.
 
   return {
     invoice_id,
@@ -464,10 +464,27 @@ async function recordPayment(
 }
 
 // ============================================================
+// PENDING ACTION EXECUTION
+// ============================================================
+
+export async function executePendingAction(
+  ctx: FunctionContext,
+  pendingData: { action_type: string; action_params: any }
+): Promise<any> {
+  switch (pendingData.action_type) {
+    case "record_transaction": return recordTransaction(ctx, pendingData.action_params);
+    case "create_invoice": return createInvoice(ctx, pendingData.action_params);
+    case "record_payment": return recordPayment(ctx, pendingData.action_params);
+    default: return { error: `Unknown action type: ${pendingData.action_type}` };
+  }
+}
+
+// ============================================================
 // FUNCTION DEFINITIONS (OpenAI function calling schema)
 // ============================================================
 
-export const functionDefinitions = [
+// READ functions — always available
+export const readFunctionDefinitions = [
   {
     type: "function" as const,
     function: {
@@ -582,80 +599,59 @@ export const functionDefinitions = [
       },
     },
   },
-  {
-    type: "function" as const,
-    function: {
-      name: "record_transaction",
-      description: "Record a transaction. ONLY call after the user has confirmed a preview.",
-      parameters: {
-        type: "object",
-        properties: {
-          type: { type: "string", enum: ["income", "expense"] },
-          amount: { type: "number" },
-          description: { type: "string" },
-          client_name: { type: "string" },
-          vendor_name: { type: "string" },
-          category_name: { type: "string" },
-          payment_method: { type: "string" },
-          date: { type: "string" },
-        },
-        required: ["type", "amount"],
-      },
-    },
-  },
-  {
-    type: "function" as const,
-    function: {
-      name: "create_invoice",
-      description: "Create a new invoice. ONLY call after the user has confirmed a preview.",
-      parameters: {
-        type: "object",
-        properties: {
-          customer_name: { type: "string" },
-          items: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                description: { type: "string" },
-                amount: { type: "number" },
-                quantity: { type: "number" },
-              },
-              required: ["description", "amount"],
-            },
-          },
-          due_date: { type: "string" },
-          notes: { type: "string" },
-        },
-        required: ["customer_name", "items"],
-      },
-    },
-  },
-  {
-    type: "function" as const,
-    function: {
-      name: "record_payment",
-      description: "Record a payment against an invoice. ONLY call after the user has confirmed a preview.",
-      parameters: {
-        type: "object",
-        properties: {
-          invoice_id: { type: "string" },
-          amount: { type: "number" },
-          customer_name: { type: "string" },
-          payment_method: { type: "string" },
-          date: { type: "string" },
-        },
-        required: ["invoice_id", "amount"],
-      },
-    },
-  },
 ];
+
+// preview_action — available when there is NO pending action (phase 1)
+export const previewActionDefinition = {
+  type: "function" as const,
+  function: {
+    name: "preview_action",
+    description: "Show a preview of a write action to the user. The user must confirm before the action is executed. ALWAYS call this before any write — never execute writes directly. Format the preview_text as a clear summary the user can confirm or edit.",
+    parameters: {
+      type: "object",
+      properties: {
+        action_type: { type: "string", enum: ["record_transaction", "create_invoice", "record_payment"] },
+        action_params: {
+          type: "object",
+          description: "The exact parameters that will be passed to the write function when confirmed",
+          properties: {
+            type: { type: "string", enum: ["income", "expense"] },
+            amount: { type: "number" },
+            description: { type: "string" },
+            client_name: { type: "string" },
+            vendor_name: { type: "string" },
+            category_name: { type: "string" },
+            payment_method: { type: "string" },
+            date: { type: "string" },
+            customer_name: { type: "string" },
+            items: { type: "array", items: { type: "object" } },
+            due_date: { type: "string" },
+            notes: { type: "string" },
+            invoice_id: { type: "string" },
+          },
+        },
+        preview_text: { type: "string", description: "The formatted preview message to show the user. Include all fields clearly. End with: Reply 'confirm' to proceed or 'edit' to change." },
+      },
+      required: ["action_type", "action_params", "preview_text"],
+    },
+  },
+};
+
+// execute_pending_action — available when there IS a pending action (phase 2)
+export const executePendingActionDefinition = {
+  type: "function" as const,
+  function: {
+    name: "execute_pending_action",
+    description: "Execute the pending action that the user has confirmed. Call this when the user says 'confirm', 'yes', 'ok', 'proceed', or similar confirmation. Do NOT call this if the user wants to edit or change something.",
+    parameters: { type: "object", properties: {} },
+  },
+};
 
 // ============================================================
 // FUNCTION DISPATCHER
 // ============================================================
 
-export async function executeFunction(
+export async function executeReadFunction(
   name: string,
   args: any,
   ctx: FunctionContext
@@ -672,9 +668,6 @@ export async function executeFunction(
     case "analyze_cash_flow": return analyzeCashFlow(ctx);
     case "compare_periods": return comparePeriods(ctx, args.period1, args.period2);
     case "top_customers": return topCustomers(ctx, args.period);
-    case "record_transaction": return recordTransaction(ctx, args);
-    case "create_invoice": return createInvoice(ctx, args);
-    case "record_payment": return recordPayment(ctx, args);
     default: return { error: `Unknown function: ${name}` };
   }
 }

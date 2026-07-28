@@ -1,8 +1,17 @@
 // Brandfledger WhatsApp Finance Manager — LLM Agent
 // Uses OpenAI's function calling API to process WhatsApp messages
+// TWO-PHASE DESIGN: preview_action (phase 1) → execute_pending_action (phase 2)
+// The LLM can NEVER call write functions directly — only through the confirmed pending action.
 
 import { buildSystemPrompt } from "./system-prompt";
-import { functionDefinitions, executeFunction, FunctionContext } from "./functions";
+import {
+  readFunctionDefinitions,
+  previewActionDefinition,
+  executePendingActionDefinition,
+  executeReadFunction,
+  executePendingAction,
+  FunctionContext,
+} from "./functions";
 import { getContext, upsertContext, clearPendingAction, ConversationContext } from "./context";
 import { sendWhatsAppMessage } from "./send";
 import { supabase } from "@/lib/db";
@@ -25,28 +34,25 @@ async function getOpenAIKey(): Promise<string> {
 export async function resolveUser(whatsappNumber: string): Promise<FunctionContext | null> {
   const normalized = whatsappNumber.replace(/[\s+]/g, "");
 
-  // Look up business_members by WhatsApp number
-  let businessId: string | null = null;
-  let userId: string | null = null;
-
+  // Look up business_members by WhatsApp number (exact match first)
   const { data: member } = await supabase
     .from("business_members")
     .select("business_id, user_id, whatsapp_number")
     .eq("whatsapp_number", normalized)
     .maybeSingle();
 
+  let businessId: string | null = null;
+
   if (member) {
     businessId = member.business_id;
-    userId = member.user_id;
   } else {
-    // Fallback: search all members
+    // Fallback: search all members for a normalized match
     const { data: allMembers } = await supabase
       .from("business_members")
       .select("business_id, user_id, whatsapp_number");
     const match = allMembers?.find((m: any) => m.whatsapp_number?.replace(/[\s+]/g, "") === normalized);
     if (!match) return null;
     businessId = match.business_id;
-    userId = match.user_id;
   }
 
   if (!businessId) return null;
@@ -73,9 +79,12 @@ export async function processWhatsAppMessage(
     // 1. Resolve user
     const ctx = await resolveUser(whatsappNumber);
     if (!ctx) {
-      // Can't send a reply without business_id for credentials lookup
-      // Try to find any business with WhatsApp configured to send the "not recognized" reply
+      // Send "not recognized" message using platform-level WhatsApp credentials
       console.error("Could not resolve WhatsApp user:", whatsappNumber);
+      await sendWhatsAppMessage(
+        whatsappNumber,
+        "I don't recognize this number. Please connect your WhatsApp in Brandfledger's settings to get started."
+      );
       return;
     }
 
@@ -91,7 +100,13 @@ export async function processWhatsAppMessage(
       };
     }
 
-    // 3. Build system prompt with context
+    // 3. Determine which functions are available (two-phase design)
+    const hasPendingAction = !!convCtx.pending_action;
+    const availableFunctions = hasPendingAction
+      ? [...readFunctionDefinitions, executePendingActionDefinition]
+      : [...readFunctionDefinitions, previewActionDefinition];
+
+    // 4. Build system prompt with context
     let systemPrompt = buildSystemPrompt(ctx.business_name, ctx.currency, "Africa/Blantyre");
 
     const contextLines: string[] = [];
@@ -104,20 +119,36 @@ export async function processWhatsAppMessage(
     if (convCtx.last_subject_name) {
       contextLines.push(`Last subject: ${convCtx.last_subject_name} (${convCtx.last_subject_type || "unknown"})`);
     }
-    if (convCtx.pending_action) {
-      contextLines.push(`PENDING ACTION: ${convCtx.pending_action}`);
-      contextLines.push(`Pending action data: ${JSON.stringify(convCtx.pending_action_data)}`);
-      contextLines.push("If the user says confirm or yes, execute the pending action by calling the appropriate function. If they say edit, ask what to change.");
+    if (convCtx.last_amount) {
+      contextLines.push(`Last discussed amount: ${ctx.currency === "MWK" ? "MK" : ""}${convCtx.last_amount}`);
     }
+
+    if (hasPendingAction) {
+      const pending = convCtx.pending_action_data as any;
+      contextLines.push(`\n## PENDING ACTION AWAITING CONFIRMATION`);
+      contextLines.push(`Action type: ${convCtx.pending_action}`);
+      if (pending?.preview_text) {
+        contextLines.push(`Preview shown to user:\n${pending.preview_text}`);
+      }
+      contextLines.push(`The user has a pending action. If they say "confirm", "yes", "ok", "proceed", or similar — call execute_pending_action. If they say "edit" or want to change something — ask what to change, then call preview_action again with updated params. If they change topic entirely — ignore the pending action and handle their new request.`);
+    } else {
+      contextLines.push(`\n## AVAILABLE ACTIONS`);
+      contextLines.push(`For any write action (recording a transaction, creating an invoice, recording a payment), you MUST call preview_action first. Never attempt to write directly. The system will not allow it.`);
+    }
+
     if (contextLines.length > 0) {
       systemPrompt += "\n\n## Current Conversation Context\n" + contextLines.join("\n");
     }
 
-    // 4. Call OpenAI with function calling
+    // 5. Call OpenAI with function calling
     const openaiKey = await getOpenAIKey();
     if (!openaiKey) {
       console.error("OpenAI API key not configured");
-      await sendWhatsAppMessage(whatsappNumber, "I'm having trouble connecting right now. Please try again later.", ctx.business_id);
+      await sendWhatsAppMessage(
+        whatsappNumber,
+        "I'm having trouble connecting right now. Please try again later.",
+        ctx.business_id
+      );
       return;
     }
 
@@ -128,6 +159,9 @@ export async function processWhatsAppMessage(
 
     let functionCallCount = 0;
     let finalResponse: string | null = null;
+    let pendingActionStored = false;
+    let pendingActionExecuted = false;
+    let executionResult: any = null;
 
     while (functionCallCount < MAX_FUNCTION_CALLS) {
       const res = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -139,7 +173,7 @@ export async function processWhatsAppMessage(
         body: JSON.stringify({
           model: MODEL,
           messages,
-          functions: functionDefinitions,
+          functions: availableFunctions,
           function_call: "auto",
           temperature: 0.3,
           max_tokens: 1000,
@@ -147,8 +181,13 @@ export async function processWhatsAppMessage(
       });
 
       if (!res.ok) {
-        console.error("OpenAI API error:", await res.text());
-        await sendWhatsAppMessage(whatsappNumber, "I'm having trouble processing that. Please try again.", ctx.business_id);
+        const errText = await res.text();
+        console.error("OpenAI API error:", errText);
+        await sendWhatsAppMessage(
+          whatsappNumber,
+          "I'm having trouble processing that. Please try again.",
+          ctx.business_id
+        );
         return;
       }
 
@@ -157,20 +196,93 @@ export async function processWhatsAppMessage(
       const message = choice?.message;
 
       if (!message) {
-        await sendWhatsAppMessage(whatsappNumber, "I didn't catch that. Could you rephrase?", ctx.business_id);
+        await sendWhatsAppMessage(
+          whatsappNumber,
+          "I didn't catch that. Could you rephrase?",
+          ctx.business_id
+        );
         return;
       }
 
+      // Handle function calls
       if (message.function_call) {
         const fnName = message.function_call.name;
         const fnArgs = JSON.parse(message.function_call.arguments || "{}");
-        const fnResult = await executeFunction(fnName, fnArgs, ctx);
 
+        // Add the assistant message with the function call to the conversation
         messages.push({
           role: "assistant",
           content: null,
           function_call: { name: fnName, arguments: message.function_call.arguments },
         });
+
+        if (fnName === "preview_action") {
+          // Phase 1: Store the pending action
+          const { action_type, action_params, preview_text } = fnArgs;
+
+          convCtx.pending_action = action_type;
+          convCtx.pending_action_data = {
+            action_type,
+            action_params,
+            preview_text,
+          };
+
+          await upsertContext(convCtx);
+          pendingActionStored = true;
+
+          // Return the preview text as the function result — the LLM will relay it to the user
+          messages.push({
+            role: "function",
+            name: "preview_action",
+            content: JSON.stringify({ success: true, message: "Preview stored. Show the preview_text to the user and wait for confirmation." }),
+          });
+
+          functionCallCount++;
+          continue;
+        }
+
+        if (fnName === "execute_pending_action") {
+          // Phase 2: Execute the stored pending action
+          if (!convCtx.pending_action || !convCtx.pending_action_data) {
+            messages.push({
+              role: "function",
+              name: "execute_pending_action",
+              content: JSON.stringify({ error: "No pending action to execute" }),
+            });
+            functionCallCount++;
+            continue;
+          }
+
+          const pendingData = convCtx.pending_action_data as any;
+          try {
+            executionResult = await executePendingAction(ctx, pendingData);
+            pendingActionExecuted = true;
+
+            // Clear the pending action
+            await clearPendingAction(ctx.business_id, whatsappNumber);
+            convCtx.pending_action = undefined;
+            convCtx.pending_action_data = undefined;
+
+            messages.push({
+              role: "function",
+              name: "execute_pending_action",
+              content: JSON.stringify(executionResult),
+            });
+          } catch (execErr: any) {
+            console.error("Pending action execution error:", execErr);
+            messages.push({
+              role: "function",
+              name: "execute_pending_action",
+              content: JSON.stringify({ error: execErr.message || "Execution failed" }),
+            });
+          }
+
+          functionCallCount++;
+          continue;
+        }
+
+        // READ function — execute and continue
+        const fnResult = await executeReadFunction(fnName, fnArgs, ctx);
         messages.push({
           role: "function",
           name: fnName,
@@ -181,6 +293,7 @@ export async function processWhatsAppMessage(
         continue;
       }
 
+      // Text response — this is the final message
       finalResponse = message.content;
       break;
     }
@@ -189,18 +302,61 @@ export async function processWhatsAppMessage(
       finalResponse = "I'm having trouble with that request. Could you rephrase?";
     }
 
-    // 5. Send the response
+    // 6. Send the response
     await sendWhatsAppMessage(whatsappNumber, finalResponse, ctx.business_id);
 
-    // 6. Update conversation context
-    if (finalResponse.includes("confirm") && (finalResponse.includes("Reply") || finalResponse.includes("reply"))) {
-      await upsertContext({
-        ...convCtx,
-        pending_action: "awaiting_confirmation",
-        pending_action_data: { preview_message: finalResponse },
-      });
-    } else if (finalResponse.startsWith("✅") || finalResponse.startsWith("Recorded") || finalResponse.startsWith("Created") || finalResponse.startsWith("Done")) {
-      await clearPendingAction(ctx.business_id, whatsappNumber);
+    // 7. Update conversation context based on what happened
+    if (pendingActionExecuted && executionResult) {
+      // After a successful write, update context with the entities involved
+      if (executionResult.transaction) {
+        const tx = executionResult.transaction;
+        convCtx.recent_amounts = [Number(tx.amount), ...(convCtx.recent_amounts || [])].slice(0, 3);
+        convCtx.last_amount = Number(tx.amount);
+        if (tx.client_name) {
+          convCtx.recent_customers = [tx.client_name, ...(convCtx.recent_customers || [])].slice(0, 3);
+          convCtx.last_subject_name = tx.client_name;
+          convCtx.last_subject_type = "customer";
+        }
+      }
+      if (executionResult.invoice_number) {
+        convCtx.recent_invoices = [executionResult.invoice_number, ...(convCtx.recent_invoices || [])].slice(0, 3);
+        if (executionResult.invoice?.customer_id) {
+          convCtx.last_subject_type = "invoice";
+          convCtx.last_subject_entity = executionResult.invoice.id;
+        }
+        if (executionResult.total) {
+          convCtx.recent_amounts = [executionResult.total, ...(convCtx.recent_amounts || [])].slice(0, 3);
+          convCtx.last_amount = executionResult.total;
+        }
+      }
+      await upsertContext(convCtx);
+    } else if (!pendingActionStored && !hasPendingAction) {
+      // New conversation turn with no pending action — update context from the message
+      // Extract customer names and amounts from the user's message (basic tracking)
+      const amountMatch = messageText.match(/(\d[\d,]+)/);
+      if (amountMatch) {
+        const amt = parseInt(amountMatch[1].replace(/,/g, ""), 10);
+        if (amt > 0) {
+          convCtx.last_amount = amt;
+          convCtx.recent_amounts = [amt, ...(convCtx.recent_amounts || [])].slice(0, 3);
+        }
+      }
+      // Don't upsert on every message — only if we found something to track
+      if (convCtx.last_amount || convCtx.recent_customers.length > 0) {
+        await upsertContext(convCtx);
+      }
+    }
+
+    // If the user seems to have changed topic and there was a pending action that wasn't executed,
+    // and the response doesn't reference the pending action, clear it
+    if (hasPendingAction && !pendingActionExecuted && !pendingActionStored) {
+      // Check if the response seems unrelated to the pending action
+      const lowerResponse = finalResponse.toLowerCase();
+      if (!lowerResponse.includes("confirm") && !lowerResponse.includes("edit") &&
+          !lowerResponse.includes("preview") && !lowerResponse.includes("pending")) {
+        // The user likely changed topic — clear the pending action
+        await clearPendingAction(ctx.business_id, whatsappNumber);
+      }
     }
   } catch (err) {
     console.error("WhatsApp message processing error:", err);
