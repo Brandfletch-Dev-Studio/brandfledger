@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Search, TrendingUp, TrendingDown, Loader2, Trash2, RefreshCw, Pencil, X, Check } from "lucide-react";
+import { Plus, Search, TrendingUp, TrendingDown, Loader2, Trash2, RefreshCw, Pencil, X, Check, Calendar } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useCachedFetch, clearCache } from "@/hooks/use-cached-fetch";
@@ -33,6 +33,25 @@ interface EditState {
   date: string;
 }
 
+
+function getPeriodRange(period: string): { start: Date; end: Date } {
+  const now = new Date();
+  let start: Date;
+  const end: Date = now;
+  switch (period) {
+    case 'today': start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0); break;
+    case 'last_month': {
+      start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      return { start, end: new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59) };
+    }
+    case 'this_quarter': start = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1); break;
+    case 'this_year': start = new Date(now.getFullYear(), 0, 1); break;
+    case 'all_time': start = new Date(2000, 0, 1); break;
+    default: start = new Date(now.getFullYear(), now.getMonth(), 1);
+  }
+  return { start, end };
+}
+
 export default function TransactionsPage() {
   const { toast } = useToast();
   const toastRef = useRef(toast); toastRef.current = toast;
@@ -50,6 +69,9 @@ export default function TransactionsPage() {
   // Edit state — null = no transaction is being edited
   const [editState, setEditState] = useState<EditState | null>(null);
   const [editLoading, setEditLoading] = useState(false);
+
+  const [period, setPeriod] = useState<string>("this_month");
+  const [selectedTx, setSelectedTx] = useState<any>(null);
 
   const bizId = typeof window !== "undefined" ? localStorage.getItem("activeBusinessId") : null;
 
@@ -111,21 +133,35 @@ export default function TransactionsPage() {
   function removeLine(index: number) { setLineItems(prev => prev.length > 1 ? prev.filter((_, i) => i !== index) : prev); }
 
   const stats = useMemo(() => {
-    const income = transactions.filter((t: Transaction) => t.type === "income");
-    const expenses = transactions.filter((t: Transaction) => t.type === "expense");
+    const { start, end } = getPeriodRange(period);
+    const periodFiltered = transactions.filter((t: Transaction) => {
+      if (period !== 'all_time') {
+        const txDate = t.date ? new Date(t.date) : null;
+        if (!txDate || txDate < start || txDate > end) return false;
+      }
+      return true;
+    });
+
+    const income = periodFiltered.filter((t: Transaction) => t.type === "income");
+    const expenses = periodFiltered.filter((t: Transaction) => t.type === "expense");
     const totalRevenue = income.reduce((s: number, t: Transaction) => s + Number(t.amount), 0);
     const totalCost = income.reduce((s: number, t: Transaction) => s + Number((t as any).cost_amount || 0), 0);
     const totalExpenses = expenses.reduce((s: number, t: Transaction) => s + Number(t.amount), 0);
     const grossProfit = totalRevenue - totalCost;
     return { totalRevenue, totalExpenses, grossProfit, netProfit: grossProfit - totalExpenses };
-  }, [transactions]);
+  }, [transactions, period]);
 
   const filtered = useMemo(() => {
+    const { start, end } = getPeriodRange(period);
     return transactions.filter((t: Transaction) => {
       if (typeFilter !== "all" && t.type !== typeFilter) return false;
+      if (period !== 'all_time') {
+        const txDate = t.date ? new Date(t.date) : null;
+        if (!txDate || txDate < start || txDate > end) return false;
+      }
       if (search) {
         const q = search.toLowerCase();
-        return (
+        return !!(
           t.client_name?.toLowerCase().includes(q) ||
           t.description?.toLowerCase().includes(q) ||
           (t as any).vendor_name?.toLowerCase().includes(q)
@@ -133,7 +169,7 @@ export default function TransactionsPage() {
       }
       return true;
     });
-  }, [transactions, search, typeFilter]);
+  }, [transactions, search, typeFilter, period]);
 
   function startEdit(t: any) {
     setEditState({
@@ -301,6 +337,22 @@ export default function TransactionsPage() {
           </div>
         </div>
 
+        {/* Period Selector */}
+        <Select value={period} onValueChange={setPeriod}>
+          <SelectTrigger className="w-full h-9 flex items-center gap-2">
+            <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="this_month">This Month</SelectItem>
+            <SelectItem value="today">Today</SelectItem>
+            <SelectItem value="last_month">Last Month</SelectItem>
+            <SelectItem value="this_quarter">This Quarter</SelectItem>
+            <SelectItem value="this_year">This Year</SelectItem>
+            <SelectItem value="all_time">All Time</SelectItem>
+          </SelectContent>
+        </Select>
+
         {/* Filters */}
         <div className="flex gap-2">
           <div className="relative flex-1">
@@ -331,13 +383,18 @@ export default function TransactionsPage() {
               <div key={t.id} className="rounded-xl border bg-card overflow-hidden">
                 {/* Normal row */}
                 <div className="px-4 py-3 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3 min-w-0">
+                  <div 
+                    className="flex items-center gap-3 min-w-0 flex-1 cursor-pointer"
+                    onClick={() => setSelectedTx(t)}
+                  >
                     <div className={`h-8 w-8 rounded-full flex items-center justify-center shrink-0 ${t.type === "income" ? "bg-emerald-100 text-emerald-600" : "bg-rose-100 text-rose-500"}`}>
                       {t.type === "income" ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
                     </div>
                     <div className="min-w-0">
                       <p className="text-sm font-semibold truncate">{t.client_name || t.vendor_name || t.description}</p>
-                      <p className="text-xs text-muted-foreground truncate">{t.description} · {formatDate(t.date)}</p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {[t.description, formatDate(t.date)].filter(Boolean).join(' · ')}
+                      </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
@@ -548,6 +605,86 @@ export default function TransactionsPage() {
               </Button>
             </TabsContent>
           </Tabs>
+        </DialogContent>
+      </Dialog>
+
+      {/* Transaction Detail Dialog */}
+      <Dialog open={!!selectedTx} onOpenChange={o => !o && setSelectedTx(null)}>
+        <DialogContent className="max-w-sm rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <div className={`h-8 w-8 rounded-full flex items-center justify-center shrink-0 ${
+                selectedTx?.type === 'income' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-500'
+              }`}>
+                {selectedTx?.type === 'income' ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
+              </div>
+              <span>{selectedTx?.client_name || selectedTx?.vendor_name || selectedTx?.description || 'Transaction'}</span>
+            </DialogTitle>
+          </DialogHeader>
+          {selectedTx && (
+            <div className="space-y-3 text-sm">
+              <div className="flex justify-between items-center py-2 border-b">
+                <span className="text-muted-foreground">Amount</span>
+                <span className={`font-bold text-base ${
+                  selectedTx.type === 'income' ? 'text-emerald-600' : 'text-rose-500'
+                }`}>
+                  {selectedTx.type === 'income' ? '+' : '-'}{formatCurrency(Number(selectedTx.amount), cur)}
+                </span>
+              </div>
+              {selectedTx.type === 'income' && Number(selectedTx.cost_amount) > 0 && (
+                <div className="flex justify-between items-center py-2 border-b">
+                  <span className="text-muted-foreground">Cost of Sale</span>
+                  <span className="font-medium">{formatCurrency(Number(selectedTx.cost_amount), cur)}</span>
+                </div>
+              )}
+              {selectedTx.type === 'income' && (
+                <div className="flex justify-between items-center py-2 border-b">
+                  <span className="text-muted-foreground">Profit</span>
+                  <span className="font-medium text-emerald-600">{formatCurrency(Number(selectedTx.amount) - Number(selectedTx.cost_amount || 0), cur)}</span>
+                </div>
+              )}
+              {selectedTx.description && (
+                <div className="flex justify-between items-center py-2 border-b">
+                  <span className="text-muted-foreground">Description</span>
+                  <span className="font-medium text-right max-w-[60%]">{selectedTx.description}</span>
+                </div>
+              )}
+              {selectedTx.client_name && (
+                <div className="flex justify-between items-center py-2 border-b">
+                  <span className="text-muted-foreground">Client</span>
+                  <span className="font-medium">{selectedTx.client_name}</span>
+                </div>
+              )}
+              {selectedTx.vendor_name && (
+                <div className="flex justify-between items-center py-2 border-b">
+                  <span className="text-muted-foreground">Vendor</span>
+                  <span className="font-medium">{selectedTx.vendor_name}</span>
+                </div>
+              )}
+              <div className="flex justify-between items-center py-2 border-b">
+                <span className="text-muted-foreground">Date</span>
+                <span className="font-medium">{formatDate(selectedTx.date)}</span>
+              </div>
+              <div className="flex justify-between items-center py-2 border-b">
+                <span className="text-muted-foreground">Payment</span>
+                <span className="font-medium capitalize">{selectedTx.payment_method || 'Cash'}</span>
+              </div>
+              {selectedTx.category_name && (
+                <div className="flex justify-between items-center py-2 border-b">
+                  <span className="text-muted-foreground">Category</span>
+                  <span className="font-medium">{selectedTx.category_name}</span>
+                </div>
+              )}
+              <div className="flex gap-2 pt-2">
+                <Button variant="outline" className="flex-1" onClick={() => { setSelectedTx(null); startEdit(selectedTx); }}>
+                  <Pencil className="h-4 w-4 mr-1.5" /> Edit
+                </Button>
+                <Button variant="destructive" className="flex-1" onClick={() => { deleteTransaction(selectedTx.id); setSelectedTx(null); }}>
+                  <Trash2 className="h-4 w-4 mr-1.5" /> Delete
+                </Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>
