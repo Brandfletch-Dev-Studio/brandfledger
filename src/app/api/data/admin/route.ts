@@ -10,11 +10,27 @@ function isAdmin(user: { email: string }) {
 }
 
 async function getUsersMap() {
-  const { data: usersData, error } = await supabase.auth.admin.listUsers();
-  if (error || !usersData?.users) return {};
   const map: Record<string, { email: string; name: string }> = {};
-  for (const u of usersData.users) {
-    map[u.id] = { email: u.email || "", name: (u.user_metadata as any)?.full_name || "" };
+  let page = 1;
+  const perPage = 1000;
+  while (true) {
+    const { data: usersData, error } = await supabase.auth.admin.listUsers({ page, perPage });
+    if (error || !usersData?.users?.length) break;
+    for (const u of usersData.users) {
+      const meta = (u.user_metadata as any) || {};
+      const rawMeta = (u.raw_user_meta_data as any) || {};
+      // Try every possible key Supabase or OAuth providers might use
+      const name =
+        meta.full_name ||
+        meta.name ||
+        rawMeta.full_name ||
+        rawMeta.name ||
+        u.email?.split("@")[0] ||
+        "";
+      map[u.id] = { email: u.email || "", name };
+    }
+    if (usersData.users.length < perPage) break;
+    page++;
   }
   return map;
 }
