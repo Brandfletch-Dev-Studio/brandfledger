@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { Header } from "@/components/layout/header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -69,12 +69,13 @@ export default function TransactionsPage() {
   });
 
   const [customers, setCustomers] = useState<any[]>([]);
-  useEffect(() => {
+  const refreshCustomers = useCallback(() => {
     const url = bizId ? `/api/data/customers?business_id=${bizId}` : "/api/data/customers";
     fetch(url).then(r => r.ok ? r.json() : null).then(d => {
       if (d?.customers) setCustomers(d.customers);
     }).catch(() => {});
   }, [bizId]);
+  useEffect(() => { refreshCustomers(); }, [refreshCustomers]);
 
   const transactions = pageData?.transactions ?? [];
   const products = pageData?.products ?? [];
@@ -179,6 +180,7 @@ export default function TransactionsPage() {
       setEditState(null);
       clearCache(`transactions_v2:${bizId ?? "default"}`);
       refetch();
+      refreshCustomers();
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     }
@@ -223,6 +225,7 @@ export default function TransactionsPage() {
       setOpen(false);
       clearCache(`transactions_v2:${bizId ?? "default"}`);
       refetch();
+      refreshCustomers();
     }
     setLoading(false);
   }
