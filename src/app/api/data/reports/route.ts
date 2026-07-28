@@ -52,6 +52,7 @@ export async function GET(request: Request) {
     const monthMap: Record<string, { month: string; revenue: number; expenses: number; profit: number }> = {};
     for (let i = 0; i < months; i++) {
       const d = new Date();
+      d.setDate(1);  // Prevent month overflow (e.g., March 31 - 1 month = March 3 without this)
       d.setMonth(d.getMonth() - i);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
       const label = d.toLocaleDateString("en-US", { month: "short", year: "2-digit" });

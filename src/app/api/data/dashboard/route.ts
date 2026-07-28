@@ -74,7 +74,8 @@ export async function GET(request: Request) {
         sales_count++;
         revenue += amount;
         cost_of_sales += cost_amount;
-        gross_profit += profit;
+        // Fall back to amount - cost_amount if profit field is null/0 (direct transactions may not set profit)
+        gross_profit += profit || (amount - cost_amount);
         if (margin > 0) {
           margin_sum += margin;
           margin_count++;
