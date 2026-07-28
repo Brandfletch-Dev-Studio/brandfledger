@@ -145,6 +145,19 @@ export default function AdminOverviewPage() {
         </div>
       </div>
 
+      {/* Subscription Health */}
+      <div>
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Subscription Health</p>
+        <div className="grid grid-cols-2 gap-2 sm:gap-3">
+          <StatCard label="Avg Sub Duration" value={stats?.avgSubDurationDays ? `${stats.avgSubDurationDays}d` : "—"}
+            icon={Clock} color="text-indigo-600"
+            sub={stats?.avgSubDurationDays >= 30 ? `${Math.floor(stats.avgSubDurationDays / 30)}mo avg` : "active subscribers"} />
+          <StatCard label="Trial → Paid" value={`${stats?.conversionRate ?? 0}%`}
+            icon={TrendingUp} color="text-emerald-600"
+            sub="conversion rate" />
+        </div>
+      </div>
+
       {/* Pending Renewals */}
       <div>
         <div className="flex items-center gap-2 mb-2">
@@ -239,3 +252,4 @@ export default function AdminOverviewPage() {
     </div>
   );
 }
+
