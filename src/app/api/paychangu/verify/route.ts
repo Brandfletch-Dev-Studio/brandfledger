@@ -12,6 +12,35 @@ async function getCredential(key: string): Promise<string | null> {
   } catch { return null; }
 }
 
+async function activateSubscription(sub: any) {
+  const endDate = sub.plan === "annual"
+    ? new Date(Date.now() + 365 * 86400000).toISOString()
+    : new Date(Date.now() + 30 * 86400000).toISOString();
+
+  await supabase.from("subscriptions").update({
+    status: "active",
+    end_date: endDate,
+    updated_at: new Date().toISOString(),
+  }).eq("id", sub.id);
+
+  const { data: biz } = await supabase
+    .from("businesses").select("owner_id").eq("id", sub.business_id).maybeSingle();
+  if (biz?.owner_id) {
+    await supabase.from("accounts").update({
+      subscription_status: "active",
+      subscription_ends_at: endDate,
+      updated_at: new Date().toISOString(),
+    }).eq("user_id", biz.owner_id);
+  }
+}
+
+async function cancelSubscription(sub: any) {
+  await supabase.from("subscriptions").update({
+    status: "cancelled",
+    updated_at: new Date().toISOString(),
+  }).eq("id", sub.id);
+}
+
 export async function GET(req: NextRequest) {
   try {
     const user = getDbUser();
@@ -21,7 +50,7 @@ export async function GET(req: NextRequest) {
     const chargeId = searchParams.get("charge_id");
     if (!chargeId) return NextResponse.json({ error: "charge_id required" }, { status: 400 });
 
-    // Check if already timed out (> 15 min since subscription was created)
+    // Check our DB first
     const { data: sub } = await supabase
       .from("subscriptions")
       .select("*")
@@ -29,34 +58,29 @@ export async function GET(req: NextRequest) {
       .maybeSingle();
 
     if (sub) {
-      // Already resolved
+      // Already resolved by webhook
       if (sub.status === "active") return NextResponse.json({ status: "success", chargeId });
       if (sub.status === "cancelled") return NextResponse.json({ status: "failed", chargeId, reason: "cancelled" });
 
-      // Check age — auto-cancel if older than 15 minutes
+      // Auto-cancel if older than 15 minutes
       const createdAt = new Date(sub.created_at || sub.start_date).getTime();
       const ageMinutes = (Date.now() - createdAt) / 60000;
       if (ageMinutes > 15) {
-        await supabase.from("subscriptions").update({ status: "cancelled", updated_at: new Date().toISOString() }).eq("id", sub.id);
+        await cancelSubscription(sub);
         return NextResponse.json({ status: "failed", chargeId, reason: "timeout" });
       }
     }
 
-    // PRIMARY: trust our own DB record — activated by webhook or manual verification.
-    // We do NOT rely solely on Paychangu's status API because the same Paychangu account
-    // is used for multiple businesses, which causes cross-contamination in status responses.
-    // Our chargeId is namespaced as BF-{businessId}-{timestamp}, so DB lookups are always scoped.
     if (sub?.status === "pending") {
-      // SECONDARY: poll Paychangu API to confirm — but ONLY accept "successful" for THIS chargeId
-      // If Paychangu returns successful, activate directly. If it returns failed, cancel.
-      // If the chargeId prefix doesn't match BF- pattern, refuse to activate (cross-business guard).
       const PAYCHANGU_SECRET =
         (await getCredential("paychangu_secret_key")) ||
         process.env.PAYCHANGU_SECRET_KEY || "";
 
+      // PRIMARY: Direct Charge verify endpoint
+      // CORRECT URL: /mobile-money/payments/{chargeId}/verify (NOT /status)
       try {
         const verifyRes = await fetch(
-          `https://api.paychangu.com/mobile-money/payments/${encodeURIComponent(chargeId)}/status`,
+          `https://api.paychangu.com/mobile-money/payments/${encodeURIComponent(chargeId)}/verify`,
           {
             headers: { Accept: "application/json", Authorization: `Bearer ${PAYCHANGU_SECRET}` },
             signal: AbortSignal.timeout(8000),
@@ -68,47 +92,53 @@ export async function GET(req: NextRequest) {
           const returnedRef = result?.data?.charge_id || result?.data?.tx_ref || result?.data?.reference || "";
           const paychanguStatus = result?.data?.status || result?.status || "pending";
 
-          // Cross-business guard: only trust the result if the returned reference matches our chargeId
+          // Cross-business guard: only trust if returned ref matches our chargeId
           const refMatches = !returnedRef || returnedRef === chargeId;
 
           if (refMatches && (paychanguStatus === "successful" || paychanguStatus === "success")) {
-            // Activate subscription
-            const endDate = sub.plan === "annual"
-              ? new Date(Date.now() + 365 * 86400000).toISOString()
-              : new Date(Date.now() + 30 * 86400000).toISOString();
-
-            await supabase.from("subscriptions").update({
-              status: "active",
-              end_date: endDate,
-              updated_at: new Date().toISOString(),
-            }).eq("id", sub.id);
-
-            const { data: biz } = await supabase
-              .from("businesses").select("owner_id").eq("id", sub.business_id).maybeSingle();
-            if (biz?.owner_id) {
-              await supabase.from("accounts").update({
-                subscription_status: "active",
-                subscription_ends_at: endDate,
-                updated_at: new Date().toISOString(),
-              }).eq("user_id", biz.owner_id);
-            }
-
+            await activateSubscription(sub);
             return NextResponse.json({ status: "success", chargeId });
           }
 
           if (refMatches && (paychanguStatus === "failed" || paychanguStatus === "cancelled")) {
-            await supabase.from("subscriptions").update({
-              status: "cancelled",
-              updated_at: new Date().toISOString(),
-            }).eq("id", sub.id);
+            await cancelSubscription(sub);
             return NextResponse.json({ status: "failed", chargeId, reason: "payment_failed" });
           }
         }
       } catch {
-        // Paychangu API unreachable — stay pending, client will retry
+        // Direct charge endpoint failed — try fallback
       }
 
-      // Still pending — Paychangu hasn't confirmed yet or result was ambiguous
+      // FALLBACK: Generic verify-payment endpoint
+      try {
+        const fallbackRes = await fetch(
+          `https://api.paychangu.com/verify-payment/${encodeURIComponent(chargeId)}`,
+          {
+            headers: { Accept: "application/json", Authorization: `Bearer ${PAYCHANGU_SECRET}` },
+            signal: AbortSignal.timeout(8000),
+          }
+        );
+
+        if (fallbackRes.ok) {
+          const fbResult = await fallbackRes.json();
+          const fbStatus = fbResult?.data?.status || fbResult?.status || "pending";
+          const fbRef = fbResult?.data?.tx_ref || fbResult?.data?.charge_id || "";
+          const fbRefMatches = !fbRef || fbRef === chargeId;
+
+          if (fbRefMatches && (fbStatus === "successful" || fbStatus === "success")) {
+            await activateSubscription(sub);
+            return NextResponse.json({ status: "success", chargeId });
+          }
+
+          if (fbRefMatches && (fbStatus === "failed" || fbStatus === "cancelled")) {
+            await cancelSubscription(sub);
+            return NextResponse.json({ status: "failed", chargeId, reason: "payment_failed" });
+          }
+        }
+      } catch {
+        // Both endpoints unreachable — stay pending, client will retry
+      }
+
       return NextResponse.json({ status: "pending", chargeId });
     }
 
