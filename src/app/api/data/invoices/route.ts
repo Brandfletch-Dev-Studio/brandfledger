@@ -159,12 +159,50 @@ export async function POST(request: Request) {
       .single();
     if (insertError) throw insertError;
 
+    // Auto-create customer if customer_name is provided without customer_id
+    let effectiveCustomerId = customer_id;
+    if (!effectiveCustomerId && customer_name) {
+      const trimmedName = customer_name.trim();
+      // Check if customer already exists (case-insensitive)
+      const { data: existingCust } = await supabase
+        .from('customers')
+        .select('id, total_invoiced')
+        .eq('business_id', businessId)
+        .ilike('name', trimmedName)
+        .maybeSingle();
+      if (existingCust) {
+        effectiveCustomerId = existingCust.id;
+      } else {
+        const { data: newCust, error: newCustError } = await supabase
+          .from('customers')
+          .insert({
+            business_id: businessId,
+            name: trimmedName,
+            total_invoiced: 0,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .select('id')
+          .single();
+        if (newCustError) throw newCustError;
+        if (newCust) effectiveCustomerId = newCust.id;
+      }
+
+      // Link the invoice to the newly created/found customer
+      if (effectiveCustomerId) {
+        await supabase
+          .from('invoices')
+          .update({ customer_id: effectiveCustomerId })
+          .eq('id', invoice.id);
+      }
+    }
+
     // Update customer total_invoiced
-    if (customer_id) {
+    if (effectiveCustomerId) {
       const { data: customer, error: customerError } = await supabase
         .from('customers')
         .select('total_invoiced')
-        .eq('id', customer_id)
+        .eq('id', effectiveCustomerId)
         .maybeSingle();
       if (customerError) throw customerError;
       if (customer) {
@@ -176,7 +214,7 @@ export async function POST(request: Request) {
             total_invoiced: newTotalInvoiced,
             updated_at: new Date().toISOString()
           })
-          .eq('id', customer_id);
+          .eq('id', effectiveCustomerId);
         if (updateCustError) throw updateCustError;
       }
     }
@@ -329,3 +367,4 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
+
