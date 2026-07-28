@@ -87,13 +87,13 @@ export default function SubscriptionPage() {
       } catch {}
       count += 1;
       setPollCount(count);
-    }, 5000);
+    }, 4000);
 
     // Stop polling after 3 minutes
     const timeout = setTimeout(() => {
       stopped = true;
       clearInterval(interval);
-    }, 180000);
+    }, 300000);
 
     return () => {
       stopped = true;
@@ -332,7 +332,7 @@ export default function SubscriptionPage() {
               </div>
               <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Waiting for confirmation… ({Math.min(pollCount * 5, 180)}s)
+                Waiting for confirmation… ({Math.min(pollCount * 4, 300)}s)
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" className="flex-1" onClick={() => setStep("phone")}>
