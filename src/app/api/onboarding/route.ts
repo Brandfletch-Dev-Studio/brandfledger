@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { cookies } from "next/headers";
 
 export async function POST(req: NextRequest) {
   try {
@@ -34,8 +35,27 @@ export async function POST(req: NextRequest) {
       const { name, email, phone } = body?.data ?? {};
       if (!name) return NextResponse.json({ error: "Customer name is required" }, { status: 400 });
 
-      const { data: biz, error: bizErr } = await supabase.from("businesses").select("id").limit(1).maybeSingle();
-      if (bizErr || !biz) return NextResponse.json({ error: bizErr?.message ?? "Business not found" }, { status: 400 });
+      // Respect the active business from cookie
+      const cookieStore = cookies();
+      const activeBusinessId = cookieStore.get("activeBusinessId")?.value;
+
+      let biz: { id: string } | null = null;
+
+      if (activeBusinessId) {
+        const { data } = await supabase
+          .from("businesses")
+          .select("id")
+          .eq("id", activeBusinessId)
+          .maybeSingle();
+        biz = data;
+      }
+
+      // Fallback to first business if no cookie or cookie didn't match
+      if (!biz) {
+        const { data, error: bizErr } = await supabase.from("businesses").select("id").order("created_at").limit(1).maybeSingle();
+        if (bizErr || !data) return NextResponse.json({ error: bizErr?.message ?? "Business not found" }, { status: 400 });
+        biz = data;
+      }
 
       const { error } = await supabase
         .from("customers")
@@ -48,8 +68,27 @@ export async function POST(req: NextRequest) {
       const { name, price, category } = body?.data ?? {};
       if (!name) return NextResponse.json({ error: "Product name is required" }, { status: 400 });
 
-      const { data: biz, error: bizErr } = await supabase.from("businesses").select("id").limit(1).maybeSingle();
-      if (bizErr || !biz) return NextResponse.json({ error: bizErr?.message ?? "Business not found" }, { status: 400 });
+      // Respect the active business from cookie
+      const cookieStore = cookies();
+      const activeBusinessId = cookieStore.get("activeBusinessId")?.value;
+
+      let biz: { id: string } | null = null;
+
+      if (activeBusinessId) {
+        const { data } = await supabase
+          .from("businesses")
+          .select("id")
+          .eq("id", activeBusinessId)
+          .maybeSingle();
+        biz = data;
+      }
+
+      // Fallback to first business if no cookie or cookie didn't match
+      if (!biz) {
+        const { data, error: bizErr } = await supabase.from("businesses").select("id").order("created_at").limit(1).maybeSingle();
+        if (bizErr || !data) return NextResponse.json({ error: bizErr?.message ?? "Business not found" }, { status: 400 });
+        biz = data;
+      }
 
       const { error } = await supabase
         .from("products")
