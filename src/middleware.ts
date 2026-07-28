@@ -31,7 +31,7 @@ async function verifySessionToken(token: string): Promise<{ userId: string; emai
   }
 }
 
-const PUBLIC_ROUTES = ["/", "/login", "/register", "/auth", "/pricing", "/privacy", "/terms"];
+const PUBLIC_ROUTES = ["/", "/login", "/register", "/auth", "/pricing", "/privacy", "/terms", "/invoices/view"];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -69,3 +69,4 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
 };
+
