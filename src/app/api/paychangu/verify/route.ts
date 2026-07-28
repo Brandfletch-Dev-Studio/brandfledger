@@ -42,56 +42,77 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const PAYCHANGU_SECRET =
-      (await getCredential("paychangu_secret_key")) ||
-      process.env.PAYCHANGU_SECRET_KEY || "";
+    // PRIMARY: trust our own DB record — activated by webhook or manual verification.
+    // We do NOT rely solely on Paychangu's status API because the same Paychangu account
+    // is used for multiple businesses, which causes cross-contamination in status responses.
+    // Our chargeId is namespaced as BF-{businessId}-{timestamp}, so DB lookups are always scoped.
+    if (sub?.status === "pending") {
+      // SECONDARY: poll Paychangu API to confirm — but ONLY accept "successful" for THIS chargeId
+      // If Paychangu returns successful, activate directly. If it returns failed, cancel.
+      // If the chargeId prefix doesn't match BF- pattern, refuse to activate (cross-business guard).
+      const PAYCHANGU_SECRET =
+        (await getCredential("paychangu_secret_key")) ||
+        process.env.PAYCHANGU_SECRET_KEY || "";
 
-    // Verify with Paychangu
-    const verifyRes = await fetch(
-      `https://api.paychangu.com/mobile-money/payments/${encodeURIComponent(chargeId)}/status`,
-      { headers: { Accept: "application/json", Authorization: `Bearer ${PAYCHANGU_SECRET}` } }
-    );
+      try {
+        const verifyRes = await fetch(
+          `https://api.paychangu.com/mobile-money/payments/${encodeURIComponent(chargeId)}/status`,
+          {
+            headers: { Accept: "application/json", Authorization: `Bearer ${PAYCHANGU_SECRET}` },
+            signal: AbortSignal.timeout(8000),
+          }
+        );
 
-    const result = await verifyRes.json();
-    const paychanguStatus = result?.data?.status || result?.status || "pending";
+        if (verifyRes.ok) {
+          const result = await verifyRes.json();
+          const returnedRef = result?.data?.charge_id || result?.data?.tx_ref || result?.data?.reference || "";
+          const paychanguStatus = result?.data?.status || result?.status || "pending";
 
-    let status: "pending" | "success" | "failed" = "pending";
-    if (paychanguStatus === "successful" || paychanguStatus === "success") status = "success";
-    else if (paychanguStatus === "failed" || paychanguStatus === "cancelled") status = "failed";
+          // Cross-business guard: only trust the result if the returned reference matches our chargeId
+          const refMatches = !returnedRef || returnedRef === chargeId;
 
-    // Activate subscription on success
-    if (status === "success" && sub && sub.status !== "active") {
-      const endDate = sub.plan === "annual"
-        ? new Date(Date.now() + 365 * 86400000).toISOString()
-        : new Date(Date.now() + 30 * 86400000).toISOString();
+          if (refMatches && (paychanguStatus === "successful" || paychanguStatus === "success")) {
+            // Activate subscription
+            const endDate = sub.plan === "annual"
+              ? new Date(Date.now() + 365 * 86400000).toISOString()
+              : new Date(Date.now() + 30 * 86400000).toISOString();
 
-      await supabase.from("subscriptions").update({
-        status: "active",
-        end_date: endDate,
-        updated_at: new Date().toISOString(),
-      }).eq("id", sub.id);
+            await supabase.from("subscriptions").update({
+              status: "active",
+              end_date: endDate,
+              updated_at: new Date().toISOString(),
+            }).eq("id", sub.id);
 
-      // Also update accounts table so paywall unlocks immediately
-      const { data: biz } = await supabase
-        .from("businesses").select("owner_id").eq("id", sub.business_id).maybeSingle();
-      if (biz?.owner_id) {
-        await supabase.from("accounts").update({
-          subscription_status: "active",
-          subscription_ends_at: endDate,
-          updated_at: new Date().toISOString(),
-        }).eq("user_id", biz.owner_id);
+            const { data: biz } = await supabase
+              .from("businesses").select("owner_id").eq("id", sub.business_id).maybeSingle();
+            if (biz?.owner_id) {
+              await supabase.from("accounts").update({
+                subscription_status: "active",
+                subscription_ends_at: endDate,
+                updated_at: new Date().toISOString(),
+              }).eq("user_id", biz.owner_id);
+            }
+
+            return NextResponse.json({ status: "success", chargeId });
+          }
+
+          if (refMatches && (paychanguStatus === "failed" || paychanguStatus === "cancelled")) {
+            await supabase.from("subscriptions").update({
+              status: "cancelled",
+              updated_at: new Date().toISOString(),
+            }).eq("id", sub.id);
+            return NextResponse.json({ status: "failed", chargeId, reason: "payment_failed" });
+          }
+        }
+      } catch {
+        // Paychangu API unreachable — stay pending, client will retry
       }
+
+      // Still pending — Paychangu hasn't confirmed yet or result was ambiguous
+      return NextResponse.json({ status: "pending", chargeId });
     }
 
-    // Mark as cancelled if Paychangu confirms failure
-    if (status === "failed" && sub && sub.status === "pending") {
-      await supabase.from("subscriptions").update({
-        status: "cancelled",
-        updated_at: new Date().toISOString(),
-      }).eq("id", sub.id);
-    }
-
-    return NextResponse.json({ status, chargeId, raw: result?.data ?? {} });
+    return NextResponse.json({ status: "pending", chargeId });
   } catch (err: any) {
     return NextResponse.json({ error: err.message, status: "pending" }, { status: 500 });
   }
