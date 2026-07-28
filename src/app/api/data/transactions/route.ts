@@ -104,6 +104,10 @@ export async function POST(request: Request) {
 
     if (action === "create_transaction") {
       const { type, client_name, vendor_name, description, amount, cost_qty, cost_amount, category_id, category_name, product_id, payment_method, date } = data;
+      const numAmount = Number(amount) || 0;
+      const numCost = Number(cost_amount) || 0;
+      const computedProfit = type === "income" ? numAmount - numCost : 0;
+
       const { data: tx, error: txErr } = await supabase
         .from('transactions')
         .insert({
@@ -112,9 +116,10 @@ export async function POST(request: Request) {
           client_name: client_name ? client_name.trim() : null,
           vendor_name: vendor_name || null,
           description,
-          amount,
+          amount: numAmount,
           cost_qty: cost_qty || 0,
-          cost_amount: cost_amount || 0,
+          cost_amount: numCost,
+          profit: computedProfit,
           category_id: category_id || null,
           category_name: category_name || null,
           product_id: product_id || null,
