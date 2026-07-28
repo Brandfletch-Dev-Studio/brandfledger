@@ -168,7 +168,7 @@ export function BusinessSwitcher({ currentName }: { currentName?: string | null 
       {addOpen && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
           <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setAddOpen(false)} />
-          <div className="relative w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl border bg-card shadow-2xl p-6 space-y-5 animate-in slide-in-from-bottom duration-200 sm:animate-none">
+          <div className="relative w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl border bg-card shadow-2xl p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom)+4rem)] sm:pb-6 space-y-5 animate-in slide-in-from-bottom duration-200 sm:animate-none">
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-bold">New business</h2>
@@ -238,3 +238,4 @@ export function BusinessSwitcher({ currentName }: { currentName?: string | null 
     </>
   );
 }
+
