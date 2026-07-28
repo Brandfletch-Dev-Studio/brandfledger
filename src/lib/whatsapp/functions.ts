@@ -30,7 +30,7 @@ function dateRange(period?: string): { start: string; end: string } {
   return { start: start.toISOString().split("T")[0], end };
 }
 
-function sum(data: any[] | null, field: string): number {
+function sum(data: any[] | null | undefined, field: string): number {
   if (!data) return 0;
   return data.reduce((s, item) => s + Number(item[field] || 0), 0);
 }
