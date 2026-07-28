@@ -105,11 +105,18 @@ export default function CustomersPage() {
     }
   }
 
-  const filtered = customers.filter((c: any) =>
-    c.name.toLowerCase().includes(search.toLowerCase()) ||
-    c.email?.toLowerCase().includes(search.toLowerCase()) ||
-    c.phone?.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = customers
+    .filter((c: any) =>
+      c.name.toLowerCase().includes(search.toLowerCase()) ||
+      c.email?.toLowerCase().includes(search.toLowerCase()) ||
+      c.phone?.toLowerCase().includes(search.toLowerCase())
+    )
+    .map((c: any) => {
+      const txs = incomeTx.filter((t: any) => t.client_name?.toLowerCase() === c.name.toLowerCase());
+      const rev = txs.reduce((s: number, t: any) => s + Number(t.amount), 0);
+      return { ...c, _revenue: rev };
+    })
+    .sort((a: any, b: any) => b._revenue - a._revenue);
 
   const currency = business?.currency ?? "MWK";
 
@@ -162,10 +169,10 @@ export default function CustomersPage() {
               { label: "Total Revenue", value: formatCurrency(incomeTx.reduce((s: number, t: any) => s + Number(t.amount), 0), currency) },
               { label: "Total Profit", value: formatCurrency(incomeTx.reduce((s: number, t: any) => s + Number(t.profit || 0), 0), currency) },
             ].map(({ label, value }) => (
-              <Card key={label} className="shadow-sm">
-                <CardContent className="p-3 text-center">
-                  <div className="text-xs text-muted-foreground uppercase tracking-wide font-medium">{label}</div>
-                  <div className="text-base font-bold mt-0.5 text-indigo-600">{value}</div>
+              <Card key={label} className="shadow-sm overflow-hidden">
+                <CardContent className="p-2 sm:p-3 text-center">
+                  <div className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-wide font-medium leading-tight">{label}</div>
+                  <div className="text-sm sm:text-base font-bold mt-0.5 text-indigo-600 break-all leading-tight">{value}</div>
                 </CardContent>
               </Card>
             ))}
@@ -241,20 +248,20 @@ export default function CustomersPage() {
 
                     {/* Stats row */}
                     {txCount > 0 ? (
-                      <div className="mt-3 pt-3 border-t grid grid-cols-3 gap-2 text-center">
-                        <div>
-                          <div className="text-xs text-muted-foreground">Orders</div>
-                          <div className="text-sm font-semibold">{txCount}</div>
+                      <div className="mt-3 pt-3 border-t grid grid-cols-3 gap-1 text-center">
+                        <div className="min-w-0">
+                          <div className="text-[10px] sm:text-xs text-muted-foreground">Orders</div>
+                          <div className="text-xs sm:text-sm font-semibold">{txCount}</div>
                         </div>
-                        <div>
-                          <div className="text-xs text-muted-foreground">Revenue</div>
-                          <div className="text-sm font-semibold text-emerald-600">{formatCurrency(totalRevenue, currency)}</div>
+                        <div className="min-w-0">
+                          <div className="text-[10px] sm:text-xs text-muted-foreground">Revenue</div>
+                          <div className="text-xs sm:text-sm font-semibold text-emerald-600 break-all leading-tight">{formatCurrency(totalRevenue, currency)}</div>
                         </div>
-                        <div>
-                          <div className="text-xs text-muted-foreground">Profit</div>
-                          <div className="text-sm font-semibold text-indigo-600 flex items-center justify-center gap-0.5">
-                            <TrendingUp className="h-3 w-3" />
-                            {formatCurrency(totalProfit, currency)}
+                        <div className="min-w-0">
+                          <div className="text-[10px] sm:text-xs text-muted-foreground">Profit</div>
+                          <div className="text-xs sm:text-sm font-semibold text-indigo-600 break-all leading-tight flex items-center justify-center gap-0.5 flex-wrap">
+                            <TrendingUp className="h-3 w-3 shrink-0" />
+                            <span>{formatCurrency(totalProfit, currency)}</span>
                           </div>
                         </div>
                       </div>
@@ -279,3 +286,4 @@ export default function CustomersPage() {
     </div>
   );
 }
+
