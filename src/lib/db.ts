@@ -67,3 +67,5 @@ export async function verifyBusinessOwnership(businessId: string, userId: string
   if (error) return false;
   return !!data;
 }
+
+// Build trigger: fresh deploy
