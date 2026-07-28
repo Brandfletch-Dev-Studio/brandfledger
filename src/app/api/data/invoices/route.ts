@@ -159,36 +159,20 @@ export async function POST(request: Request) {
       .single();
     if (insertError) throw insertError;
 
-    // Auto-create customer if customer_name is provided without customer_id
+    // Auto-create customer atomically via SQL function (no race condition)
+    // and increment total_invoiced atomically
     let effectiveCustomerId = customer_id;
     if (!effectiveCustomerId && customer_name) {
-      const trimmedName = customer_name.trim();
-      // Check if customer already exists (case-insensitive)
-      const { data: existingCust } = await supabase
-        .from('customers')
-        .select('id, total_invoiced')
-        .eq('business_id', businessId)
-        .ilike('name', trimmedName)
-        .maybeSingle();
-      if (existingCust) {
-        effectiveCustomerId = existingCust.id;
-      } else {
-        const { data: newCust, error: newCustError } = await supabase
-          .from('customers')
-          .insert({
-            business_id: businessId,
-            name: trimmedName,
-            total_invoiced: 0,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          })
-          .select('id')
-          .single();
-        if (newCustError) throw newCustError;
-        if (newCust) effectiveCustomerId = newCust.id;
-      }
+      // Use atomic upsert — creates customer if not exists, returns customer ID
+      const { data: custId, error: custErr } = await supabase.rpc('upsert_customer_and_increment', {
+        p_business_id: businessId,
+        p_name: customer_name.trim(),
+        p_amount: 0  // Don't increment here — we'll increment below for all customers
+      });
+      if (custErr) throw custErr;
+      if (custId) effectiveCustomerId = custId as string;
 
-      // Link the invoice to the newly created/found customer
+      // Link the invoice to the customer
       if (effectiveCustomerId) {
         await supabase
           .from('invoices')
@@ -197,26 +181,12 @@ export async function POST(request: Request) {
       }
     }
 
-    // Update customer total_invoiced
+    // Atomically increment customer's total_invoiced
     if (effectiveCustomerId) {
-      const { data: customer, error: customerError } = await supabase
-        .from('customers')
-        .select('total_invoiced')
-        .eq('id', effectiveCustomerId)
-        .maybeSingle();
-      if (customerError) throw customerError;
-      if (customer) {
-        const currentTotalInvoiced = Number(customer.total_invoiced) || 0;
-        const newTotalInvoiced = currentTotalInvoiced + total;
-        const { error: updateCustError } = await supabase
-          .from('customers')
-          .update({
-            total_invoiced: newTotalInvoiced,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', effectiveCustomerId);
-        if (updateCustError) throw updateCustError;
-      }
+      await supabase.rpc('increment_customer_total_by_id', {
+        p_customer_id: effectiveCustomerId,
+        p_amount: total
+      });
     }
 
     return NextResponse.json({ invoice });
@@ -306,6 +276,8 @@ export async function PUT(request: Request) {
                 created_at: new Date().toISOString()
               });
             if (insertTxError) throw insertTxError;
+            // NOTE: total_invoiced was already incremented when invoice was created.
+            // The transaction here is just for P&L tracking — do NOT increment again.
           }
         }
       }
@@ -345,16 +317,40 @@ export async function DELETE(request: Request) {
     const id = searchParams.get("id");
     if (!id) return NextResponse.json({ error: "ID required" }, { status: 400 });
 
-    const { data: inv, error: invErr } = await supabase
+    // BUG FIX: Fetch the full invoice before deleting to clean up related data
+    const { data: invData, error: invErr } = await supabase
       .from('invoices')
-      .select('business_id')
+      .select('business_id, customer_id, total, status')
       .eq('id', id)
       .maybeSingle();
     if (invErr) throw invErr;
-    if (!inv) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    if (!invData) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-    const isOwner = await verifyOwnership(inv.business_id, user.userId);
+    const isOwner = await verifyOwnership(invData.business_id, user.userId);
     if (!isOwner) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+    // BUG FIX: Delete any linked transactions (orphaned transaction cleanup)
+    const { data: linkedTx } = await supabase
+      .from('transactions')
+      .select('id, client_name, amount, invoice_id')
+      .eq('invoice_id', id)
+      .eq('business_id', invData.business_id);
+    
+    if (linkedTx && linkedTx.length > 0) {
+      await supabase
+        .from('transactions')
+        .delete()
+        .eq('invoice_id', id)
+        .eq('business_id', invData.business_id);
+    }
+
+    // BUG FIX: Decrement customer's total_invoiced atomically
+    if (invData.customer_id) {
+      await supabase.rpc('decrement_customer_total_by_id', {
+        p_customer_id: invData.customer_id,
+        p_amount: Number(invData.total) || 0
+      });
+    }
 
     const { error: deleteError } = await supabase
       .from('invoices')
@@ -367,4 +363,3 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
-
