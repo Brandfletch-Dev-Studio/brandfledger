@@ -87,6 +87,23 @@ export async function GET(request: Request) {
         updated_at: a.updated_at,
       }));
 
+      // Avg subscription duration (active subs only)
+      let totalSubDays = 0, activeCount = 0;
+      for (const a of accountList) {
+        if (a.subscription_status === "active" && a.created_at) {
+          const days = Math.floor((now.getTime() - new Date(a.created_at).getTime()) / 86400000);
+          totalSubDays += days;
+          activeCount++;
+        }
+      }
+      const avgSubDuration = activeCount > 0 ? Math.round(totalSubDays / activeCount) : 0;
+
+      // Trial-to-paid conversion rate
+      const totalEverSubscribed = (subMap["active"] ?? 0) + (subMap["expired"] ?? 0);
+      const conversionRate = accountList.length > 0
+        ? ((totalEverSubscribed / accountList.length) * 100).toFixed(1)
+        : "0.0";
+
       return NextResponse.json({
         stats: {
           totalAccounts: accountList.length,
@@ -100,6 +117,8 @@ export async function GET(request: Request) {
           monthlyRevenue: monthlyRev,
           annualRevenue: annualRev,
           totalPayments: subRows.length,
+          avgSubDurationDays: avgSubDuration,
+          conversionRate: parseFloat(conversionRate),
         },
         pendingRenewals,
         recentExpired,
@@ -121,16 +140,41 @@ export async function GET(request: Request) {
 
       const users = (accounts.data || []).map(a => {
         const biz = bizByOwner[a.user_id];
+        const now = new Date();
+
+        // Calculate subscription duration
+        let subDurationDays: number | null = null;
+        if (a.subscription_status === "active" && a.subscription_ends_at) {
+          // For active subs, duration = from start (estimated from end - plan period) to now
+          // If we have created_at, use that; otherwise estimate from end date
+          const subStart = a.created_at ? new Date(a.created_at) : null;
+          if (subStart) {
+            subDurationDays = Math.floor((now.getTime() - subStart.getTime()) / 86400000);
+          }
+        } else if (a.subscription_status === "trial" && a.trial_ends_at) {
+          subDurationDays = Math.floor((now.getTime() - new Date(a.trial_ends_at).getTime() + 14 * 86400000) / 86400000);
+        }
+
+        // Days left in trial or subscription
+        let daysLeft: number | null = null;
+        if (a.subscription_status === "trial" && a.trial_ends_at) {
+          daysLeft = Math.ceil((new Date(a.trial_ends_at).getTime() - now.getTime()) / 86400000);
+        } else if (a.subscription_status === "active" && a.subscription_ends_at) {
+          daysLeft = Math.ceil((new Date(a.subscription_ends_at).getTime() - now.getTime()) / 86400000);
+        }
+
         return {
           user_id: a.user_id,
           email: usersMap[a.user_id]?.email || "",
           name: usersMap[a.user_id]?.name || "",
-          subscription_status: a.subscription_status,
+          subscription_status: a.subscription_status || "trial",
           trial_ends_at: a.trial_ends_at,
           subscription_ends_at: a.subscription_ends_at,
           plan: a.plan,
           business_name: biz?.name || null,
-          created_at: biz?.created_at || null,
+          created_at: a.created_at || biz?.created_at || null,
+          sub_duration_days: subDurationDays,
+          days_left: daysLeft,
         };
       });
 
@@ -176,6 +220,25 @@ export async function GET(request: Request) {
 
       const bizList = (businesses.data || []).map(b => {
         const a = acctMap[b.owner_id];
+        const now = new Date();
+
+        // Subscription duration
+        let subDurationDays: number | null = null;
+        if (a?.subscription_status === "active") {
+          const subStart = a?.created_at ? new Date(a.created_at) : new Date(b.created_at);
+          subDurationDays = Math.floor((now.getTime() - subStart.getTime()) / 86400000);
+        } else if (a?.subscription_status === "trial" && a?.trial_ends_at) {
+          subDurationDays = Math.floor((14 * 86400000 - (new Date(a.trial_ends_at).getTime() - now.getTime())) / 86400000);
+        }
+
+        // Days left
+        let daysLeft: number | null = null;
+        if (a?.subscription_status === "trial" && a?.trial_ends_at) {
+          daysLeft = Math.ceil((new Date(a.trial_ends_at).getTime() - now.getTime()) / 86400000);
+        } else if (a?.subscription_status === "active" && a?.subscription_ends_at) {
+          daysLeft = Math.ceil((new Date(a.subscription_ends_at).getTime() - now.getTime()) / 86400000);
+        }
+
         return {
           id: b.id,
           name: b.name,
@@ -184,7 +247,12 @@ export async function GET(request: Request) {
           subscription_status: a?.subscription_status || null,
           trial_ends_at: a?.trial_ends_at || null,
           subscription_ends_at: a?.subscription_ends_at || null,
+          plan: a?.plan || null,
           owner_email: usersMap[b.owner_id]?.email || "",
+          owner_name: usersMap[b.owner_id]?.name || "",
+          account_created_at: a?.created_at || null,
+          sub_duration_days: subDurationDays,
+          days_left: daysLeft,
           tx_count: txMap[b.id] || 0,
           cust_count: custMap[b.id] || 0,
           prod_count: prodMap[b.id] || 0,
@@ -307,3 +375,4 @@ async function getResendKey(): Promise<string | null> {
   } catch {}
   return process.env.RESEND_API_KEY || null;
 }
+
