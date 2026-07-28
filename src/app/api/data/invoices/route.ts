@@ -239,7 +239,15 @@ export async function PUT(request: Request) {
           if (txError) throw txError;
 
           if (!existingTx) {
-            // If no transaction exists, insert one
+            // Calculate real cost from invoice items for accurate P&L
+            const invItems = Array.isArray(invData.items) ? invData.items : [];
+            const totalCost = invItems.reduce((sum: number, item: any) => {
+              const qty = parseFloat(item.quantity) || 1;
+              const itemCost = parseFloat(item.cost) || 0;
+              return sum + qty * itemCost;
+            }, 0);
+            const invoiceProfit = Number(invData.total) - totalCost;
+
             const clientName = invoice.customer_name || ("Invoice " + invoice.invoice_number);
             const description = "Invoice " + invoice.invoice_number;
             const currentDate = new Date().toISOString().split("T")[0];
@@ -252,7 +260,8 @@ export async function PUT(request: Request) {
                 client_name: clientName,
                 description: description,
                 amount: invoice.total,
-                cost_amount: 0,
+                cost_amount: totalCost,
+                profit: invoiceProfit,
                 payment_method: 'invoice',
                 date: currentDate,
                 invoice_id: invoice.id,
