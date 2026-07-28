@@ -162,6 +162,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
           outstandingAmount,
           outstandingCount: outstandingInvoices.length,
           customerCount: customers.length,
+          salesCount: incomeTransactions.length,
         }}
         setupStatus={{
           hasBusiness: true,
