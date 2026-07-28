@@ -327,7 +327,7 @@ export async function POST(request: Request) {
     if (section === "settings") {
       const { paychangu_secret_key, paychangu_webhook_secret, resend_api_key,
               whatsapp_access_token, whatsapp_phone_number_id, whatsapp_verify_token,
-              openai_api_key } = body;
+              whatsapp_number, openai_api_key } = body;
       const upserts: { key: string; value: any }[] = [];
       if (paychangu_secret_key?.trim()) {
         upserts.push({ key: 'paychangu_secret_key', value: { encoded: Buffer.from(paychangu_secret_key.trim()).toString("base64") } });
@@ -349,6 +349,9 @@ export async function POST(request: Request) {
       }
       if (whatsapp_verify_token?.trim()) {
         upserts.push({ key: 'whatsapp_verify_token', value: { value: whatsapp_verify_token.trim() } });
+      }
+      if (whatsapp_number?.trim()) {
+        upserts.push({ key: 'whatsapp_number', value: { value: whatsapp_number.trim().replace(/[^\d]/g, "") } });
       }
       if (openai_api_key?.trim()) {
         upserts.push({ key: 'openai_api_key', value: { encoded: Buffer.from(openai_api_key.trim()).toString("base64") } });

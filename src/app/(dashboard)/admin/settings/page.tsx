@@ -19,6 +19,7 @@ export default function AdminSettingsPage() {
     paychangu_configured: boolean;
     whatsapp_configured: boolean;
     openai_configured: boolean;
+    whatsapp_number?: string;
   } | null>(null);
 
   const [form, setForm] = useState({
@@ -28,6 +29,7 @@ export default function AdminSettingsPage() {
     whatsapp_access_token: "",
     whatsapp_phone_number_id: "",
     whatsapp_verify_token: "",
+    whatsapp_number: "",
     openai_api_key: "",
   });
 
@@ -59,7 +61,7 @@ export default function AdminSettingsPage() {
       toast({ title: "Settings saved", description: "Credentials updated successfully." });
       setForm({
         paychangu_secret_key: "", paychangu_webhook_secret: "", resend_api_key: "",
-        whatsapp_access_token: "", whatsapp_phone_number_id: "", whatsapp_verify_token: "", openai_api_key: "",
+        whatsapp_access_token: "", whatsapp_phone_number_id: "", whatsapp_verify_token: "", whatsapp_number: "", openai_api_key: "",
       });
       loadSettings();
     } catch (err: any) {
@@ -117,7 +119,9 @@ export default function AdminSettingsPage() {
                   <CheckCircle className="h-5 w-5 text-emerald-500 shrink-0" />
                   <div>
                     <p className="text-sm font-medium">WhatsApp Assistant — Connected</p>
-                    <p className="text-xs text-muted-foreground">Clients can message the WhatsApp number to manage finances.</p>
+                    <p className="text-xs text-muted-foreground">
+                      {status?.whatsapp_number ? `Clients message +${status.whatsapp_number}` : "Clients can message the WhatsApp number to manage finances."}
+                    </p>
                   </div>
                 </>
               ) : (
@@ -275,6 +279,18 @@ export default function AdminSettingsPage() {
                   autoComplete="off"
                 />
               </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="whatsapp_number" className="text-xs">WhatsApp Business Number</Label>
+              <Input
+                id="whatsapp_number"
+                placeholder="265991234567"
+                value={form.whatsapp_number}
+                onChange={e => setForm(f => ({ ...f, whatsapp_number: e.target.value.replace(/[^\d]/g, "") }))}
+                className="font-mono text-sm"
+                autoComplete="off"
+              />
+              <p className="text-xs text-muted-foreground">The number clients will message (country code, no +). Used to generate the chat link in client settings.</p>
             </div>
             <p className="text-xs text-muted-foreground">
               Webhook URL: <span className="font-mono bg-muted rounded px-1 py-0.5 text-xs select-all">{webhookUrl}</span>
