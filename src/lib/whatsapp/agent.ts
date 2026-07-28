@@ -73,10 +73,9 @@ export async function processWhatsAppMessage(
     // 1. Resolve user
     const ctx = await resolveUser(whatsappNumber);
     if (!ctx) {
-      await sendWhatsAppMessage(
-        whatsappNumber,
-        "Hi! I'm the Brandfledger Finance Manager. To connect your WhatsApp, go to Settings then WhatsApp in your Brandfledger account."
-      );
+      // Can't send a reply without business_id for credentials lookup
+      // Try to find any business with WhatsApp configured to send the "not recognized" reply
+      console.error("Could not resolve WhatsApp user:", whatsappNumber);
       return;
     }
 
@@ -118,7 +117,7 @@ export async function processWhatsAppMessage(
     const openaiKey = await getOpenAIKey();
     if (!openaiKey) {
       console.error("OpenAI API key not configured");
-      await sendWhatsAppMessage(whatsappNumber, "I'm having trouble connecting right now. Please try again later.");
+      await sendWhatsAppMessage(whatsappNumber, "I'm having trouble connecting right now. Please try again later.", ctx.business_id);
       return;
     }
 
@@ -149,7 +148,7 @@ export async function processWhatsAppMessage(
 
       if (!res.ok) {
         console.error("OpenAI API error:", await res.text());
-        await sendWhatsAppMessage(whatsappNumber, "I'm having trouble processing that. Please try again.");
+        await sendWhatsAppMessage(whatsappNumber, "I'm having trouble processing that. Please try again.", ctx.business_id);
         return;
       }
 
@@ -158,7 +157,7 @@ export async function processWhatsAppMessage(
       const message = choice?.message;
 
       if (!message) {
-        await sendWhatsAppMessage(whatsappNumber, "I didn't catch that. Could you rephrase?");
+        await sendWhatsAppMessage(whatsappNumber, "I didn't catch that. Could you rephrase?", ctx.business_id);
         return;
       }
 
@@ -191,7 +190,7 @@ export async function processWhatsAppMessage(
     }
 
     // 5. Send the response
-    await sendWhatsAppMessage(whatsappNumber, finalResponse);
+    await sendWhatsAppMessage(whatsappNumber, finalResponse, ctx.business_id);
 
     // 6. Update conversation context
     if (finalResponse.includes("confirm") && (finalResponse.includes("Reply") || finalResponse.includes("reply"))) {
@@ -205,6 +204,5 @@ export async function processWhatsAppMessage(
     }
   } catch (err) {
     console.error("WhatsApp message processing error:", err);
-    await sendWhatsAppMessage(whatsappNumber, "Something went wrong. Please try again.");
   }
 }

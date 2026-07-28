@@ -18,21 +18,14 @@ export async function GET(request: Request) {
   const challenge = searchParams.get("hub.challenge");
 
   if (mode === "subscribe") {
-    // Get the verify token from platform_settings
+    // Look up verify token from any business that has one configured
     const { data } = await supabase
-      .from("platform_settings")
-      .select("value")
-      .eq("key", "whatsapp_verify_token")
-      .maybeSingle();
+      .from("businesses")
+      .select("whatsapp_verify_token")
+      .not("whatsapp_verify_token", "is", null)
+      .limit(1);
 
-    let verifyToken = "";
-    if (data?.value?.encoded) {
-      verifyToken = Buffer.from(data.value.encoded, "base64").toString("utf-8");
-    } else if (typeof data?.value === "string") {
-      verifyToken = data.value;
-    } else if (data?.value?.value) {
-      verifyToken = data.value.value;
-    }
+    const verifyToken = data?.[0]?.whatsapp_verify_token;
 
     if (token === verifyToken && verifyToken) {
       return new Response(challenge, { status: 200 });
@@ -48,7 +41,6 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
 
-    // Verify this is a message event
     const entry = body?.entry?.[0];
     if (!entry) return new Response("OK", { status: 200 });
 
@@ -58,20 +50,16 @@ export async function POST(request: Request) {
     const value = changes?.value;
     if (!value) return new Response("OK", { status: 200 });
 
-    // Check if this is a message (not a status update)
     const messages = value?.messages;
     if (!messages || messages.length === 0) {
-      // This might be a status update (delivered, read, etc.) — ignore
       return new Response("OK", { status: 200 });
     }
 
     const message = messages[0];
-    const from = message.from; // Sender's WhatsApp number (without +)
+    const from = message.from;
     const messageType = message.type;
 
-    // Only handle text messages for now
     if (messageType !== "text") {
-      // For future: handle voice notes, images, etc.
       return new Response("OK", { status: 200 });
     }
 

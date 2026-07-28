@@ -1,46 +1,43 @@
 // Brandfledger WhatsApp Finance Manager — Message Sender
 // Sends WhatsApp messages via the Meta Cloud API
+// Reads credentials from the businesses table (per-business WhatsApp config)
 
-async function getCredentials() {
-  const { supabase } = await import("@/lib/db");
-  const { data } = await supabase
-    .from("platform_settings")
-    .select("key, value")
-    .in("key", ["whatsapp_access_token", "whatsapp_phone_number_id", "whatsapp_verify_token"]);
-  if (!data) return null;
-  const settings: Record<string, any> = {};
-  for (const row of data) {
-    const val = row.value;
-    if (val && typeof val === "object" && "encoded" in val) {
-      settings[row.key] = Buffer.from(val.encoded, "base64").toString("utf-8");
-    } else if (typeof val === "string") {
-      settings[row.key] = val;
-    } else if (val && typeof val === "object" && "value" in val) {
-      settings[row.key] = val.value;
-    } else {
-      settings[row.key] = val;
-    }
-  }
-  return settings;
+import { supabase } from "@/lib/db";
+
+async function getCredentials(businessId: string) {
+  const { data, error } = await supabase
+    .from("businesses")
+    .select("whatsapp_access_token, whatsapp_phone_number_id")
+    .eq("id", businessId)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  if (!data.whatsapp_access_token || !data.whatsapp_phone_number_id) return null;
+
+  return {
+    accessToken: data.whatsapp_access_token,
+    phoneNumberId: data.whatsapp_phone_number_id,
+  };
 }
 
-export async function sendWhatsAppMessage(to: string, text: string): Promise<boolean> {
+export async function sendWhatsAppMessage(
+  to: string,
+  text: string,
+  businessId: string
+): Promise<boolean> {
   try {
-    const creds = await getCredentials();
-    if (!creds?.whatsapp_access_token || !creds?.whatsapp_phone_number_id) {
-      console.error("WhatsApp credentials not configured");
+    const creds = await getCredentials(businessId);
+    if (!creds) {
+      console.error("WhatsApp credentials not configured for business:", businessId);
       return false;
     }
 
-    const phoneNumberId = creds.whatsapp_phone_number_id;
-    const accessToken = creds.whatsapp_access_token;
-
     const res = await fetch(
-      `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`,
+      `https://graph.facebook.com/v21.0/${creds.phoneNumberId}/messages`,
       {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${accessToken}`,
+          Authorization: `Bearer ${creds.accessToken}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -62,8 +59,4 @@ export async function sendWhatsAppMessage(to: string, text: string): Promise<boo
     console.error("WhatsApp send error:", err);
     return false;
   }
-}
-
-export async function getCredentialsSync() {
-  return getCredentials();
 }
