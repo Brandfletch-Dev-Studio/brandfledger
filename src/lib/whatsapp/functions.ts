@@ -1,13 +1,38 @@
 // Brandfledger WhatsApp Finance Manager — Function Implementations
-// These functions are called by the LLM agent to read/write Brandfledger data
-// All functions are scoped by business_id
+// All database operations use the Supabase client from @/lib/db (service role, bypasses RLS)
 
 import { supabase } from "@/lib/db";
 
-interface FunctionContext {
+export interface FunctionContext {
   business_id: string;
   business_name: string;
   currency: string;
+}
+
+// ============================================================
+// HELPERS
+// ============================================================
+
+function dateRange(period?: string): { start: string; end: string } {
+  const now = new Date();
+  const end = now.toISOString().split("T")[0];
+  let start = new Date();
+  switch (period) {
+    case "today": start = new Date(); break;
+    case "yesterday": start = new Date(now.getTime() - 86400000); break;
+    case "this_month": start = new Date(now.getFullYear(), now.getMonth(), 1); break;
+    case "last_month": start = new Date(now.getFullYear(), now.getMonth() - 1, 1); break;
+    case "this_week": { const d = now.getDay() || 7; start = new Date(now.getTime() - (d - 1) * 86400000); break; }
+    case "last_week": { const d = now.getDay() || 7; start = new Date(now.getTime() - (d + 6) * 86400000); break; }
+    case "this_year": start = new Date(now.getFullYear(), 0, 1); break;
+    default: start = new Date(now.getTime() - 30 * 86400000);
+  }
+  return { start: start.toISOString().split("T")[0], end };
+}
+
+function sum(data: any[] | null, field: string): number {
+  if (!data) return 0;
+  return data.reduce((s, item) => s + Number(item[field] || 0), 0);
 }
 
 // ============================================================
@@ -34,43 +59,46 @@ async function resolveCustomer(ctx: FunctionContext, name: string) {
 }
 
 async function queryRevenue(ctx: FunctionContext, period?: string) {
-  const { start, end } = dateRange(period);
-  const dateFilter = period ? `&date=gte.${start}&date=lte.${end}` : "";
-  const res = await fetch(
-    `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/transactions?select=amount,cost_amount,profit,client_name,description,type&business_id=eq.${ctx.business_id}&type=eq.income${dateFilter}`,
-    { headers: getHeaders() }
-  );
-  const txns = (await res.json()) as any[];
-  const total = txns?.reduce((s, t) => s + Number(t.amount || 0), 0) || 0;
-  const cost = txns?.reduce((s, t) => s + Number(t.cost_amount || 0), 0) || 0;
-  const profit = txns?.reduce((s, t) => s + Number(t.profit || 0), 0) || 0;
-  return { revenue: total, cost, profit, count: txns?.length || 0 };
+  let query = supabase
+    .from("transactions")
+    .select("amount, cost_amount, profit, client_name, description, type")
+    .eq("business_id", ctx.business_id)
+    .eq("type", "income");
+  if (period) {
+    const { start, end } = dateRange(period);
+    query = query.gte("date", start).lte("date", end);
+  }
+  const { data } = await query;
+  return { revenue: sum(data, "amount"), cost: sum(data, "cost_amount"), profit: sum(data, "profit"), count: data?.length || 0 };
 }
 
 async function queryExpenses(ctx: FunctionContext, period?: string) {
-  const { start, end } = dateRange(period);
-  const dateFilter = period ? `&date=gte.${start}&date=lte.${end}` : "";
-  const res = await fetch(
-    `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/transactions?select=amount,client_name,description,type&business_id=eq.${ctx.business_id}&type=eq.expense${dateFilter}`,
-    { headers: getHeaders() }
-  );
-  const txns = (await res.json()) as any[];
-  const total = txns?.reduce((s, t) => s + Number(t.amount || 0), 0) || 0;
+  let query = supabase
+    .from("transactions")
+    .select("amount, client_name, description, type")
+    .eq("business_id", ctx.business_id)
+    .eq("type", "expense");
+  if (period) {
+    const { start, end } = dateRange(period);
+    query = query.gte("date", start).lte("date", end);
+  }
+  const { data } = await query;
+  const total = sum(data, "amount");
   const byCategory: Record<string, number> = {};
-  txns?.forEach((t) => {
+  data?.forEach((t) => {
     const cat = t.description || t.client_name || "Other";
     byCategory[cat] = (byCategory[cat] || 0) + Number(t.amount || 0);
   });
   const sorted = Object.entries(byCategory)
     .map(([category, amount]) => ({ category, amount }))
     .sort((a, b) => b.amount - a.amount);
-  return { total_expenses: total, by_category: sorted, count: txns?.length || 0 };
+  return { total_expenses: total, by_category: sorted, count: data?.length || 0 };
 }
 
 async function queryReceivables(ctx: FunctionContext) {
   const { data } = await supabase
     .from("invoices")
-    .select("id,invoice_number,total,amount_paid,balance_due,status,due_date,customers(name)")
+    .select("id, invoice_number, total, amount_paid, balance_due, status, due_date, customers(name)")
     .eq("business_id", ctx.business_id)
     .in("status", ["draft", "sent", "overdue"]);
   if (!data) return { total_receivables: 0, customers: [] };
@@ -103,12 +131,11 @@ async function getCustomerBalance(ctx: FunctionContext, customerName: string) {
 
   const { data: invoices } = await supabase
     .from("invoices")
-    .select("id,invoice_number,total,amount_paid,balance_due,status,due_date")
+    .select("id, invoice_number, total, amount_paid, balance_due, status, due_date")
     .eq("business_id", ctx.business_id)
     .eq("customer_id", customerId)
     .in("status", ["draft", "sent", "overdue"]);
-  const totalDue = invoices?.reduce((s, inv) => s + Number(inv.balance_due || 0), 0) || 0;
-  return { customer: customers[0].name, total_outstanding: totalDue, invoices: invoices || [] };
+  return { customer: customers[0].name, total_outstanding: sum(invoices, "balance_due"), invoices: invoices || [] };
 }
 
 async function getDailySummary(ctx: FunctionContext, period?: string) {
@@ -119,8 +146,8 @@ async function getDailySummary(ctx: FunctionContext, period?: string) {
     .eq("business_id", ctx.business_id)
     .gte("date", start)
     .lte("date", end);
-  const income = data?.filter((t: any) => t.type === "income").reduce((s: number, t: any) => s + Number(t.amount || 0), 0) || 0;
-  const expenses = data?.filter((t: any) => t.type === "expense").reduce((s: number, t: any) => s + Number(t.amount || 0), 0) || 0;
+  const income = sum(data?.filter((t) => t.type === "income"), "amount");
+  const expenses = sum(data?.filter((t) => t.type === "expense"), "amount");
   return { date: start, income, expenses, net_cash: income - expenses, count: data?.length || 0 };
 }
 
@@ -143,13 +170,13 @@ async function getWeeklySummary(ctx: FunctionContext) {
     .gte("date", prevWeekStart)
     .lt("date", weekStart);
 
-  const thisIncome = thisWeek?.filter((t: any) => t.type === "income").reduce((s: number, t: any) => s + Number(t.amount || 0), 0) || 0;
-  const thisExpenses = thisWeek?.filter((t: any) => t.type === "expense").reduce((s: number, t: any) => s + Number(t.amount || 0), 0) || 0;
-  const prevIncome = prevWeek?.filter((t: any) => t.type === "income").reduce((s: number, t: any) => s + Number(t.amount || 0), 0) || 0;
-  const prevExpenses = prevWeek?.filter((t: any) => t.type === "expense").reduce((s: number, t: any) => s + Number(t.amount || 0), 0) || 0;
+  const thisIncome = sum(thisWeek?.filter((t) => t.type === "income"), "amount");
+  const thisExpenses = sum(thisWeek?.filter((t) => t.type === "expense"), "amount");
+  const prevIncome = sum(prevWeek?.filter((t) => t.type === "income"), "amount");
+  const prevExpenses = sum(prevWeek?.filter((t) => t.type === "expense"), "amount");
 
   const byCategory: Record<string, number> = {};
-  thisWeek?.filter((t: any) => t.type === "expense").forEach((t: any) => {
+  thisWeek?.filter((t) => t.type === "expense").forEach((t) => {
     const cat = t.description || "Other";
     byCategory[cat] = (byCategory[cat] || 0) + Number(t.amount || 0);
   });
@@ -169,15 +196,14 @@ async function checkOverdueInvoices(ctx: FunctionContext) {
   const today = new Date().toISOString().split("T")[0];
   const { data } = await supabase
     .from("invoices")
-    .select("id,invoice_number,total,amount_paid,balance_due,due_date,customers(name)")
+    .select("id, invoice_number, total, amount_paid, balance_due, due_date, customers(name)")
     .eq("business_id", ctx.business_id)
     .lt("due_date", today)
     .in("status", ["sent", "draft"]);
   const overdue = data?.filter((inv: any) => Number(inv.balance_due || 0) > 0) || [];
-  const totalOverdue = overdue.reduce((s, inv) => s + Number(inv.balance_due || 0), 0);
   return {
     overdue_count: overdue.length,
-    total_overdue: totalOverdue,
+    total_overdue: sum(overdue as any[], "balance_due"),
     invoices: overdue.map((inv: any) => ({
       invoice_number: inv.invoice_number,
       customer: inv.customers?.name || "Unknown",
@@ -192,8 +218,8 @@ async function analyzeCashFlow(ctx: FunctionContext) {
     .from("transactions")
     .select("amount, type")
     .eq("business_id", ctx.business_id);
-  const totalIncome = allTx?.filter((t: any) => t.type === "income").reduce((s: number, t: any) => s + Number(t.amount || 0), 0) || 0;
-  const totalExpenses = allTx?.filter((t: any) => t.type === "expense").reduce((s: number, t: any) => s + Number(t.amount || 0), 0) || 0;
+  const totalIncome = sum(allTx?.filter((t) => t.type === "income"), "amount");
+  const totalExpenses = sum(allTx?.filter((t) => t.type === "expense"), "amount");
   const currentCash = totalIncome - totalExpenses;
 
   const { data: receivables } = await supabase
@@ -201,7 +227,6 @@ async function analyzeCashFlow(ctx: FunctionContext) {
     .select("balance_due")
     .eq("business_id", ctx.business_id)
     .in("status", ["draft", "sent", "overdue"]);
-  const expectedReceivables = receivables?.reduce((s, inv) => s + Number(inv.balance_due || 0), 0) || 0;
 
   const threeMonthsAgo = new Date(Date.now() - 90 * 86400000).toISOString().split("T")[0];
   const { data: recentExp } = await supabase
@@ -210,7 +235,6 @@ async function analyzeCashFlow(ctx: FunctionContext) {
     .eq("business_id", ctx.business_id)
     .eq("type", "expense")
     .gte("date", threeMonthsAgo);
-  const monthlyAvg = Math.round((recentExp?.reduce((s, t) => s + Number(t.amount || 0), 0) || 0) / 3);
 
   const today = new Date().toISOString().split("T")[0];
   const { data: overdueInv } = await supabase
@@ -219,14 +243,13 @@ async function analyzeCashFlow(ctx: FunctionContext) {
     .eq("business_id", ctx.business_id)
     .lt("due_date", today)
     .in("status", ["sent", "draft"]);
-  const overdueAmount = overdueInv?.reduce((s, inv) => s + Number(inv.balance_due || 0), 0) || 0;
 
   return {
     current_cash: currentCash,
-    expected_receivables: expectedReceivables,
-    overdue_receivables: overdueAmount,
-    monthly_expense_average: monthlyAvg,
-    available_after_obligations: currentCash - monthlyAvg,
+    expected_receivables: sum(receivables, "balance_due"),
+    overdue_receivables: sum(overdueInv, "balance_due"),
+    monthly_expense_average: Math.round(sum(recentExp, "amount") / 3),
+    available_after_obligations: currentCash - Math.round(sum(recentExp, "amount") / 3),
   };
 }
 
@@ -241,8 +264,8 @@ async function comparePeriods(ctx: FunctionContext, period1?: string, period2?: 
       .eq("business_id", ctx.business_id)
       .gte("date", start)
       .lte("date", end);
-    const income = data?.filter((t: any) => t.type === "income").reduce((s: number, t: any) => s + Number(t.amount || 0), 0) || 0;
-    const expenses = data?.filter((t: any) => t.type === "expense").reduce((s: number, t: any) => s + Number(t.amount || 0), 0) || 0;
+    const income = sum(data?.filter((t) => t.type === "income"), "amount");
+    const expenses = sum(data?.filter((t) => t.type === "expense"), "amount");
     return { income, expenses, net: income - expenses, count: data?.length || 0 };
   }
   const stats1 = await getStats(p1.start, p1.end);
@@ -265,7 +288,7 @@ async function topCustomers(ctx: FunctionContext, period?: string) {
     .gte("date", start)
     .lte("date", end);
   const byCustomer: Record<string, any> = {};
-  data?.forEach((t: any) => {
+  data?.forEach((t) => {
     const name = t.client_name || "Unknown";
     if (!byCustomer[name]) byCustomer[name] = { customer: name, total: 0, count: 0 };
     byCustomer[name].total += Number(t.amount || 0);
@@ -300,7 +323,6 @@ async function recordTransaction(
     .single();
   if (error) throw error;
 
-  // Auto-create or update customer for income
   if (type === "income" && client_name) {
     await supabase.rpc("upsert_customer_and_increment", {
       p_business_id: ctx.business_id,
@@ -317,7 +339,6 @@ async function createInvoice(
 ) {
   const { customer_name, items, due_date, notes } = params;
 
-  // Generate invoice number
   const { data: biz } = await supabase
     .from("businesses")
     .select("invoice_prefix")
@@ -333,7 +354,6 @@ async function createInvoice(
   const year = new Date().getFullYear();
   const invNumber = `${prefix}-${year}-${String(num).padStart(4, "0")}`;
 
-  // Build items
   let subtotal = 0;
   const processedItems = items.map((item, idx) => {
     const qty = item.quantity || 1;
@@ -363,7 +383,6 @@ async function createInvoice(
     .single();
   if (error) throw error;
 
-  // Auto-create customer and link
   if (customer_name) {
     const { data: custId } = await supabase.rpc("upsert_customer_and_increment", {
       p_business_id: ctx.business_id,
@@ -406,7 +425,6 @@ async function recordPayment(
     .eq("id", invoice_id)
     .eq("business_id", ctx.business_id);
 
-  // Get customer name if not provided
   let clientName = customer_name;
   if (!clientName && invoice.customer_id) {
     const { data: cust } = await supabase
@@ -417,7 +435,6 @@ async function recordPayment(
     clientName = cust?.name || null;
   }
 
-  // Create income transaction linked to invoice
   await supabase.from("transactions").insert({
     business_id: ctx.business_id,
     type: "income",
@@ -429,7 +446,6 @@ async function recordPayment(
     invoice_id: invoice_id,
   });
 
-  // Update customer's total_invoiced
   if (clientName) {
     await supabase.rpc("upsert_customer_and_increment", {
       p_business_id: ctx.business_id,
@@ -444,34 +460,6 @@ async function recordPayment(
     amount_paid: newAmountPaid,
     balance_due: newBalanceDue,
     status: newStatus,
-  };
-}
-
-// ============================================================
-// HELPERS
-// ============================================================
-
-function dateRange(period?: string): { start: string; end: string } {
-  const now = new Date();
-  const end = now.toISOString().split("T")[0];
-  let start = new Date();
-  switch (period) {
-    case "today": start = new Date(); break;
-    case "yesterday": start = new Date(now.getTime() - 86400000); break;
-    case "this_month": start = new Date(now.getFullYear(), now.getMonth(), 1); break;
-    case "last_month": start = new Date(now.getFullYear(), now.getMonth() - 1, 1); break;
-    case "this_week": { const d = now.getDay() || 7; start = new Date(now.getTime() - (d - 1) * 86400000); break; }
-    case "last_week": { const d = now.getDay() || 7; start = new Date(now.getTime() - (d + 6) * 86400000); break; }
-    case "this_year": start = new Date(now.getFullYear(), 0, 1); break;
-    default: start = new Date(now.getTime() - 30 * 86400000);
-  }
-  return { start: start.toISOString().split("T")[0], end };
-}
-
-function getHeaders(): Record<string, string> {
-  return {
-    apikey: process.env.SUPABASE_SERVICE_ROLE_KEY || "",
-    Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY || ""}`,
   };
 }
 
@@ -499,7 +487,7 @@ export const functionDefinitions = [
       description: "Get total revenue for a period. Returns income, cost, profit, and transaction count.",
       parameters: {
         type: "object",
-        properties: { period: { type: "string", enum: ["today", "yesterday", "this_month", "last_month", "this_week", "last_week", "this_year"], description: "Time period to query" } },
+        properties: { period: { type: "string", enum: ["today", "yesterday", "this_month", "last_month", "this_week", "last_week", "this_year"] } },
       },
     },
   },
@@ -510,7 +498,7 @@ export const functionDefinitions = [
       description: "Get total expenses for a period, broken down by category.",
       parameters: {
         type: "object",
-        properties: { period: { type: "string", enum: ["today", "yesterday", "this_month", "last_month", "this_week", "last_week", "this_year"], description: "Time period to query" } },
+        properties: { period: { type: "string", enum: ["today", "yesterday", "this_month", "last_month", "this_week", "last_week", "this_year"] } },
       },
     },
   },
@@ -529,7 +517,7 @@ export const functionDefinitions = [
       description: "Get a specific customer's outstanding balance and unpaid invoices.",
       parameters: {
         type: "object",
-        properties: { customer_name: { type: "string", description: "Customer name to look up" } },
+        properties: { customer_name: { type: "string" } },
         required: ["customer_name"],
       },
     },
@@ -538,10 +526,10 @@ export const functionDefinitions = [
     type: "function" as const,
     function: {
       name: "get_daily_summary",
-      description: "Get a daily financial summary — income, expenses, net cash for a given day.",
+      description: "Get a daily financial summary — income, expenses, net cash.",
       parameters: {
         type: "object",
-        properties: { period: { type: "string", enum: ["today", "yesterday"], description: "Which day to summarize" } },
+        properties: { period: { type: "string", enum: ["today", "yesterday"] } },
       },
     },
   },
@@ -573,7 +561,7 @@ export const functionDefinitions = [
     type: "function" as const,
     function: {
       name: "compare_periods",
-      description: "Compare two time periods (e.g., last month vs this month).",
+      description: "Compare two time periods.",
       parameters: {
         type: "object",
         properties: {
@@ -590,7 +578,7 @@ export const functionDefinitions = [
       description: "Get top customers by revenue for a period.",
       parameters: {
         type: "object",
-        properties: { period: { type: "string", enum: ["this_month", "last_month", "this_year"], description: "Time period" } },
+        properties: { period: { type: "string", enum: ["this_month", "last_month", "this_year"] } },
       },
     },
   },
@@ -598,18 +586,18 @@ export const functionDefinitions = [
     type: "function" as const,
     function: {
       name: "record_transaction",
-      description: "Record a transaction (expense, income, sale, purchase). ONLY call after the user has confirmed a preview.",
+      description: "Record a transaction. ONLY call after the user has confirmed a preview.",
       parameters: {
         type: "object",
         properties: {
-          type: { type: "string", enum: ["income", "expense"], description: "Transaction type" },
-          amount: { type: "number", description: "Transaction amount" },
-          description: { type: "string", description: "Description or category" },
-          client_name: { type: "string", description: "Customer name (for income)" },
-          vendor_name: { type: "string", description: "Supplier/vendor name (for expenses)" },
-          category_name: { type: "string", description: "Category name" },
-          payment_method: { type: "string", description: "Payment method (cash, mobile money, bank, etc.)" },
-          date: { type: "string", description: "Transaction date (YYYY-MM-DD)" },
+          type: { type: "string", enum: ["income", "expense"] },
+          amount: { type: "number" },
+          description: { type: "string" },
+          client_name: { type: "string" },
+          vendor_name: { type: "string" },
+          category_name: { type: "string" },
+          payment_method: { type: "string" },
+          date: { type: "string" },
         },
         required: ["type", "amount"],
       },
@@ -619,25 +607,25 @@ export const functionDefinitions = [
     type: "function" as const,
     function: {
       name: "create_invoice",
-      description: "Create a new invoice. ONLY call after the user has confirmed a preview. Returns invoice number and total.",
+      description: "Create a new invoice. ONLY call after the user has confirmed a preview.",
       parameters: {
         type: "object",
         properties: {
-          customer_name: { type: "string", description: "Customer name" },
+          customer_name: { type: "string" },
           items: {
             type: "array",
             items: {
               type: "object",
               properties: {
-                description: { type: "string", description: "Item description" },
-                amount: { type: "number", description: "Line item amount" },
-                quantity: { type: "number", description: "Quantity (default 1)" },
+                description: { type: "string" },
+                amount: { type: "number" },
+                quantity: { type: "number" },
               },
               required: ["description", "amount"],
             },
           },
-          due_date: { type: "string", description: "Due date (YYYY-MM-DD)" },
-          notes: { type: "string", description: "Invoice notes" },
+          due_date: { type: "string" },
+          notes: { type: "string" },
         },
         required: ["customer_name", "items"],
       },
@@ -651,11 +639,11 @@ export const functionDefinitions = [
       parameters: {
         type: "object",
         properties: {
-          invoice_id: { type: "string", description: "Invoice UUID" },
-          amount: { type: "number", description: "Payment amount" },
-          customer_name: { type: "string", description: "Customer name (optional)" },
-          payment_method: { type: "string", description: "Payment method" },
-          date: { type: "string", description: "Payment date (YYYY-MM-DD)" },
+          invoice_id: { type: "string" },
+          amount: { type: "number" },
+          customer_name: { type: "string" },
+          payment_method: { type: "string" },
+          date: { type: "string" },
         },
         required: ["invoice_id", "amount"],
       },

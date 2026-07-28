@@ -7,8 +7,8 @@ import { getContext, upsertContext, clearPendingAction, ConversationContext } fr
 import { sendWhatsAppMessage } from "./send";
 import { supabase } from "@/lib/db";
 
-const MAX_FUNCTION_CALLS = 5; // Prevent infinite loops
-const MODEL = "gpt-4o"; // Can be configured via platform_settings
+const MAX_FUNCTION_CALLS = 5;
+const MODEL = "gpt-4o";
 
 async function getOpenAIKey(): Promise<string> {
   const { data } = await supabase
@@ -16,7 +16,7 @@ async function getOpenAIKey(): Promise<string> {
     .select("value")
     .eq("key", "openai_api_key")
     .maybeSingle();
-  if (data?.value?.encoded) {
+  if (data?.value && typeof data.value === "object" && "encoded" in data.value) {
     return Buffer.from(data.value.encoded, "base64").toString("utf-8");
   }
   return process.env.OPENAI_API_KEY || "";
@@ -24,37 +24,39 @@ async function getOpenAIKey(): Promise<string> {
 
 export async function resolveUser(whatsappNumber: string): Promise<FunctionContext | null> {
   const normalized = whatsappNumber.replace(/[\s+]/g, "");
-  
+
   // Look up business_members by WhatsApp number
+  let businessId: string | null = null;
+  let userId: string | null = null;
+
   const { data: member } = await supabase
     .from("business_members")
-    .select("business_id, user_id")
+    .select("business_id, user_id, whatsapp_number")
     .eq("whatsapp_number", normalized)
     .maybeSingle();
-  
-  if (!member) {
-    // Fallback: search all members and normalize
+
+  if (member) {
+    businessId = member.business_id;
+    userId = member.user_id;
+  } else {
+    // Fallback: search all members
     const { data: allMembers } = await supabase
       .from("business_members")
       .select("business_id, user_id, whatsapp_number");
-    const match = allMembers?.find((m) => m.whatsapp_number?.replace(/[\s+]/g, "") === normalized);
+    const match = allMembers?.find((m: any) => m.whatsapp_number?.replace(/[\s+]/g, "") === normalized);
     if (!match) return null;
-    member = match as any;
+    businessId = match.business_id;
+    userId = match.user_id;
   }
+
+  if (!businessId) return null;
 
   const { data: business } = await supabase
     .from("businesses")
-    .select("id, name, currency")
-    .eq("id", member.business_id)
+    .select("id, name, currency, owner_id")
+    .eq("id", businessId)
     .maybeSingle();
   if (!business) return null;
-
-  // Check subscription status
-  const { data: account } = await supabase
-    .from("accounts")
-    .select("subscription_status")
-    .eq("user_id", business.owner_id || member.user_id)
-    .maybeSingle();
 
   return {
     business_id: business.id,
@@ -73,7 +75,7 @@ export async function processWhatsAppMessage(
     if (!ctx) {
       await sendWhatsAppMessage(
         whatsappNumber,
-        "Hi! I'm the Brandfledger Finance Manager. To connect your WhatsApp, go to Settings → WhatsApp in your Brandfledger account."
+        "Hi! I'm the Brandfledger Finance Manager. To connect your WhatsApp, go to Settings then WhatsApp in your Brandfledger account."
       );
       return;
     }
@@ -93,7 +95,6 @@ export async function processWhatsAppMessage(
     // 3. Build system prompt with context
     let systemPrompt = buildSystemPrompt(ctx.business_name, ctx.currency, "Africa/Blantyre");
 
-    // Add conversation context to the system prompt
     const contextLines: string[] = [];
     if (convCtx.recent_customers?.length > 0) {
       contextLines.push(`Recently mentioned customers: ${convCtx.recent_customers.join(", ")}`);
@@ -107,7 +108,7 @@ export async function processWhatsAppMessage(
     if (convCtx.pending_action) {
       contextLines.push(`PENDING ACTION: ${convCtx.pending_action}`);
       contextLines.push(`Pending action data: ${JSON.stringify(convCtx.pending_action_data)}`);
-      contextLines.push("If the user says 'confirm' or 'yes', execute the pending action by calling the appropriate function. If they say 'edit', ask what to change.");
+      contextLines.push("If the user says confirm or yes, execute the pending action by calling the appropriate function. If they say edit, ask what to change.");
     }
     if (contextLines.length > 0) {
       systemPrompt += "\n\n## Current Conversation Context\n" + contextLines.join("\n");
@@ -117,11 +118,11 @@ export async function processWhatsAppMessage(
     const openaiKey = await getOpenAIKey();
     if (!openaiKey) {
       console.error("OpenAI API key not configured");
-      await sendWhatsAppMessage(whatsappNumber, "I'm having trouble connecting to my brain. Please try again later.");
+      await sendWhatsAppMessage(whatsappNumber, "I'm having trouble connecting right now. Please try again later.");
       return;
     }
 
-    let messages: any[] = [
+    const messages: any[] = [
       { role: "system", content: systemPrompt },
       { role: "user", content: messageText },
     ];
@@ -147,8 +148,7 @@ export async function processWhatsAppMessage(
       });
 
       if (!res.ok) {
-        const err = await res.text();
-        console.error("OpenAI API error:", err);
+        console.error("OpenAI API error:", await res.text());
         await sendWhatsAppMessage(whatsappNumber, "I'm having trouble processing that. Please try again.");
         return;
       }
@@ -162,15 +162,11 @@ export async function processWhatsAppMessage(
         return;
       }
 
-      // If the model wants to call functions
       if (message.function_call) {
         const fnName = message.function_call.name;
         const fnArgs = JSON.parse(message.function_call.arguments || "{}");
-
-        // Execute the function
         const fnResult = await executeFunction(fnName, fnArgs, ctx);
 
-        // Add the function call and result to the conversation
         messages.push({
           role: "assistant",
           content: null,
@@ -186,7 +182,6 @@ export async function processWhatsAppMessage(
         continue;
       }
 
-      // No function call — this is the final response
       finalResponse = message.content;
       break;
     }
@@ -199,23 +194,13 @@ export async function processWhatsAppMessage(
     await sendWhatsAppMessage(whatsappNumber, finalResponse);
 
     // 6. Update conversation context
-    // Extract mentioned customers, amounts, etc. from the conversation
-    // For now, we'll update context based on the function calls that were made
-    // This is a simplified version — a more sophisticated parser could extract entities from the text
-
-    // If a pending action was stored and the user confirmed, clear it
-    // If the response contains a preview (📝, 📋, 💰), store it as a pending action
-    if (finalResponse.includes("Reply \"confirm\"") || finalResponse.includes("Reply 'confirm'")) {
-      // A preview was shown — store the pending action
-      // The actual action data would come from the function calls
-      // For now, store a generic marker
+    if (finalResponse.includes("confirm") && (finalResponse.includes("Reply") || finalResponse.includes("reply"))) {
       await upsertContext({
         ...convCtx,
         pending_action: "awaiting_confirmation",
         pending_action_data: { preview_message: finalResponse },
       });
-    } else if (finalResponse.startsWith("✅") || finalResponse.startsWith("Recorded") || finalResponse.startsWith("Created")) {
-      // Action was executed — clear pending
+    } else if (finalResponse.startsWith("✅") || finalResponse.startsWith("Recorded") || finalResponse.startsWith("Created") || finalResponse.startsWith("Done")) {
       await clearPendingAction(ctx.business_id, whatsappNumber);
     }
   } catch (err) {
