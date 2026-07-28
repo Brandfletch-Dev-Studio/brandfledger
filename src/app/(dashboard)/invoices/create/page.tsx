@@ -32,6 +32,7 @@ export default function CreateInvoicePage() {
   const [saving, setSaving] = useState<"draft" | "send" | null>(null);
 
   const [customerId, setCustomerId] = useState("");
+  const [newClientName, setNewClientName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
   const [contactPhone, setContactPhone] = useState("");
   const [issueDate, setIssueDate] = useState(new Date().toISOString().split("T")[0]);
@@ -59,13 +60,18 @@ export default function CreateInvoicePage() {
   useEffect(() => { loadData(); }, [loadData]);
 
   // Auto-fill contact details when client selected
-  function handleClientChange(id: string) {
-    setCustomerId(id);
-    const c = customers.find(c => c.id === id);
+  // With allowCustom, the value may be an existing customer ID or a new typed name
+  function handleClientChange(value: string) {
+    const c = customers.find(c => c.id === value);
     if (c) {
+      setCustomerId(c.id);
+      setNewClientName("");
       setContactEmail(c.email || "");
       setContactPhone(c.phone || "");
     } else {
+      // Custom name typed — no existing customer matches
+      setCustomerId("");
+      setNewClientName(value);
       setContactEmail("");
       setContactPhone("");
     }
@@ -100,8 +106,8 @@ export default function CreateInvoicePage() {
   const total = subtotal + taxAmount;
 
   async function saveInvoice(status: "draft" | "sent") {
-    if (!customerId) {
-      toast({ title: "Select a client", variant: "destructive" });
+    if (!customerId && !newClientName.trim()) {
+      toast({ title: "Select or type a client name", variant: "destructive" });
       return;
     }
     if (items.every(i => !i.name.trim())) {
@@ -112,6 +118,7 @@ export default function CreateInvoicePage() {
     setSaving(status === "sent" ? "send" : "draft");
     try {
       const customer = customers.find(c => c.id === customerId);
+      const customerName = customer?.name || newClientName.trim();
       // Use override contact details if filled
       const emailToUse = contactEmail || customer?.email || null;
       const phoneToUse = contactPhone || customer?.phone || null;
@@ -130,8 +137,8 @@ export default function CreateInvoicePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          customer_id: customerId,
-          customer_name: customer?.name || null,
+          customer_id: customerId || null,
+          customer_name: customerName,
           issue_date: issueDate, due_date: dueDate,
           status, notes,
           tax_rate: parseFloat(taxRate) || 0,
@@ -195,13 +202,14 @@ export default function CreateInvoicePage() {
           <Label className="text-xs mb-1.5 block">Select client *</Label>
           <SearchableSelect
             options={clientOptions}
-            value={customerId}
+            value={customerId || newClientName}
             onChange={handleClientChange}
-            placeholder="Search clients…"
-            searchPlaceholder="Type to search…"
+            placeholder="Search or type a new client…"
+            searchPlaceholder="Type to search or add new…"
+            allowCustom
           />
           {customers.length === 0 && (
-            <p className="text-xs text-amber-600 mt-1">Add clients first in the Clients section.</p>
+            <p className="text-xs text-muted-foreground mt-1">Type a name to add a new client, or add details in the Clients section.</p>
           )}
         </div>
 
@@ -386,3 +394,4 @@ export default function CreateInvoicePage() {
     </div>
   );
 }
+
