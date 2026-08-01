@@ -29,6 +29,7 @@ export default function AdminSettingsPage() {
     whatsapp_access_token: "",
     whatsapp_phone_number_id: "",
     whatsapp_verify_token: "",
+    whatsapp_app_secret: "",
     whatsapp_number: "",
     openai_api_key: "",
   });
@@ -281,12 +282,12 @@ export default function AdminSettingsPage() {
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="whatsapp_app_secret" className="text-xs">Meta App Secret (for webhook signature verification)</Label>
+              <Label htmlFor="whatsapp_app_secret" className="text-xs">Meta App Secret</Label>
               <div className="relative">
                 <Input
                   id="whatsapp_app_secret"
                   type={showWaToken ? "text" : "password"}
-                  placeholder={status?.whatsapp_configured ? "••••••••  (leave blank to keep current)" : "abc123def456..."}
+                  placeholder="Found in Meta App Dashboard → App Settings → Basic"
                   value={form.whatsapp_app_secret}
                   onChange={e => setForm(f => ({ ...f, whatsapp_app_secret: e.target.value }))}
                   className="pr-10 font-mono text-sm"
@@ -296,7 +297,7 @@ export default function AdminSettingsPage() {
                   {showWaToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
-              <p className="text-xs text-muted-foreground">Found in Meta App Dashboard → App Settings → Basic → App Secret. Secures incoming webhooks.</p>
+              <p className="text-xs text-muted-foreground">Secures incoming webhooks with HMAC-SHA256 signature verification. Found in Meta App Dashboard → App Settings → Basic → App Secret.</p>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="whatsapp_number" className="text-xs">WhatsApp Business Number</Label>
