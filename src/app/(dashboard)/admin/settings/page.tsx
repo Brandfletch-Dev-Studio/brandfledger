@@ -61,7 +61,7 @@ export default function AdminSettingsPage() {
       toast({ title: "Settings saved", description: "Credentials updated successfully." });
       setForm({
         paychangu_secret_key: "", paychangu_webhook_secret: "", resend_api_key: "",
-        whatsapp_access_token: "", whatsapp_phone_number_id: "", whatsapp_verify_token: "", whatsapp_number: "", openai_api_key: "",
+        whatsapp_access_token: "", whatsapp_phone_number_id: "", whatsapp_verify_token: "", whatsapp_app_secret: "", whatsapp_number: "", openai_api_key: "",
       });
       loadSettings();
     } catch (err: any) {
@@ -279,6 +279,24 @@ export default function AdminSettingsPage() {
                   autoComplete="off"
                 />
               </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="whatsapp_app_secret" className="text-xs">Meta App Secret (for webhook signature verification)</Label>
+              <div className="relative">
+                <Input
+                  id="whatsapp_app_secret"
+                  type={showWaToken ? "text" : "password"}
+                  placeholder={status?.whatsapp_configured ? "••••••••  (leave blank to keep current)" : "abc123def456..."}
+                  value={form.whatsapp_app_secret}
+                  onChange={e => setForm(f => ({ ...f, whatsapp_app_secret: e.target.value }))}
+                  className="pr-10 font-mono text-sm"
+                  autoComplete="off"
+                />
+                <button type="button" onClick={() => setShowWaToken(v => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                  {showWaToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+              <p className="text-xs text-muted-foreground">Found in Meta App Dashboard → App Settings → Basic → App Secret. Secures incoming webhooks.</p>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="whatsapp_number" className="text-xs">WhatsApp Business Number</Label>
