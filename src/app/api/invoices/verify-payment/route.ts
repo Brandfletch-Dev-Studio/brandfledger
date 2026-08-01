@@ -39,7 +39,8 @@ export async function GET(request: Request) {
     const PAYCHANGU_SECRET = await getBusinessPaychanguSecret(invoice.business_id);
     if (!PAYCHANGU_SECRET) return NextResponse.json({ status: "pending", chargeId });
 
-    async function processSuccess() {
+    // Process a successful payment — update invoice, mark payment, create income transaction
+    const processSuccess = async () => {
       const newAmountPaid = Number(invoice.amount_paid || 0) + Number(payment.amount);
       const newBalanceDue = Number(invoice.total) - newAmountPaid;
       const newStatus = newBalanceDue <= 0 ? "paid" : "partial";
@@ -72,7 +73,7 @@ export async function GET(request: Request) {
       });
 
       return NextResponse.json({ status: "success", chargeId, invoice_number: invoice.invoice_number, amount_paid: newAmountPaid, balance_due: newBalanceDue, invoice_status: newStatus });
-    }
+    };
 
     try {
       const verifyRes = await fetch(`https://api.paychangu.com/mobile-money/payments/${encodeURIComponent(chargeId)}/verify`, {
