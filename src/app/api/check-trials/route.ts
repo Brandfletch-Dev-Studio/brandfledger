@@ -1,3 +1,4 @@
+// CRON_SECRET env var update
 import { NextResponse } from "next/server";
 import { supabase, getDbUser } from "@/lib/db";
 
