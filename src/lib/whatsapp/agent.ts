@@ -173,8 +173,8 @@ export async function processWhatsAppMessage(
         body: JSON.stringify({
           model: MODEL,
           messages,
-          functions: availableFunctions,
-          function_call: "auto",
+          tools: availableFunctions,
+          tool_choice: "auto",
           temperature: 0.3,
           max_tokens: 1000,
         }),
@@ -205,15 +205,16 @@ export async function processWhatsAppMessage(
       }
 
       // Handle function calls
-      if (message.function_call) {
-        const fnName = message.function_call.name;
-        const fnArgs = JSON.parse(message.function_call.arguments || "{}");
+      if (message.tool_calls && message.tool_calls.length > 0) {
+        const toolCall = message.tool_calls[0];
+        const fnName = toolCall.function.name;
+        const fnArgs = JSON.parse(toolCall.function.arguments || "{}");
 
-        // Add the assistant message with the function call to the conversation
+        // Add the assistant message with the tool call to the conversation
         messages.push({
           role: "assistant",
           content: null,
-          function_call: { name: fnName, arguments: message.function_call.arguments },
+          tool_calls: [{ id: toolCall.id, type: "function", function: { name: fnName, arguments: toolCall.function.arguments } }],
         });
 
         if (fnName === "preview_action") {
@@ -232,8 +233,8 @@ export async function processWhatsAppMessage(
 
           // Return the preview text as the function result — the LLM will relay it to the user
           messages.push({
-            role: "function",
-            name: "preview_action",
+            role: "tool",
+            tool_call_id: toolCall.id,
             content: JSON.stringify({ success: true, message: "Preview stored. Show the preview_text to the user and wait for confirmation." }),
           });
 
@@ -245,8 +246,8 @@ export async function processWhatsAppMessage(
           // Phase 2: Execute the stored pending action
           if (!convCtx.pending_action || !convCtx.pending_action_data) {
             messages.push({
-              role: "function",
-              name: "execute_pending_action",
+              role: "tool",
+              tool_call_id: toolCall.id,
               content: JSON.stringify({ error: "No pending action to execute" }),
             });
             functionCallCount++;
@@ -264,15 +265,15 @@ export async function processWhatsAppMessage(
             convCtx.pending_action_data = undefined;
 
             messages.push({
-              role: "function",
-              name: "execute_pending_action",
+              role: "tool",
+              tool_call_id: toolCall.id,
               content: JSON.stringify(executionResult),
             });
           } catch (execErr: any) {
             console.error("Pending action execution error:", execErr);
             messages.push({
-              role: "function",
-              name: "execute_pending_action",
+              role: "tool",
+              tool_call_id: toolCall.id,
               content: JSON.stringify({ error: execErr.message || "Execution failed" }),
             });
           }
@@ -284,8 +285,8 @@ export async function processWhatsAppMessage(
         // READ function — execute and continue
         const fnResult = await executeReadFunction(fnName, fnArgs, ctx);
         messages.push({
-          role: "function",
-          name: fnName,
+          role: "tool",
+          tool_call_id: toolCall.id,
           content: JSON.stringify(fnResult),
         });
 
@@ -341,10 +342,8 @@ export async function processWhatsAppMessage(
           convCtx.recent_amounts = [amt, ...(convCtx.recent_amounts || [])].slice(0, 3);
         }
       }
-      // Don't upsert on every message — only if we found something to track
-      if (convCtx.last_amount || convCtx.recent_customers.length > 0) {
-        await upsertContext(convCtx);
-      }
+      // Always upsert context to track conversation state
+      await upsertContext(convCtx);
     }
 
     // If the user seems to have changed topic and there was a pending action that wasn't executed,
