@@ -1,15 +1,7 @@
-import { NextResponse } from "next/server";
-
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
-
-const PROJECT_REF = "qgsaycsdoclsiwrsfaco";
-const PASSWORD = encodeURIComponent("Arthur@472003Chibondo");
-
-const MIGRATION_SQL = `-- ============================================================
+-- ============================================================
 -- USER MANAGEMENT RESTRUCTURE
--- Creates a proper \`profiles\` table to replace the ad-hoc
--- \`accounts\` table + fragile auth.users admin API lookups.
+-- Creates a proper `profiles` table to replace the ad-hoc
+-- `accounts` table + fragile auth.users admin API lookups.
 -- Backfills all existing data. Does NOT drop any tables.
 -- ============================================================
 
@@ -187,50 +179,4 @@ CREATE TRIGGER profiles_updated_at
   BEFORE UPDATE ON public.profiles
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
 
--- Done. No tables dropped. accounts and team_members remain as backups.`;
-
-export async function POST() {
-  const pg = await import("pg");
-  const Client = pg.Client;
-
-  const connStr = `postgresql://postgres.${PROJECT_REF}:${PASSWORD}@aws-0-eu-west-1.pooler.supabase.com:6543/postgres`;
-  const client = new (Client as any)({
-    connectionString: connStr,
-    ssl: { rejectUnauthorized: false },
-    connectionTimeoutMillis: 15000,
-  });
-
-  try {
-    await client.connect();
-    await client.query(MIGRATION_SQL);
-
-    // Verify
-    const { rows: profiles } = await client.query(
-      "SELECT id, email, full_name, subscription_status FROM public.profiles ORDER BY created_at"
-    );
-    const { rows: bmRows } = await client.query(
-      "SELECT count(*) as cnt FROM public.business_members"
-    );
-    const { rows: subRows } = await client.query(
-      "SELECT count(*) as cnt FROM public.subscriptions"
-    );
-    const { rows: triggerRows } = await client.query(
-      "SELECT tgname FROM pg_trigger WHERE tgname IN ('on_auth_user_created', 'on_auth_user_updated', 'profiles_updated_at')"
-    );
-    
-    await client.end();
-
-    return NextResponse.json({
-      success: true,
-      message: "User management restructure complete",
-      profiles_created: profiles.length,
-      profiles: profiles.map((r: any) => ({ id: r.id?.toString().slice(0,12), email: r.email, name: r.full_name, status: r.subscription_status })),
-      business_members: bmRows[0]?.cnt,
-      subscriptions_after_cleanup: subRows[0]?.cnt,
-      triggers: triggerRows.map((r: any) => r.tgname),
-    });
-  } catch (err: any) {
-    try { await client.end(); } catch {}
-    return NextResponse.json({ error: err.message, stack: err.stack?.split('\n').slice(0,5) }, { status: 500 });
-  }
-}
+-- Done. No tables dropped. accounts and team_members remain as backups.
