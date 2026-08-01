@@ -8,6 +8,7 @@ import { supabase } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+export const maxDuration = 30; // Allow up to 30s for OpenAI + WhatsApp processing
 
 /**
  * Fetch a credential from platform_settings.
@@ -132,11 +133,18 @@ export async function POST(request: Request) {
     const text = message.text?.body;
     if (!text) return new Response("OK", { status: 200 });
 
-    // Respond immediately (Meta requires <5s response time)
-    // Process the message asynchronously
-    processWhatsAppMessage(from, text).catch((err) => {
+    // Process the message and wait for completion.
+    // Vercel serverless kills background work after response is sent,
+    // so we must await the full pipeline (OpenAI call + WhatsApp reply).
+    // maxDuration is set to 30s to allow sufficient processing time.
+    // Meta retries if the webhook takes >5s, but our agent is idempotent
+    // for reads and uses conversation context to prevent duplicate writes.
+    try {
+      await processWhatsAppMessage(from, text);
+    } catch (err) {
       console.error("[WhatsApp Webhook] Processing error:", err);
-    });
+      // Still return 200 to prevent Meta retries on processing errors
+    }
 
     return new Response("OK", { status: 200 });
   } catch (err) {
