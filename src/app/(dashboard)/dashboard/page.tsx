@@ -49,10 +49,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
   }
 
   try {
-    // Get user's businesses
     const { data: businesses } = await supabase.from("businesses").select("id, name, currency, invoice_prefix, address, phone, email, logo_url").eq("owner_id", user.userId).order("created_at");
-    
-    // Respect the active business selection (stored in cookie by the business switcher)
+
     const cookieStore = cookies();
     const activeBusinessId = cookieStore.get("activeBusinessId")?.value;
     const bizList = businesses || []; const business = (activeBusinessId && bizList.find((b: any) => b.id === activeBusinessId)) || bizList[0] || null;
@@ -61,7 +59,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
       return <DashboardClient business={null} stats={null} setupStatus={{ hasBusiness: false, hasCustomer: false, hasProduct: false, hasInvoice: false }} period={period} />;
     }
 
-    // Fetch all data in parallel
     const [invRes, txRes, custRes, hasCustomerRes, hasProductRes, hasInvoiceRes] = await Promise.all([
       supabase.from("invoices").select("total, status, issue_date, created_at, id, invoice_number, customer_id").eq("business_id", business.id).order("created_at", { ascending: false }).limit(500),
       supabase.from("transactions").select("*").eq("business_id", business.id).order("date", { ascending: false }),
@@ -77,7 +74,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
     const hasProduct = hasProductRes.data || [];
     const hasInvoice = hasInvoiceRes.data || [];
 
-    // Get customer names for invoices
     const customerIds = Array.from(new Set(invoices.map((i: any) => i.customer_id).filter(Boolean))) as string[];
     let customerMap: Record<string, string> = {};
     if (customerIds.length > 0) {
@@ -109,34 +105,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
     const outstandingInvoices = allInvoices.filter((i: any) => i.status === "sent" || i.status === "overdue");
     const outstandingAmount = outstandingInvoices.reduce((s: number, i: any) => s + i.total, 0);
 
-    // Monthly trend
-    const monthMap: Record<string, { month: string; revenue: number; expenses: number; profit: number }> = {};
-    for (let i = 0; i < 6; i++) {
-      const d = new Date();
-      d.setMonth(d.getMonth() - (5 - i));
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-      monthMap[key] = { month: d.toLocaleDateString("en-US", { month: "short" }), revenue: 0, expenses: 0, profit: 0 };
-    }
-
-    allTransactions.forEach((tx: any) => {
-      if (!tx.date) return; const txDate = typeof tx.date === "string" ? tx.date : new Date(tx.date).toISOString();
-      const key = txDate.slice(0, 7);
-      if (monthMap[key]) {
-        if (tx.type === "income") {
-          monthMap[key].revenue += Number(tx.amount || 0);
-          monthMap[key].expenses += Number(tx.cost_amount || 0);
-        } else if (tx.type === "expense") {
-          monthMap[key].expenses += Number(tx.amount || 0);
-        }
-      }
-    });
-
-    Object.keys(monthMap).forEach(key => {
-      monthMap[key].profit = monthMap[key].revenue - monthMap[key].expenses;
-    });
-
-    const monthlyTrend = Object.values(monthMap);
-
     // Top customers
     const customerTotals: Record<string, { name: string; total: number; invoiceCount: number }> = {};
     allInvoices.filter((i: any) => i.status !== "draft").forEach((inv: any) => {
@@ -164,6 +132,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
           customerCount: customers.length,
           salesCount: incomeTransactions.length,
         }}
+        allTransactions={allTransactions as any}
         setupStatus={{
           hasBusiness: true,
           hasCustomer: hasCustomer.length > 0,
@@ -171,14 +140,12 @@ export default async function DashboardPage({ searchParams }: { searchParams: { 
           hasInvoice: hasInvoice.length > 0,
         }}
         recentInvoices={allInvoices.slice(0, 5)}
-        recentIncome={recentIncome}
-        monthlyTrend={monthlyTrend}
+        recentIncome={recentIncome as any}
         topCustomers={topCustomers}
       />
     );
   } catch (err: any) {
     console.error("Dashboard page error:", err?.message || err);
-    // Return a minimal dashboard with the error shown
     return (
       <div className="p-6 max-w-2xl mx-auto">
         <h2 className="text-lg font-bold mb-2">Dashboard loading error</h2>

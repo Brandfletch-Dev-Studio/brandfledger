@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { SearchableSelect } from "@/components/ui/searchable-select";
-import { ArrowLeft, Plus, Trash2, Loader2, Save, Send, Phone, Mail } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Loader2, Save, Send, Phone, Mail, EyeOff } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
@@ -59,8 +59,6 @@ export default function CreateInvoicePage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // Auto-fill contact details when client selected
-  // With allowCustom, the value may be an existing customer ID or a new typed name
   function handleClientChange(value: string) {
     const c = customers.find(c => c.id === value);
     if (c) {
@@ -69,7 +67,6 @@ export default function CreateInvoicePage() {
       setContactEmail(c.email || "");
       setContactPhone(c.phone || "");
     } else {
-      // Custom name typed — no existing customer matches
       setCustomerId("");
       setNewClientName(value);
       setContactEmail("");
@@ -102,6 +99,7 @@ export default function CreateInvoicePage() {
   }
 
   const subtotal = useMemo(() => items.reduce((s, i) => s + i.quantity * i.unit_price, 0), [items]);
+  const totalCost = useMemo(() => items.reduce((s, i) => s + i.quantity * i.cost, 0), [items]);
   const taxAmount = useMemo(() => subtotal * (parseFloat(taxRate || "0") / 100), [subtotal, taxRate]);
   const total = subtotal + taxAmount;
 
@@ -119,7 +117,6 @@ export default function CreateInvoicePage() {
     try {
       const customer = customers.find(c => c.id === customerId);
       const customerName = customer?.name || newClientName.trim();
-      // Use override contact details if filled
       const emailToUse = contactEmail || customer?.email || null;
       const phoneToUse = contactPhone || customer?.phone || null;
 
@@ -179,8 +176,6 @@ export default function CreateInvoicePage() {
     }
   }
 
-
-
   if (loading) return (
     <div className="flex items-center justify-center min-h-[60vh]">
       <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -194,10 +189,9 @@ export default function CreateInvoicePage() {
       </button>
       <h1 className="text-xl font-bold">Create Invoice</h1>
 
-      {/* ── CLIENT ── */}
+      {/* CLIENT */}
       <section className="rounded-2xl border bg-card p-4 space-y-3">
         <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Client</h2>
-
         <div>
           <Label className="text-xs mb-1.5 block">Select client *</Label>
           <SearchableSelect
@@ -212,37 +206,23 @@ export default function CreateInvoicePage() {
             <p className="text-xs text-muted-foreground mt-1">Type a name to add a new client, or add details in the Clients section.</p>
           )}
         </div>
-
-        {/* Contact details — auto-filled, editable */}
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label className="text-xs mb-1.5 flex items-center gap-1.5 block">
               <Mail className="h-3 w-3" /> Email
             </Label>
-            <Input
-              type="email"
-              placeholder="client@email.com"
-              value={contactEmail}
-              onChange={e => setContactEmail(e.target.value)}
-              className="h-9 text-sm"
-            />
+            <Input type="email" placeholder="client@email.com" value={contactEmail} onChange={e => setContactEmail(e.target.value)} className="h-9 text-sm" />
           </div>
           <div>
             <Label className="text-xs mb-1.5 flex items-center gap-1.5 block">
               <Phone className="h-3 w-3" /> Phone / WhatsApp
             </Label>
-            <Input
-                type="tel"
-                placeholder="+265..."
-                value={contactPhone}
-                onChange={e => setContactPhone(e.target.value)}
-                className="h-9 text-sm"
-              />
+            <Input type="tel" placeholder="+265..." value={contactPhone} onChange={e => setContactPhone(e.target.value)} className="h-9 text-sm" />
           </div>
         </div>
       </section>
 
-      {/* ── DATES ── */}
+      {/* DATES */}
       <section className="rounded-2xl border bg-card p-4">
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -256,15 +236,11 @@ export default function CreateInvoicePage() {
         </div>
       </section>
 
-      {/* ── LINE ITEMS ── */}
+      {/* LINE ITEMS */}
       <section className="rounded-2xl border bg-card p-4 space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Line Items</h2>
-          <button
-            type="button"
-            onClick={addLineItem}
-            className="flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700"
-          >
+          <button type="button" onClick={addLineItem} className="flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700">
             <Plus className="h-3.5 w-3.5" /> Add item
           </button>
         </div>
@@ -300,21 +276,15 @@ export default function CreateInvoicePage() {
             <div className="grid grid-cols-3 gap-2">
               <div>
                 <Label className="text-xs text-muted-foreground mb-1 block">Qty</Label>
-                <Input
-                  type="number" min="0.01" step="any"
-                  value={item.quantity}
+                <Input type="number" min="0.01" step="any" value={item.quantity}
                   onChange={e => updateItem(item.id, "quantity", parseFloat(e.target.value) || 0)}
-                  className="h-9 text-sm"
-                />
+                  className="h-9 text-sm" />
               </div>
               <div>
                 <Label className="text-xs text-muted-foreground mb-1 block">Unit price</Label>
-                <Input
-                  type="number" min="0" step="any"
-                  value={item.unit_price}
+                <Input type="number" min="0" step="any" value={item.unit_price}
                   onChange={e => updateItem(item.id, "unit_price", parseFloat(e.target.value) || 0)}
-                  className="h-9 text-sm"
-                />
+                  className="h-9 text-sm" />
               </div>
               <div>
                 <Label className="text-xs text-muted-foreground mb-1 block">Total</Label>
@@ -323,36 +293,46 @@ export default function CreateInvoicePage() {
                 </div>
               </div>
             </div>
+
+            {/* Cost field — not shown to client, for profit tracking */}
+            <div className="flex items-center gap-2">
+              <div className="flex-1">
+                <Label className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
+                  <EyeOff className="h-3 w-3" /> Cost per unit <span className="text-muted-foreground/60">(internal, not on invoice)</span>
+                </Label>
+                <Input type="number" min="0" step="any" value={item.cost}
+                  onChange={e => updateItem(item.id, "cost", parseFloat(e.target.value) || 0)}
+                  className="h-9 text-sm" placeholder="0.00" />
+              </div>
+              <div className="w-32 pt-5">
+                <div className="h-9 rounded-lg border bg-muted/30 flex items-center px-3 text-xs text-muted-foreground">
+                  Profit: <span className="font-semibold text-emerald-600 ml-1">
+                    {formatCurrency((item.unit_price - item.cost) * item.quantity, currency)}
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
         ))}
       </section>
 
-      {/* ── TAX + NOTES ── */}
+      {/* TAX + NOTES */}
       <section className="rounded-2xl border bg-card p-4 space-y-3">
         <div className="grid grid-cols-2 gap-3">
           <div>
             <Label className="text-xs mb-1.5 block">Tax rate (%)</Label>
-            <Input
-              type="number" min="0" max="100" step="0.1"
-              value={taxRate}
-              onChange={e => setTaxRate(e.target.value)}
-              className="h-9 text-sm"
-            />
+            <Input type="number" min="0" max="100" step="0.1" value={taxRate}
+              onChange={e => setTaxRate(e.target.value)} className="h-9 text-sm" />
           </div>
           <div>
             <Label className="text-xs mb-1.5 block">Notes</Label>
-            <Textarea
-              placeholder="Payment terms, thank you note…"
-              value={notes}
-              onChange={e => setNotes(e.target.value)}
-              rows={2}
-              className="text-sm resize-none"
-            />
+            <Textarea placeholder="Payment terms, thank you note…" value={notes}
+              onChange={e => setNotes(e.target.value)} rows={2} className="text-sm resize-none" />
           </div>
         </div>
       </section>
 
-      {/* ── TOTALS ── */}
+      {/* TOTALS */}
       <section className="rounded-2xl border bg-card p-4 space-y-2">
         <div className="flex justify-between text-sm">
           <span className="text-muted-foreground">Subtotal</span>
@@ -364,29 +344,37 @@ export default function CreateInvoicePage() {
             <span className="font-medium">{formatCurrency(taxAmount, currency)}</span>
           </div>
         )}
+        {totalCost > 0 && (
+          <div className="flex justify-between text-sm">
+            <span className="text-muted-foreground flex items-center gap-1">
+              <EyeOff className="h-3 w-3" /> Total Cost (internal)
+            </span>
+            <span className="font-medium text-rose-500">{formatCurrency(totalCost, currency)}</span>
+          </div>
+        )}
+        {totalCost > 0 && (
+          <div className="flex justify-between text-sm">
+            <span className="text-muted-foreground flex items-center gap-1">
+              <EyeOff className="h-3 w-3" /> Projected Profit
+            </span>
+            <span className="font-medium text-emerald-600">{formatCurrency(subtotal - totalCost, currency)}</span>
+          </div>
+        )}
         <div className="flex justify-between font-bold text-base border-t pt-2">
           <span>Total</span>
           <span className="text-indigo-600">{formatCurrency(total, currency)}</span>
         </div>
       </section>
 
-      {/* ── ACTION BUTTONS ── fixed at bottom */}
+      {/* ACTION BUTTONS */}
       <div className="fixed bottom-0 left-0 right-0 px-3 pt-3 pb-[calc(0.75rem+56px+env(safe-area-inset-bottom))] bg-background border-t flex gap-2 z-50">
-        <button
-          type="button"
-          onClick={() => saveInvoice("draft")}
-          disabled={saving !== null}
-          className="flex-1 h-11 rounded-xl border border-gray-200 bg-white flex items-center justify-center gap-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-        >
+        <button type="button" onClick={() => saveInvoice("draft")} disabled={saving !== null}
+          className="flex-1 h-11 rounded-xl border border-gray-200 bg-white flex items-center justify-center gap-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50">
           {saving === "draft" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
           Save Draft
         </button>
-        <button
-          type="button"
-          onClick={() => saveInvoice("sent")}
-          disabled={saving !== null}
-          className="flex-1 h-11 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center gap-2 text-sm font-semibold disabled:opacity-50"
-        >
+        <button type="button" onClick={() => saveInvoice("sent")} disabled={saving !== null}
+          className="flex-1 h-11 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center gap-2 text-sm font-semibold disabled:opacity-50">
           {saving === "send" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           Create & Send
         </button>
@@ -394,4 +382,3 @@ export default function CreateInvoicePage() {
     </div>
   );
 }
-

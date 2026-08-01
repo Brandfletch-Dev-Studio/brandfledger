@@ -4,7 +4,7 @@ import { Header } from "@/components/layout/header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
 import { formatCurrency, formatCurrencyFull } from "@/lib/utils";
 import { Download, TrendingUp, TrendingDown, DollarSign, Loader2, BarChart3, Package } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -68,8 +68,8 @@ export default function ReportsPage() {
         <div className="flex items-center gap-3">
           <span className="text-sm text-muted-foreground">Period:</span>
           <Select value={period} onValueChange={setPeriod}>
-            <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
-            <SelectContent>
+            <SelectTrigger className="w-40 bg-white"><SelectValue /></SelectTrigger>
+            <SelectContent className="bg-white">
               <SelectItem value="3">Last 3 months</SelectItem>
               <SelectItem value="6">Last 6 months</SelectItem>
               <SelectItem value="12">Last 12 months</SelectItem>
@@ -99,23 +99,30 @@ export default function ReportsPage() {
           </CardContent></Card>
         </div>
 
-        {/* Monthly chart */}
+        {/* Trend chart — line/area chart */}
         <Card className="shadow-sm">
           <CardContent className="p-4 sm:p-6">
-            <h3 className="text-sm font-semibold mb-4">Revenue vs Expenses</h3>
+            <h3 className="text-sm font-semibold mb-4">Revenue vs Expenses — Trend</h3>
             {monthlyData.length > 0 ? (
               <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={monthlyData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => formatCurrency(v, currency)} />
-                  <Tooltip
-                    formatter={(v: any) => formatCurrencyFull(v, currency)}
-                    contentStyle={{ fontSize: 12 }}
-                  />
-                  <Bar dataKey="revenue" fill="#22c55e" name="Revenue" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="expenses" fill="#ef4444" name="Expenses" radius={[4, 4, 0, 0]} />
-                </BarChart>
+                <AreaChart data={monthlyData} margin={{ left: -10, right: 8, top: 5 }}>
+                  <defs>
+                    <linearGradient id="reportRevGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="reportExpGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#ef4444" stopOpacity={0.25} />
+                      <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" className="opacity-40" vertical={false} />
+                  <XAxis dataKey="month" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => formatCurrency(v, currency)} width={72} />
+                  <Tooltip formatter={(v: any) => formatCurrencyFull(v, currency)} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                  <Area type="monotone" dataKey="revenue" stroke="#22c55e" strokeWidth={2} fill="url(#reportRevGrad)" name="Revenue" dot={{ r: 3 }} />
+                  <Area type="monotone" dataKey="expenses" stroke="#ef4444" strokeWidth={2} fill="url(#reportExpGrad)" name="Expenses" dot={{ r: 3 }} />
+                </AreaChart>
               </ResponsiveContainer>
             ) : (
               <p className="text-sm text-muted-foreground text-center py-8">No data for this period</p>
