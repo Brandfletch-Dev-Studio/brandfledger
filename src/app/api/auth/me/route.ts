@@ -37,26 +37,31 @@ export async function GET(request: Request) {
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
   try {
-    // Fetch user via Supabase Auth Admin API
-    const userRes = await fetch(`${supabaseUrl}/auth/v1/admin/users/${session.userId}`, {
-      headers: {
-        "apikey": serviceKey,
-        "Authorization": `Bearer ${serviceKey}`,
-      },
-    });
+    // Fetch user from profiles table (replaces fragile auth.admin API)
+    const profileRes = await fetch(
+      `${supabaseUrl}/rest/v1/profiles?id=eq.${session.userId}&select=id,email,full_name,subscription_status,plan,trial_ends_at,subscription_ends_at&limit=1`,
+      { headers: { "apikey": serviceKey, "Authorization": `Bearer ${serviceKey}` } }
+    );
 
-    if (!userRes.ok) {
+    if (!profileRes.ok) {
       return NextResponse.json({ authenticated: false }, { status: 401 });
     }
 
-    const userData = await userRes.json();
+    const profileData = (await profileRes.json())[0];
+    if (!profileData) {
+      return NextResponse.json({ authenticated: false }, { status: 401 });
+    }
 
     return NextResponse.json({
       authenticated: true,
       user: {
-        id: userData.id,
-        email: userData.email,
-        fullName: userData.user_metadata?.full_name || "",
+        id: profileData.id,
+        email: profileData.email,
+        fullName: profileData.full_name || "",
+        subscription_status: profileData.subscription_status,
+        plan: profileData.plan,
+        trial_ends_at: profileData.trial_ends_at,
+        subscription_ends_at: profileData.subscription_ends_at,
       },
     });
   } catch {

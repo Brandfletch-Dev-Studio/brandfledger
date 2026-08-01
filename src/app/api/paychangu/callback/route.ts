@@ -60,12 +60,12 @@ export async function GET(req: NextRequest) {
 
         if (biz?.owner_id) {
           await supabase
-            .from("accounts")
+            .from("profiles")
             .update({
               subscription_status: "active",
               subscription_ends_at: endDate,
             })
-            .eq("user_id", biz.owner_id);
+            .eq("id", biz.owner_id);
         }
 
         return NextResponse.redirect(

@@ -26,11 +26,11 @@ async function activateSubscription(sub: any) {
   const { data: biz } = await supabase
     .from("businesses").select("owner_id").eq("id", sub.business_id).maybeSingle();
   if (biz?.owner_id) {
-    await supabase.from("accounts").update({
+    await supabase.from("profiles").update({
       subscription_status: "active",
       subscription_ends_at: endDate,
       updated_at: new Date().toISOString(),
-    }).eq("user_id", biz.owner_id);
+    }).eq("id", biz.owner_id);
   }
 }
 

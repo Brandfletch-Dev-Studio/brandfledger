@@ -10,27 +10,14 @@ function isAdmin(user: { email: string }) {
 }
 
 async function getUsersMap() {
+  // Use profiles table directly — no more fragile auth.admin API
+  const { data: profiles, error } = await supabase
+    .from('profiles')
+    .select('id, email, full_name');
+  if (error || !profiles) return {};
   const map: Record<string, { email: string; name: string }> = {};
-  let page = 1;
-  const perPage = 1000;
-  while (true) {
-    const { data: usersData, error } = await supabase.auth.admin.listUsers({ page, perPage });
-    if (error || !usersData?.users?.length) break;
-    for (const u of usersData.users) {
-      const meta = (u.user_metadata as any) || {};
-      const uAny = u as any;
-      // Try every possible key Supabase or OAuth providers might use
-      const name =
-        meta.full_name ||
-        meta.name ||
-        uAny.raw_user_meta_data?.full_name ||
-        uAny.raw_user_meta_data?.name ||
-        u.email?.split("@")[0] ||
-        "";
-      map[u.id] = { email: u.email || "", name };
-    }
-    if (usersData.users.length < perPage) break;
-    page++;
+  for (const p of profiles) {
+    map[p.id] = { email: p.email || "", name: p.full_name || p.email?.split("@")[0] || "" };
   }
   return map;
 }
@@ -50,10 +37,10 @@ export async function GET(request: Request) {
       const sevenDaysAgo = new Date(now.getTime() - 7 * 86400_000).toISOString();
 
       const [accounts, businesses, subscriptions, expiredAccounts] = await Promise.all([
-        supabase.from('accounts').select('*'),
+        supabase.from('profiles').select('*'),
         supabase.from('businesses').select('id, owner_id, created_at').gte('created_at', thirtyDaysAgo),
         supabase.from('subscriptions').select('plan, amount, status').eq('status', 'active'),
-        supabase.from('accounts').select('*').eq('subscription_status', 'expired').gte('updated_at', sevenDaysAgo),
+        supabase.from('profiles').select('*').eq('subscription_status', 'expired').gte('updated_at', sevenDaysAgo),
       ]);
 
       const accountList = accounts.data || [];
@@ -75,8 +62,8 @@ export async function GET(request: Request) {
 
       // Pending renewals: active subs expiring in next 7 days
       const { data: activeAccounts } = await supabase
-        .from('accounts')
-        .select('user_id, subscription_ends_at')
+        .from('profiles')
+        .select('id, subscription_ends_at')
         .eq('subscription_status', 'active')
         .not('subscription_ends_at', 'is', null);
 
@@ -88,17 +75,17 @@ export async function GET(request: Request) {
           return ends > now && ends <= new Date(now.getTime() + 7 * 86400_000);
         })
         .map(a => ({
-          user_id: a.user_id,
-          email: usersMap[a.user_id]?.email || "",
-          name: usersMap[a.user_id]?.name || "",
+          user_id: a.id,
+          email: usersMap[a.id]?.email || "",
+          name: usersMap[a.id]?.name || "",
           subscription_ends_at: a.subscription_ends_at,
           days_left: Math.ceil((new Date(a.subscription_ends_at!).getTime() - now.getTime()) / 86400000),
         }));
 
       const recentExpired = (expiredAccounts.data || []).map(a => ({
-        user_id: a.user_id,
-        email: usersMap[a.user_id]?.email || "",
-        name: usersMap[a.user_id]?.name || "",
+        user_id: a.id,
+        email: usersMap[a.id]?.email || "",
+        name: usersMap[a.id]?.name || "",
         trial_ends_at: a.trial_ends_at,
         updated_at: a.updated_at,
       }));
@@ -144,7 +131,7 @@ export async function GET(request: Request) {
 
     if (section === "users") {
       const [accounts, businesses] = await Promise.all([
-        supabase.from('accounts').select('*'),
+        supabase.from('profiles').select('*'),
         supabase.from('businesses').select('id, owner_id, name, created_at').order('created_at', { ascending: false }),
       ]);
 
@@ -155,7 +142,7 @@ export async function GET(request: Request) {
       }
 
       const users = (accounts.data || []).map(a => {
-        const biz = bizByOwner[a.user_id];
+        const biz = bizByOwner[a.id];
         const now = new Date();
 
         // Calculate subscription duration
@@ -180,9 +167,9 @@ export async function GET(request: Request) {
         }
 
         return {
-          user_id: a.user_id,
-          email: usersMap[a.user_id]?.email || "",
-          name: usersMap[a.user_id]?.name || "",
+          user_id: a.id,
+          email: usersMap[a.id]?.email || "",
+          name: usersMap[a.id]?.name || "",
           subscription_status: a.subscription_status || "trial",
           trial_ends_at: a.trial_ends_at,
           subscription_ends_at: a.subscription_ends_at,
@@ -205,13 +192,13 @@ export async function GET(request: Request) {
     if (section === "businesses") {
       const [businesses, accounts] = await Promise.all([
         supabase.from('businesses').select('id, name, currency, created_at, owner_id').order('created_at', { ascending: false }),
-        supabase.from('accounts').select('user_id, subscription_status, trial_ends_at, subscription_ends_at'),
+        supabase.from('profiles').select('id, subscription_status, trial_ends_at, subscription_ends_at'),
       ]);
 
       const usersMap = await getUsersMap();
       const acctMap: Record<string, any> = {};
       for (const a of (accounts.data || [])) {
-        acctMap[a.user_id] = a;
+        acctMap[a.id] = a;
       }
 
       // Get counts per business
@@ -385,15 +372,15 @@ export async function PUT(request: Request) {
 
     if (action === "extend_trial") {
       const { user_id, days } = data;
-      const { data: account } = await supabase.from('accounts').select('trial_ends_at').eq('user_id', user_id).maybeSingle();
+      const { data: account } = await supabase.from('profiles').select('trial_ends_at').eq('id', user_id).maybeSingle();
       const currentEnd = account?.trial_ends_at ? new Date(account.trial_ends_at) : new Date();
       const baseDate = currentEnd > new Date() ? currentEnd : new Date();
       const newEnd = new Date(baseDate.getTime() + days * 86400000).toISOString();
-      await supabase.from('accounts').update({
+      await supabase.from('profiles').update({
         trial_ends_at: newEnd,
         subscription_status: 'trial',
         updated_at: new Date().toISOString(),
-      }).eq('user_id', user_id);
+      }).eq('id', user_id);
       return NextResponse.json({ success: true });
     }
 

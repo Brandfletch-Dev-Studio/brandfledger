@@ -6,12 +6,15 @@ export const runtime = "nodejs";
 
 export async function POST() {
   try {
-    // Get the user ID for geniuspulse22@gmail.com
-    const { data: userData, error: userErr } = await supabase.auth.admin.listUsers();
-    if (userErr) throw userErr;
-
-    const targetUser = userData?.users?.find(u => u.email === "geniuspulse22@gmail.com");
-    const userId = targetUser?.id;
+    // Get the user ID for geniuspulse22@gmail.com from profiles
+    const { data: profile, error: profileErr } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("email", "geniuspulse22@gmail.com")
+      .limit(1)
+      .maybeSingle();
+    if (profileErr) throw profileErr;
+    const userId = profile?.id;
 
     if (!userId) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });

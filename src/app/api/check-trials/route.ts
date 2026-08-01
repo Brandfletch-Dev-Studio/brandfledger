@@ -17,8 +17,8 @@ export async function GET(request: Request) {
 
     // 1. Find accounts where trial is about to expire (1, 3, 5 days out) — send reminders
     const { data: accounts, error: accountsErr } = await supabase
-      .from("accounts")
-      .select("user_id, trial_ends_at")
+      .from("profiles")
+      .select("id, email, full_name, trial_ends_at")
       .eq("subscription_status", "trial")
       .gt("trial_ends_at", nowStr);
 
@@ -33,23 +33,16 @@ export async function GET(request: Request) {
 
     const warningRows = [];
     for (const acc of matchingAccounts) {
-      try {
-        const { data: userData, error: userErr } = await supabase.auth.admin.getUserById(acc.user_id);
-        if (!userErr && userData?.user) {
-          const user = userData.user;
-          const fullName = user.user_metadata?.full_name || null;
-          const email = user.email;
-          const trialEnds = new Date(acc.trial_ends_at);
-          const daysLeft = Math.floor((trialEnds.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-          warningRows.push({
-            user_id: acc.user_id,
-            email,
-            full_name: fullName,
-            trial_ends_at: acc.trial_ends_at,
-            days_left: daysLeft
-          });
-        }
-      } catch {}
+      // Profile already has email and full_name — no need for auth.admin API
+      const trialEnds = new Date(acc.trial_ends_at);
+      const daysLeft = Math.floor((trialEnds.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+      warningRows.push({
+        user_id: acc.id,
+        email: acc.email,
+        full_name: acc.full_name || null,
+        trial_ends_at: acc.trial_ends_at,
+        days_left: daysLeft
+      });
     }
 
     // Send reminder emails via Resend (if configured)
@@ -84,17 +77,17 @@ export async function GET(request: Request) {
 
     // 2. Expire accounts whose trial has ended
     const { data: expired, error: expireErr } = await supabase
-      .from("accounts")
+      .from("profiles")
       .update({ subscription_status: "expired", updated_at: nowStr })
       .eq("subscription_status", "trial")
       .lt("trial_ends_at", nowStr)
-      .select("user_id");
+      .select("id");
 
     if (expireErr) throw expireErr;
 
     // 3. Expire active subscriptions that have run out
     const { error: activeExpireErr } = await supabase
-      .from("accounts")
+      .from("profiles")
       .update({ subscription_status: "expired", updated_at: nowStr })
       .eq("subscription_status", "active")
       .not("subscription_ends_at", "is", null)

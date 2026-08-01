@@ -11,49 +11,39 @@ export async function GET() {
 
     // Fetch from accounts table (one row per user)
     let { data: account, error: accError } = await supabase
-      .from('accounts')
+      .from('profiles')
       .select('subscription_status, trial_ends_at, subscription_ends_at, plan')
-      .eq('user_id', user.userId)
+      .eq('id', user.userId)
       .maybeSingle();
     if (accError) throw accError;
 
-    // If no account row exists yet, auto-create it (handles legacy users)
+    // If no profile row exists yet, create a default trial (safety net)
     if (!account) {
-      // Check if user has a business with trial info
-      const { data: bizRows, error: bizError } = await supabase
-        .from('businesses')
-        .select('subscription_status, trial_ends_at, subscription_ends_at')
-        .eq('owner_id', user.userId)
-        .order('created_at', { ascending: true })
-        .limit(1);
-      if (bizError) throw bizError;
-      
-      const biz = bizRows && bizRows.length > 0 ? bizRows[0] : null;
-      const status = biz?.subscription_status || "trial";
-      const trialEndsAt = biz?.trial_ends_at || new Date(Date.now() + 14 * 86400_000).toISOString();
-
+      const trialEndsAt = new Date(Date.now() + 14 * 86400_000).toISOString();
       const { error: insertError } = await supabase
-        .from('accounts')
+        .from('profiles')
         .insert({
-          user_id: user.userId,
-          subscription_status: status,
+          id: user.userId,
+          email: user.email,
+          subscription_status: 'trial',
           trial_ends_at: trialEndsAt,
-          subscription_ends_at: biz?.subscription_ends_at || null
         });
-
-      // Ignore unique constraint violation (conflict)
       if (insertError && insertError.code !== '23505') {
-        throw insertError;
+        // Profile might have been created by trigger — try fetching again
+        const { data: refetched } = await supabase
+          .from('profiles')
+          .select('subscription_status, trial_ends_at, subscription_ends_at, plan')
+          .eq('id', user.userId)
+          .maybeSingle();
+        account = refetched;
+      } else {
+        const { data: refetched } = await supabase
+          .from('profiles')
+          .select('subscription_status, trial_ends_at, subscription_ends_at, plan')
+          .eq('id', user.userId)
+          .maybeSingle();
+        account = refetched;
       }
-
-      const { data: refetchedAccount, error: refetchError } = await supabase
-        .from('accounts')
-        .select('subscription_status, trial_ends_at, subscription_ends_at, plan')
-        .eq('user_id', user.userId)
-        .maybeSingle();
-      if (refetchError) throw refetchError;
-      
-      account = refetchedAccount;
     }
 
     if (!account) {

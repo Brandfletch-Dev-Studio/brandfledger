@@ -54,7 +54,7 @@ export async function POST(request: Request) {
       // RPC not available — do a raw SQL check via the management API pattern
       // by querying the REST endpoint for auth.users (service role can see it)
       const rawCheck = await fetch(
-        `${supabaseUrl}/rest/v1/accounts?select=user_id&limit=1`,
+        `${supabaseUrl}/rest/v1/profiles?select=id&email=eq.${encodeURIComponent(normalizedEmail)}&limit=1`,
         {
           headers: {
             "apikey": serviceKey,
@@ -107,24 +107,9 @@ export async function POST(request: Request) {
     const userId = userData.id;
     const userEmail = userData.email;
 
-    // ── 2. Create account record ──────────────────────────────────────────────
-    const now = new Date().toISOString();
-    const trialEnds = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
-
-    await fetch(`${supabaseUrl}/rest/v1/accounts`, {
-      method: "POST",
-      headers: {
-        "apikey": serviceKey,
-        "Authorization": `Bearer ${serviceKey}`,
-        "Content-Type": "application/json",
-        "Prefer": "return=minimal",
-      },
-      body: JSON.stringify({
-        user_id: userId,
-        subscription_status: "trial",
-        trial_ends_at: trialEnds,
-      }),
-    });
+    // ── 2. Profile auto-created by on_auth_user_created trigger ─────────────────
+    // The trigger inserts a profiles row with subscription_status='trial'
+    // and trial_ends_at = now() + 14 days. No manual insert needed.
 
     // ── 3. Create business if provided ────────────────────────────────────────
     if (businessName) {
