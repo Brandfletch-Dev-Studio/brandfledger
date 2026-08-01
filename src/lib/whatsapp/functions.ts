@@ -892,6 +892,195 @@ async function getBusinessSnapshot(ctx: FunctionContext) {
 // WRITE FUNCTIONS (only called via executePendingAction after confirmation)
 // ============================================================
 
+// ============================================================
+// ADDITIONAL WRITE FUNCTIONS — mirror web app capabilities
+// ============================================================
+
+async function createCustomer(ctx: FunctionContext, args: { name: string; email?: string; phone?: string; address?: string; notes?: string }) {
+  if (!args.name) return { error: "Customer name is required" };
+  // Check for existing (case-insensitive, trimmed)
+  const { data: existing } = await supabase
+    .from("customers")
+    .select("id, name")
+    .eq("business_id", ctx.business_id)
+    .ilike("name", args.name.trim());
+  if (existing && existing.length > 0) {
+    return { error: "A customer with this name already exists", existing_customer: existing[0] };
+  }
+  const { data, error } = await supabase
+    .from("customers")
+    .insert({
+      business_id: ctx.business_id,
+      name: args.name.trim(),
+      email: args.email || null,
+      phone: args.phone || null,
+      address: args.address || null,
+      notes: args.notes || null,
+    })
+    .select("id, name")
+    .single();
+  if (error) return { error: error.message };
+  return { success: true, customer: data };
+}
+
+async function createProduct(ctx: FunctionContext, args: { name: string; price: number; cost?: number; category?: string; unit?: string; description?: string }) {
+  if (!args.name) return { error: "Product name is required" };
+  if (args.price === undefined || args.price < 0) return { error: "Price is required" };
+  const { data, error } = await supabase
+    .from("products")
+    .insert({
+      business_id: ctx.business_id,
+      name: args.name.trim(),
+      price: args.price,
+      cost: args.cost || 0,
+      category: args.category || null,
+      unit: args.unit || null,
+      description: args.description || null,
+      is_active: true,
+    })
+    .select("id, name, price, cost")
+    .single();
+  if (error) return { error: error.message };
+  return { success: true, product: data };
+}
+
+async function updateProduct(ctx: FunctionContext, args: { product_id: string; name?: string; price?: number; cost?: number; category?: string; is_active?: boolean }) {
+  if (!args.product_id) return { error: "Product ID is required" };
+  const updates: any = {};
+  if (args.name !== undefined) updates.name = args.name.trim();
+  if (args.price !== undefined) updates.price = args.price;
+  if (args.cost !== undefined) updates.cost = args.cost;
+  if (args.category !== undefined) updates.category = args.category;
+  if (args.is_active !== undefined) updates.is_active = args.is_active;
+  if (Object.keys(updates).length === 0) return { error: "No updates provided" };
+  const { data, error } = await supabase
+    .from("products")
+    .update(updates)
+    .eq("id", args.product_id)
+    .eq("business_id", ctx.business_id)
+    .select("id, name, price")
+    .maybeSingle();
+  if (error) return { error: error.message };
+  if (!data) return { error: "Product not found" };
+  return { success: true, product: data };
+}
+
+async function deleteTransaction(ctx: FunctionContext, args: { transaction_id: string }) {
+  if (!args.transaction_id) return { error: "Transaction ID is required" };
+  const { data: tx, error: txErr } = await supabase
+    .from("transactions")
+    .select("id, type, amount, client_name, description")
+    .eq("id", args.transaction_id)
+    .eq("business_id", ctx.business_id)
+    .maybeSingle();
+  if (txErr) return { error: txErr.message };
+  if (!tx) return { error: "Transaction not found" };
+  const { error: delErr } = await supabase
+    .from("transactions")
+    .delete()
+    .eq("id", args.transaction_id)
+    .eq("business_id", ctx.business_id);
+  if (delErr) return { error: delErr.message };
+  return { success: true, deleted: tx };
+}
+
+async function markInvoiceSent(ctx: FunctionContext, args: { invoice_id: string }) {
+  if (!args.invoice_id) return { error: "Invoice ID is required" };
+  const { data, error } = await supabase
+    .from("invoices")
+    .update({ status: "sent", updated_at: new Date().toISOString() })
+    .eq("id", args.invoice_id)
+    .eq("business_id", ctx.business_id)
+    .select("id, invoice_number, status")
+    .maybeSingle();
+  if (error) return { error: error.message };
+  if (!data) return { error: "Invoice not found" };
+  return { success: true, invoice: data };
+}
+
+async function deleteInvoice(ctx: FunctionContext, args: { invoice_id: string }) {
+  if (!args.invoice_id) return { error: "Invoice ID is required" };
+  const { data: inv, error: invErr } = await supabase
+    .from("invoices")
+    .select("id, invoice_number, status")
+    .eq("id", args.invoice_id)
+    .eq("business_id", ctx.business_id)
+    .maybeSingle();
+  if (invErr) return { error: invErr.message };
+  if (!inv) return { error: "Invoice not found" };
+  if (inv.status === "paid") return { error: "Cannot delete a paid invoice — use the web app to reverse it" };
+  // Delete linked payments first
+  await supabase.from("payments").delete().eq("invoice_id", args.invoice_id).eq("business_id", ctx.business_id);
+  await supabase.from("invoice_payments").delete().eq("invoice_id", args.invoice_id);
+  const { error } = await supabase
+    .from("invoices")
+    .delete()
+    .eq("id", args.invoice_id)
+    .eq("business_id", ctx.business_id);
+  if (error) return { error: error.message };
+  return { success: true, deleted: inv };
+}
+
+// ── NEW READ FUNCTIONS ─────────────────────────────────────────────────────
+
+async function getBusinessProfile(ctx: FunctionContext) {
+  const { data } = await supabase
+    .from("businesses")
+    .select("name, email, phone, address, website, currency, invoice_prefix, business_type, tax_id, cost_rate, cost_rate_label")
+    .eq("id", ctx.business_id)
+    .maybeSingle();
+  if (!data) return { error: "Business not found" };
+  return { business: data };
+}
+
+async function getReportsData(ctx: FunctionContext, args: { months?: number }) {
+  const months = Math.min(args.months || 12, 24);
+  const now = new Date();
+  const from = new Date(now.getFullYear(), now.getMonth() - months + 1, 1);
+  const fromStr = from.toISOString().split("T")[0];
+  const today = now.toISOString().split("T")[0];
+
+  const { data } = await supabase
+    .from("transactions")
+    .select("type, amount, cost_amount, profit, date")
+    .eq("business_id", ctx.business_id)
+    .gte("date", fromStr)
+    .lte("date", today)
+    .order("date", { ascending: true });
+
+  if (!data) return { months: [], summary: { income: 0, expenses: 0, profit: 0 } };
+
+  // Group by month
+  const byMonth: Record<string, { income: number; expenses: number; profit: number }> = {};
+  for (const tx of data) {
+    const monthKey = tx.date.substring(0, 7);
+    if (!byMonth[monthKey]) byMonth[monthKey] = { income: 0, expenses: 0, profit: 0 };
+    if (tx.type === "income") {
+      byMonth[monthKey].income += Number(tx.amount);
+      byMonth[monthKey].profit += Number(tx.profit || 0);
+    } else {
+      byMonth[monthKey].expenses += Number(tx.amount);
+    }
+  }
+
+  const monthsArr = Object.entries(byMonth).map(([month, v]) => ({
+    month,
+    income: v.income,
+    expenses: v.expenses,
+    profit: v.profit,
+    net: v.income - v.expenses,
+  })).sort((a, b) => a.month.localeCompare(b.month));
+
+  return {
+    months: monthsArr,
+    summary: {
+      income: monthsArr.reduce((s, m) => s + m.income, 0),
+      expenses: monthsArr.reduce((s, m) => s + m.expenses, 0),
+      profit: monthsArr.reduce((s, m) => s + m.profit, 0),
+    },
+  };
+}
+
 export async function recordTransaction(
   ctx: FunctionContext,
   params: { type: string; amount: number; description?: string; client_name?: string; vendor_name?: string; category_name?: string; payment_method?: string; date?: string }
@@ -1061,6 +1250,12 @@ export async function executePendingAction(
     case "record_transaction": return recordTransaction(ctx, pendingData.action_params);
     case "create_invoice": return createInvoice(ctx, pendingData.action_params);
     case "record_payment": return recordPayment(ctx, pendingData.action_params);
+    case "create_customer": return createCustomer(ctx, pendingData.action_params);
+    case "create_product": return createProduct(ctx, pendingData.action_params);
+    case "update_product": return updateProduct(ctx, pendingData.action_params);
+    case "delete_transaction": return deleteTransaction(ctx, pendingData.action_params);
+    case "mark_invoice_sent": return markInvoiceSent(ctx, pendingData.action_params);
+    case "delete_invoice": return deleteInvoice(ctx, pendingData.action_params);
     default: return { error: `Unknown action type: ${pendingData.action_type}` };
   }
 }
@@ -1357,6 +1552,25 @@ export const readFunctionDefinitions = [
       },
     },
   },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_business_profile",
+      description: "Get the business profile: name, contact info, currency, invoice prefix, business type, tax ID, cost rate settings. Use when user asks about their business settings or profile.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_reports_data",
+      description: "Get monthly financial data for charts and reports — income, expenses, profit, and net per month for the last N months. Use when the user asks about trends, reports, or wants to see data over time.",
+      parameters: {
+        type: "object",
+        properties: { months: { type: "number", description: "Number of months to show (default 12, max 24)" } },
+      },
+    },
+  },
 ];
 
 // preview_action — available when there is NO pending action (phase 1)
@@ -1368,7 +1582,7 @@ export const previewActionDefinition = {
     parameters: {
       type: "object",
       properties: {
-        action_type: { type: "string", enum: ["record_transaction", "create_invoice", "record_payment"] },
+        action_type: { type: "string", enum: ["record_transaction", "create_invoice", "record_payment", "create_customer", "create_product", "update_product", "delete_transaction", "mark_invoice_sent", "delete_invoice"] },
         action_params: {
           type: "object",
           description: "The exact parameters that will be passed to the write function when confirmed",
@@ -1386,6 +1600,15 @@ export const previewActionDefinition = {
             due_date: { type: "string" },
             notes: { type: "string" },
             invoice_id: { type: "string" },
+            product_id: { type: "string" },
+            email: { type: "string" },
+            phone: { type: "string" },
+            address: { type: "string" },
+            transaction_id: { type: "string" },
+            is_active: { type: "boolean" },
+            cost: { type: "number" },
+            category: { type: "string" },
+            unit: { type: "string" },
           },
         },
         preview_text: { type: "string", description: "The formatted preview message to show the user. Include all fields clearly. End with: Reply 'confirm' to proceed or 'edit' to change." },
@@ -1440,6 +1663,8 @@ export async function executeReadFunction(
     case "get_burn_rate": return getBurnRate(ctx);
     case "get_tax_summary": return getTaxSummary(ctx, args);
     case "list_products": return listProducts(ctx, args);
+    case "get_business_profile": return getBusinessProfile(ctx);
+    case "get_reports_data": return getReportsData(ctx, args);
     default: return { error: `Unknown function: ${name}` };
   }
 }
