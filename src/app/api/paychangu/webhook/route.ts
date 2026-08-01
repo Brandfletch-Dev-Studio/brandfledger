@@ -36,25 +36,31 @@ export async function POST(req: NextRequest) {
     const payload = JSON.parse(rawBody);
     const { event, data } = payload;
 
-    if (event === "payment.success" && data?.tx_ref) {
+    if (event === "payment.success") {
+      // Paychangu may send tx_ref OR charge_id depending on payment method
+      const ref = data?.tx_ref || data?.charge_id || data?.reference;
+      if (!ref) return NextResponse.json({ received: true, matched: false });
+
       const { data: sub } = await supabase
         .from("subscriptions")
         .select("*")
-        .eq("paychangu_tx_ref", data.tx_ref)
+        .eq("paychangu_tx_ref", ref)
         .maybeSingle();
 
-      if (sub) {
+      if (sub && sub.status !== "active") {
         const endDate =
           sub.plan === "annual"
             ? new Date(Date.now() + 365 * 86400000).toISOString()
             : new Date(Date.now() + 30 * 86400000).toISOString();
+        const now = new Date().toISOString();
 
         await supabase
           .from("subscriptions")
           .update({
             status: "active",
-            paychangu_tx_id: data.tx_id || data.tx_ref,
+            paychangu_tx_id: data.tx_id || data.tx_ref || ref,
             end_date: endDate,
+            updated_at: now,
           })
           .eq("id", sub.id);
 
@@ -70,6 +76,7 @@ export async function POST(req: NextRequest) {
             .update({
               subscription_status: "active",
               subscription_ends_at: endDate,
+              updated_at: now,
             })
             .eq("id", biz.owner_id);
         }
