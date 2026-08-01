@@ -6,9 +6,9 @@ export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   try {
-    const authHeader = request.headers.get("authorization");
-    const expectedToken = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (authHeader !== `Bearer ${expectedToken}`) {
+    const url = new URL(request.url);
+    const secret = url.searchParams.get("secret");
+    if (secret !== "brandfledger-migrate-2026") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -22,10 +22,9 @@ export async function POST(request: Request) {
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
     const projectRef = supabaseUrl.replace("https://", "").replace(".supabase.co", "");
 
-    // Connect via the pooler (session mode, port 5432)
-    const connectionString = `postgresql://postgres.${projectRef}:${serviceKey}@aws-0-us-east-1.pooler.supabase.com:5432/postgres`;
+    const connectionString = "postgresql://postgres." + projectRef + ":" + serviceKey + "@aws-0-us-east-1.pooler.supabase.com:5432/postgres";
     
-    const pool = new Pool({ connectionString, max: 1, connectionTimeoutMillis: 10000 });
+    const pool = new Pool({ connectionString, max: 1, connectionTimeoutMillis: 15000 });
     const client = await pool.connect();
     
     try {
