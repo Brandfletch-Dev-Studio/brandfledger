@@ -31,11 +31,12 @@ async function getOpenAIKey(): Promise<string> {
   return process.env.OPENAI_API_KEY || "";
 }
 
-// Result of user resolution \u2014 includes subscription status for gating
+// Result of user resolution \u2014 includes subscription status and role for gating
 export interface ResolveResult {
   ctx: FunctionContext;
   subscriptionStatus: string;
   trialEndsAt: string | null;
+  memberRole: string;
 }
 
 export async function resolveUser(whatsappNumber: string): Promise<ResolveResult | null> {
@@ -44,7 +45,7 @@ export async function resolveUser(whatsappNumber: string): Promise<ResolveResult
   // Look up business_members by WhatsApp number (exact match)
   const { data: member } = await supabase
     .from("business_members")
-    .select("business_id, user_id, whatsapp_number")
+    .select("business_id, user_id, whatsapp_number, role")
     .eq("whatsapp_number", normalized)
     .maybeSingle();
 
@@ -56,7 +57,7 @@ export async function resolveUser(whatsappNumber: string): Promise<ResolveResult
     // Fallback: search all members for a normalized match
     const { data: allMembers } = await supabase
       .from("business_members")
-      .select("business_id, user_id, whatsapp_number");
+      .select("business_id, user_id, whatsapp_number, role");
     const match = allMembers?.find((m: any) => {
       const mNorm = m.whatsapp_number?.replace(/[^0-9]/g, "");
       return mNorm && mNorm === normalized;
@@ -91,6 +92,22 @@ export async function resolveUser(whatsappNumber: string): Promise<ResolveResult
     }
   }
 
+  // Get the member's role from business_members
+  let memberRole = "member";
+  if (member) {
+    memberRole = member.role || "member";
+  } else {
+    // Fallback: look up role from all members
+    const { data: allMembers } = await supabase
+      .from("business_members")
+      .select("business_id, user_id, whatsapp_number, role");
+    const match = allMembers?.find((m: any) => {
+      const mNorm = m.whatsapp_number?.replace(/[^0-9]/g, "");
+      return mNorm && mNorm === normalized;
+    });
+    if (match) memberRole = match.role || "member";
+  }
+
   return {
     ctx: {
       business_id: business.id,
@@ -99,6 +116,7 @@ export async function resolveUser(whatsappNumber: string): Promise<ResolveResult
     },
     subscriptionStatus,
     trialEndsAt,
+    memberRole,
   };
 }
 
@@ -146,7 +164,7 @@ export async function processWhatsAppMessage(
       return;
     }
 
-    const { ctx, subscriptionStatus, trialEndsAt } = resolved;
+    const { ctx, subscriptionStatus, trialEndsAt, memberRole } = resolved;
 
     // 2. Subscription gating
     const sub = checkSubscription(subscriptionStatus, trialEndsAt);
@@ -154,6 +172,10 @@ export async function processWhatsAppMessage(
       await sendWhatsAppMessage(whatsappNumber, sub.message || "Your subscription is inactive. Please visit brandfledger.com to renew.");
       return;
     }
+
+    // 2b. Role-based permission check
+    const canWrite = memberRole === "owner" || memberRole === "admin" || memberRole === "member";
+    const isReadOnly = memberRole === "viewer";
 
     // 3. Get conversation context
     let convCtx = await getContext(ctx.business_id, whatsappNumber);
@@ -169,9 +191,15 @@ export async function processWhatsAppMessage(
 
     // 3. Determine which functions are available (two-phase design)
     const hasPendingAction = !!convCtx.pending_action;
-    const availableFunctions = hasPendingAction
-      ? [...readFunctionDefinitions, executePendingActionDefinition]
-      : [...readFunctionDefinitions, previewActionDefinition];
+    let availableFunctions;
+    if (isReadOnly) {
+      // Viewers: read-only, no write tools at all
+      availableFunctions = [...readFunctionDefinitions];
+    } else if (hasPendingAction) {
+      availableFunctions = [...readFunctionDefinitions, executePendingActionDefinition];
+    } else {
+      availableFunctions = [...readFunctionDefinitions, previewActionDefinition];
+    }
 
     // 4. Build system prompt with context
     let systemPrompt = buildSystemPrompt(ctx.business_name, ctx.currency, "Africa/Blantyre");
@@ -201,6 +229,18 @@ export async function processWhatsAppMessage(
     } else {
       contextLines.push(`\n## AVAILABLE ACTIONS`);
       contextLines.push(`For any write action (recording a transaction, creating an invoice, recording a payment), you MUST call preview_action first. Never attempt to write directly. The system will not allow it.`);
+    }
+
+    // Add role info
+    contextLines.push(`\n## Your Role: ${memberRole.toUpperCase()}`);
+    if (isReadOnly) {
+      contextLines.push("You are a VIEWER. You can only read and report financial data. You CANNOT record transactions, create invoices, or record payments. If the user asks to do something you cannot, politely explain: \"As a viewer, I can only look up information. Ask an admin or the owner to make changes.\"");
+    } else if (memberRole === "member") {
+      contextLines.push("You are a MEMBER. You can record transactions, create invoices, record payments, and view all financial data.");
+    } else if (memberRole === "admin") {
+      contextLines.push("You are an ADMIN. You have full financial access — all reads and writes.");
+    } else {
+      contextLines.push("You are the OWNER. You have full access to everything.");
     }
 
     if (contextLines.length > 0) {
@@ -285,7 +325,16 @@ export async function processWhatsAppMessage(
         });
 
         if (fnName === "preview_action") {
-          // Phase 1: Store the pending action
+          // Phase 1: Store the pending action (only for non-viewers)
+          if (isReadOnly) {
+            messages.push({
+              role: "tool",
+              tool_call_id: toolCall.id,
+              content: JSON.stringify({ error: "Viewers cannot perform write actions. Ask an admin or the owner to make changes." }),
+            });
+            functionCallCount++;
+            continue;
+          }
           const { action_type, action_params, preview_text } = fnArgs;
 
           convCtx.pending_action = action_type;

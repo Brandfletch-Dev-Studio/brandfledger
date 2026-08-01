@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { BFLogo } from "@/components/bf-logo";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Users, Package, Settings, BarChart3, Receipt, Crown, X, ArrowLeftRight, Shield, FileText, Database } from "lucide-react";
+import { LayoutDashboard, Users, Package, Settings, BarChart3, Receipt, Crown, X, ArrowLeftRight, Shield, FileText, Database, UserCog } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -11,6 +11,7 @@ const navItems = [
   { href: "/invoices", label: "Invoices", icon: FileText },
   { href: "/products", label: "Products", icon: Package },
   { href: "/customers", label: "Clients", icon: Users },
+  { href: "/team", label: "Team", icon: UserCog },
   { href: "/expenses", label: "Expenses", icon: Receipt },
   { href: "/reports", label: "Reports", icon: BarChart3 },
   { href: "/subscription", label: "Pricing", icon: Crown },
