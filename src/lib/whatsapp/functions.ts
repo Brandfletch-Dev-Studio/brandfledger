@@ -333,6 +333,153 @@ async function topCustomers(ctx: FunctionContext, period?: string) {
   return { customers: Object.values(byCustomer).sort((a, b) => b.total - a.total).slice(0, 10) };
 }
 
+
+async function listRecentTransactions(ctx: FunctionContext, args: { limit?: number; type?: string; period?: string }) {
+  const limit = Math.min(args.limit || 10, 20);
+  let query = supabase
+    .from("transactions")
+    .select("id, type, amount, description, client_name, vendor_name, category_name, payment_method, date")
+    .eq("business_id", ctx.business_id)
+    .order("date", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (args.type) query = query.eq("type", args.type);
+
+  if (args.period) {
+    const { start, end } = dateRange(args.period);
+    query = query.gte("date", start).lte("date", end);
+  }
+
+  const { data } = await query;
+  return { transactions: data || [], count: data?.length || 0 };
+}
+
+async function listRecentInvoices(ctx: FunctionContext, args: { limit?: number; status?: string }) {
+  const limit = Math.min(args.limit || 10, 20);
+  let query = supabase
+    .from("invoices")
+    .select("id, invoice_number, customer_id, status, issue_date, due_date, total, amount_paid, balance_due, items")
+    .eq("business_id", ctx.business_id)
+    .order("issue_date", { ascending: false })
+    .limit(limit);
+
+  if (args.status) query = query.eq("status", args.status);
+
+  const { data: invoices } = await query;
+  if (!invoices) return { invoices: [], count: 0 };
+
+  // Enrich with customer names
+  const customerIds = [...new Set(invoices.map((i) => i.customer_id).filter(Boolean))];
+  let customerMap: Record<string, string> = {};
+  if (customerIds.length > 0) {
+    const { data: customers } = await supabase
+      .from("customers")
+      .select("id, name")
+      .in("id", customerIds);
+    customers?.forEach((c) => { customerMap[c.id] = c.name; });
+  }
+
+  return {
+    invoices: invoices.map((inv) => ({
+      id: inv.id,
+      invoice_number: inv.invoice_number,
+      customer: customerMap[inv.customer_id] || "Unknown",
+      status: inv.status,
+      issue_date: inv.issue_date,
+      due_date: inv.due_date,
+      total: inv.total,
+      amount_paid: inv.amount_paid || 0,
+      balance_due: inv.balance_due ?? inv.total,
+      item_count: Array.isArray(inv.items) ? inv.items.length : 0,
+    })),
+    count: invoices.length,
+  };
+}
+
+async function getInvoiceDetail(ctx: FunctionContext, args: { invoice_id?: string; invoice_number?: string }) {
+  let query = supabase
+    .from("invoices")
+    .select("*")
+    .eq("business_id", ctx.business_id);
+
+  if (args.invoice_id) query = query.eq("id", args.invoice_id);
+  else if (args.invoice_number) query = query.eq("invoice_number", args.invoice_number);
+  else return { error: "Provide invoice_id or invoice_number" };
+
+  const { data: inv } = await query.maybeSingle();
+  if (!inv) return { error: "Invoice not found" };
+
+  let customerName = "Unknown";
+  if (inv.customer_id) {
+    const { data: cust } = await supabase
+      .from("customers")
+      .select("name")
+      .eq("id", inv.customer_id)
+      .maybeSingle();
+    customerName = cust?.name || "Unknown";
+  }
+
+  return {
+    invoice_number: inv.invoice_number,
+    customer: customerName,
+    status: inv.status,
+    issue_date: inv.issue_date,
+    due_date: inv.due_date,
+    items: inv.items,
+    subtotal: inv.subtotal,
+    total: inv.total,
+    amount_paid: inv.amount_paid || 0,
+    balance_due: inv.balance_due ?? inv.total,
+    notes: inv.notes,
+  };
+}
+
+async function getBusinessSnapshot(ctx: FunctionContext) {
+  // All-in-one business health snapshot
+  const now = new Date();
+  const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
+  const today = now.toISOString().split("T")[0];
+
+  const [txRes, invRes, overdueRes, custRes] = await Promise.all([
+    supabase
+      .from("transactions")
+      .select("type, amount, date")
+      .eq("business_id", ctx.business_id)
+      .gte("date", thisMonthStart)
+      .lte("date", today),
+    supabase
+      .from("invoices")
+      .select("status, total, balance_due, due_date")
+      .eq("business_id", ctx.business_id),
+    supabase
+      .from("invoices")
+      .select("invoice_number, balance_due, due_date, customer_id")
+      .eq("business_id", ctx.business_id)
+      .in("status", ["sent", "partial", "overdue"])
+      .lt("due_date", today),
+    supabase
+      .from("customers")
+      .select("id", { count: "exact", head: true })
+      .eq("business_id", ctx.business_id),
+  ]);
+
+  const txs = txRes.data || [];
+  const income = sum(txs.filter((t) => t.type === "income"), "amount");
+  const expenses = sum(txs.filter((t) => t.type === "expense"), "amount");
+
+  const allInvoices = invRes.data || [];
+  const totalReceivables = sum(allInvoices.filter((i) => ["sent", "partial", "overdue"].includes(i.status)), "balance_due");
+  const paidCount = allInvoices.filter((i) => i.status === "paid").length;
+
+  return {
+    this_month: { income, expenses, net: income - expenses },
+    receivables: { total: totalReceivables, overdue_count: overdueRes.data?.length || 0 },
+    invoices: { total: allInvoices.length, paid: paidCount, outstanding: allInvoices.length - paidCount },
+    customers: { total: custRes.count || 0 },
+  };
+}
+
 // ============================================================
 // WRITE FUNCTIONS (only called via executePendingAction after confirmation)
 // ============================================================
@@ -630,6 +777,57 @@ export const readFunctionDefinitions = [
       },
     },
   },
+  {
+    type: "function" as const,
+    function: {
+      name: "list_recent_transactions",
+      description: "List the most recent transactions for the business. Use when the user asks to 'show', 'pull up', 'list', or 'see' transactions, payments, expenses, or income.",
+      parameters: {
+        type: "object",
+        properties: {
+          limit: { type: "number", description: "Number of transactions to return (default 10, max 20)" },
+          type: { type: "string", enum: ["income", "expense"], description: "Filter by transaction type" },
+          period: { type: "string", enum: ["today", "yesterday", "this_month", "last_month", "this_week", "last_week", "this_year"], description: "Filter by time period" },
+        },
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "list_recent_invoices",
+      description: "List the most recent invoices for the business. Use when the user asks to see, show, or list invoices.",
+      parameters: {
+        type: "object",
+        properties: {
+          limit: { type: "number", description: "Number of invoices to return (default 10, max 20)" },
+          status: { type: "string", enum: ["draft", "sent", "partial", "paid", "overdue"], description: "Filter by invoice status" },
+        },
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_invoice_detail",
+      description: "Get full details of a specific invoice by number or ID.",
+      parameters: {
+        type: "object",
+        properties: {
+          invoice_id: { type: "string", description: "The invoice UUID" },
+          invoice_number: { type: "string", description: "The invoice number (e.g. INV-2026-0001)" },
+        },
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_business_snapshot",
+      description: "Get a full business health snapshot: this month income/expenses, total receivables, invoice stats, and customer count. Use when the user asks 'how is business?', 'what's going on?', or wants a general overview.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
 ];
 
 // preview_action — available when there is NO pending action (phase 1)
@@ -699,6 +897,10 @@ export async function executeReadFunction(
     case "analyze_cash_flow": return analyzeCashFlow(ctx);
     case "compare_periods": return comparePeriods(ctx, args.period1, args.period2);
     case "top_customers": return topCustomers(ctx, args.period);
+    case "list_recent_transactions": return listRecentTransactions(ctx, args);
+    case "list_recent_invoices": return listRecentInvoices(ctx, args);
+    case "get_invoice_detail": return getInvoiceDetail(ctx, args);
+    case "get_business_snapshot": return getBusinessSnapshot(ctx);
     default: return { error: `Unknown function: ${name}` };
   }
 }
