@@ -269,13 +269,25 @@ export async function GET(request: Request) {
       const { data } = await supabase
         .from('platform_settings')
         .select('key, value')
-        .in('key', ['paychangu_configured', 'resend_configured']);
+        .in('key', ['paychangu_configured', 'resend_configured', 'whatsapp_configured', 'openai_configured', 'whatsapp_number']);
 
-      const status: Record<string, boolean> = {};
+      const status: Record<string, any> = {};
       for (const row of (data || [])) {
-        status[row.key.replace("_configured", "")] = !!(row.value as any)?.configured;
+        if (row.key === 'whatsapp_number') {
+          status.whatsapp_number = (row.value as any)?.value || null;
+        } else {
+          status[row.key.replace("_configured", "")] = !!(row.value as any)?.configured;
+        }
       }
-      return NextResponse.json({ status: { paychangu_configured: !!status.paychangu, resend_configured: !!status.resend } });
+      return NextResponse.json({
+        status: {
+          paychangu_configured: !!status.paychangu,
+          resend_configured: !!status.resend,
+          whatsapp_configured: !!status.whatsapp,
+          openai_configured: !!status.openai,
+          whatsapp_number: status.whatsapp_number || null,
+        }
+      });
     }
 
     return NextResponse.json({ error: "Unknown section" }, { status: 400 });
