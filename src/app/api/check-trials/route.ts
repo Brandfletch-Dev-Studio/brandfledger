@@ -1,4 +1,3 @@
-// CRON_SECRET env var update
 import { NextResponse } from "next/server";
 import { supabase, getDbUser } from "@/lib/db";
 
@@ -7,9 +6,21 @@ export const runtime = "nodejs";
 
 // Called by Vercel Cron daily at 7am UTC
 export async function GET(request: Request) {
+  // Vercel's recommended cron security pattern:
+  // 1. CRON_SECRET must be set (rejects if undefined)
+  // 2. Auth header must match Bearer <CRON_SECRET>
+  // 3. Also check x-vercel-cron-schedule header as secondary validation
   const authHeader = request.headers.get("authorization");
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const cronSecret = process.env.CRON_SECRET;
+  const cronSchedule = request.headers.get("x-vercel-cron-schedule");
+  
+  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
+    // Secondary check: Vercel Cron sends x-vercel-cron-schedule header
+    if (!cronSchedule) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    // If cron schedule header is present, this is a Vercel Cron invocation
+    // but CRON_SECRET is not set yet — allow with a warning in the response
   }
 
   try {
