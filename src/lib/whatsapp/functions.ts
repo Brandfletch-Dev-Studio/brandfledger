@@ -1156,13 +1156,26 @@ export async function createInvoice(
   const invNumber = `${prefix}-${year}-${String(num).padStart(4, "0")}`;
 
   let subtotal = 0;
-  const processedItems = items.map((item, idx) => {
-    const qty = item.quantity || 1;
-    const price = item.amount;
+  const processedItems = (items || []).map((item: any, idx: number) => {
+    const qty = Number(item.quantity || 1);
+    // Accept unit_price OR amount (LLM may use either depending on resolve_product output)
+    const price = Number(item.unit_price ?? item.amount ?? item.price ?? 0);
     const lineTotal = qty * price;
     subtotal += lineTotal;
-    return { name: item.description, description: item.description, quantity: qty, unit_price: price, total: lineTotal, sort_order: idx };
+    return {
+      name: item.description || item.name || "",
+      description: item.description || item.name || "",
+      quantity: qty,
+      unit_price: price,
+      total: lineTotal,
+      sort_order: idx,
+      ...(item.product_id ? { product_id: item.product_id } : {}),
+      ...(item.cost != null ? { cost: Number(item.cost), unit_cost: Number(item.cost) } : {}),
+    };
   });
+  if (subtotal === 0 && processedItems.length === 0) {
+    throw new Error("No invoice items provided — cannot create invoice with zero items.");
+  }
   const total = subtotal;
 
   // Resolve or create customer first to get customer_id
@@ -1628,7 +1641,22 @@ export const previewActionDefinition = {
             payment_method: { type: "string" },
             date: { type: "string" },
             customer_name: { type: "string" },
-            items: { type: "array", items: { type: "object" } },
+            items: {
+              type: "array",
+              description: "Invoice line items. Each item must have description, unit_price (or amount), and optionally quantity and product_id.",
+              items: {
+                type: "object",
+                properties: {
+                  description: { type: "string", description: "Item name/description" },
+                  unit_price: { type: "number", description: "Unit price of the item (use this, not 'amount')" },
+                  amount: { type: "number", description: "Alias for unit_price — accepted but prefer unit_price" },
+                  quantity: { type: "number", description: "Quantity (default 1)" },
+                  product_id: { type: "string", description: "Product ID if resolved from product catalog" },
+                  cost: { type: "number", description: "Unit cost (optional, from product catalog)" },
+                },
+                required: ["description", "unit_price"],
+              },
+            },
             due_date: { type: "string" },
             notes: { type: "string" },
             invoice_id: { type: "string" },
