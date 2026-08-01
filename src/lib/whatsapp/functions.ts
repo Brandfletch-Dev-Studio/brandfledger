@@ -57,6 +57,9 @@ function dateRange(period?: string): { start: string; end: string } {
       start = new Date(now.getFullYear(), 0, 1);
       end = today;  // up to today — correct
       break;
+        case "save_memory": return saveMemory(ctx, args);
+    case "recall_memories": return recallMemories(ctx, args);
+    case "delete_memory": return deleteMemory(ctx, args);
     default:
       start = new Date(now.getTime() - 30 * 86400000);
       end = today;  // last 30 days up to today — correct
@@ -1616,6 +1619,100 @@ export const readFunctionDefinitions = [
       },
     },
   },
+  {
+    type: "function" as const,
+    function: {
+      name: "save_memory",
+      description: "Save a durable fact, preference, or instruction about this business that should persist across conversations. Use this when the user tells you something personal about their business that you'd want to remember next time. Examples: 'I prefer amounts rounded to nearest 1000', 'My biggest customer is ABC Ltd', 'I pay rent on the 5th of every month'. Do NOT save financial records (those live in the ledger) — only save meta-information about preferences and patterns.",
+      parameters: {
+        type: "object",
+        properties: {
+          content: { type: "string", description: "The fact or preference to remember. Write it as a clear, self-contained statement." },
+          category: { type: "string", enum: ["preference", "business_info", "customer_note", "routine", "goal", "general"], description: "Category for organizing memories" },
+        },
+        required: ["content"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "recall_memories",
+      description: "Retrieve saved memories for this business. Call this at the start of a conversation to recall what you know about this business. You can filter by category or search by text.",
+      parameters: {
+        type: "object",
+        properties: {
+          category: { type: "string", enum: ["preference", "business_info", "customer_note", "routine", "goal", "general", "all"], description: "Filter by category. Use 'all' or omit to get all memories." },
+          query: { type: "string", description: "Search query to filter memories by content" },
+        },
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "delete_memory",
+      description: "Delete a saved memory by its ID. Use when the user asks you to forget something you previously remembered.",
+      parameters: {
+        type: "object",
+        properties: {
+          memory_id: { type: "string", description: "The ID of the memory to delete" },
+        },
+        required: ["memory_id"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "save_memory",
+      description: "Save a durable fact/preference about the business.",
+      parameters: {
+        type: "object",
+        properties: {
+          content: { type: "string", description: "The memory text to save" },
+          category: {
+            type: "string",
+            enum: ["preference", "business_info", "customer_note", "routine", "goal", "general"],
+            description: "Category of the memory",
+          },
+        },
+        required: ["content"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "recall_memories",
+      description: "Retrieve saved memories.",
+      parameters: {
+        type: "object",
+        properties: {
+          category: {
+            type: "string",
+            enum: ["preference", "business_info", "customer_note", "routine", "goal", "general", "all"],
+            description: "Filter memories by category",
+          },
+          query: { type: "string", description: "Optional search query to match memory content" },
+        },
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "delete_memory",
+      description: "Delete a memory by ID.",
+      parameters: {
+        type: "object",
+        properties: {
+          memory_id: { type: "string", description: "ID of the memory to delete" },
+        },
+        required: ["memory_id"],
+      },
+    },
+  },
 ];
 
 // preview_action — available when there is NO pending action (phase 1)
@@ -1688,9 +1785,109 @@ export const executePendingActionDefinition = {
   },
 };
 
+async function saveMemory(ctx: FunctionContext, args: { content: string; category?: string }): Promise<any> {
+  const key = "agent_memories_" + ctx.business_id;
+  const { data: existing } = await supabase.from("platform_settings").select("value").eq("key", key).maybeSingle();
+  const memories: any[] = (existing?.value as any)?.memories || [];
+  const dupe = memories.find((m: any) => m.content.toLowerCase().trim() === args.content.toLowerCase().trim() && (m.category || "general") === (args.category || "general"));
+  if (dupe) { return { saved: false, message: "This memory already exists.", memory: dupe }; }
+  const newMemory = { id: crypto.randomUUID(), category: args.category || "general", content: args.content, created_at: new Date().toISOString() };
+  memories.push(newMemory);
+  const trimmed = memories.slice(-100);
+  if (existing) { await supabase.from("platform_settings").update({ value: { memories: trimmed } }).eq("key", key); } else { await supabase.from("platform_settings").insert({ key, value: { memories: trimmed } }); }
+  return { saved: true, memory: newMemory, total_memories: trimmed.length };
+}
+
+async function recallMemories(ctx: FunctionContext, args: { category?: string; query?: string }): Promise<any> {
+  const key = "agent_memories_" + ctx.business_id;
+  const { data } = await supabase.from("platform_settings").select("value").eq("key", key).maybeSingle();
+  let memories: any[] = (data?.value as any)?.memories || [];
+  if (args.category && args.category !== "all") { memories = memories.filter((m: any) => (m.category || "general") === args.category); }
+  if (args.query) { const q = args.query.toLowerCase(); memories = memories.filter((m: any) => m.content.toLowerCase().includes(q)); }
+  memories.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  return { memories: memories.slice(0, 20), total: memories.length };
+}
+
+async function deleteMemory(ctx: FunctionContext, args: { memory_id: string }): Promise<any> {
+  const key = "agent_memories_" + ctx.business_id;
+  const { data: existing } = await supabase.from("platform_settings").select("value").eq("key", key).maybeSingle();
+  const memories: any[] = (existing?.value as any)?.memories || [];
+  const filtered = memories.filter((m: any) => m.id !== args.memory_id);
+  if (filtered.length === memories.length) { return { deleted: false, message: "Memory not found." }; }
+  await supabase.from("platform_settings").update({ value: { memories: filtered } }).eq("key", key);
+  return { deleted: true, remaining: filtered.length };
+}
+
 // ============================================================
 // FUNCTION DISPATCHER
 // ============================================================
+
+// ============================================================
+// AGENT MEMORY — persistent facts/preferences per business
+// Stored in platform_settings as JSON to avoid needing a migration
+// ============================================================
+
+async function saveMemory(ctx: FunctionContext, args: { content: string; category?: string }): Promise<any> {
+  const key = "agent_memories_" + ctx.business_id;
+  const { data: existing } = await supabase
+    .from("platform_settings")
+    .select("value")
+    .eq("key", key)
+    .maybeSingle();
+  const memories: any[] = (existing?.value as any)?.memories || [];
+  const dupe = memories.find((m: any) =>
+    m.content.toLowerCase().trim() === args.content.toLowerCase().trim() &&
+    (m.category || "general") === (args.category || "general")
+  );
+  if (dupe) { return { saved: false, message: "This memory already exists.", memory: dupe }; }
+  const newMemory = {
+    id: crypto.randomUUID(),
+    category: args.category || "general",
+    content: args.content,
+    created_at: new Date().toISOString(),
+  };
+  memories.push(newMemory);
+  const trimmed = memories.slice(-100);
+  if (existing) {
+    await supabase.from("platform_settings").update({ value: { memories: trimmed } }).eq("key", key);
+  } else {
+    await supabase.from("platform_settings").insert({ key, value: { memories: trimmed } });
+  }
+  return { saved: true, memory: newMemory, total_memories: trimmed.length };
+}
+
+async function recallMemories(ctx: FunctionContext, args: { category?: string; query?: string }): Promise<any> {
+  const key = "agent_memories_" + ctx.business_id;
+  const { data } = await supabase
+    .from("platform_settings")
+    .select("value")
+    .eq("key", key)
+    .maybeSingle();
+  let memories: any[] = (data?.value as any)?.memories || [];
+  if (args.category && args.category !== "all") {
+    memories = memories.filter((m: any) => (m.category || "general") === args.category);
+  }
+  if (args.query) {
+    const q = args.query.toLowerCase();
+    memories = memories.filter((m: any) => m.content.toLowerCase().includes(q));
+  }
+  memories.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  return { memories: memories.slice(0, 20), total: memories.length };
+}
+
+async function deleteMemory(ctx: FunctionContext, args: { memory_id: string }): Promise<any> {
+  const key = "agent_memories_" + ctx.business_id;
+  const { data: existing } = await supabase
+    .from("platform_settings")
+    .select("value")
+    .eq("key", key)
+    .maybeSingle();
+  const memories: any[] = (existing?.value as any)?.memories || [];
+  const filtered = memories.filter((m: any) => m.id !== args.memory_id);
+  if (filtered.length === memories.length) { return { deleted: false, message: "Memory not found." }; }
+  await supabase.from("platform_settings").update({ value: { memories: filtered } }).eq("key", key);
+  return { deleted: true, remaining: filtered.length };
+}
 
 export async function executeReadFunction(
   name: string,
@@ -1726,6 +1923,9 @@ export async function executeReadFunction(
     case "list_products": return listProducts(ctx, args);
     case "get_business_profile": return getBusinessProfile(ctx);
     case "get_reports_data": return getReportsData(ctx, args);
-    default: return { error: `Unknown function: ${name}` };
+    case "save_memory": return saveMemory(ctx, args);
+    case "recall_memories": return recallMemories(ctx, args);
+    case "delete_memory": return deleteMemory(ctx, args);
+    default: return { error: `Unknown function: \${name}` };
   }
 }

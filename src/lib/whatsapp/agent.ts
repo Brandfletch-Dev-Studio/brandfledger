@@ -202,7 +202,40 @@ export async function processWhatsAppMessage(
     }
 
     // 4. Build system prompt with context
-    let systemPrompt = buildSystemPrompt(ctx.business_name, ctx.currency, "Africa/Blantyre");
+    // Load custom instructions for this business
+    let customInstructions = "";
+    try {
+      const { data: ciData } = await supabase
+        .from("platform_settings")
+        .select("value")
+        .eq("key", "custom_instructions_" + ctx.business_id)
+        .maybeSingle();
+      if (ciData?.value) {
+        customInstructions = (ciData.value as any).text || "";
+      }
+    } catch (e) {
+      console.error("Failed to load custom instructions:", e);
+    }
+
+    // Load agent memories for this business
+    let memories: any[] = [];
+    try {
+      const { data: memData } = await supabase
+        .from("platform_settings")
+        .select("value")
+        .eq("key", "agent_memories_" + ctx.business_id)
+        .maybeSingle();
+      if (memData?.value) {
+        memories = (memData.value as any).memories || [];
+        // Sort most recent first, take top 15
+        memories.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        memories = memories.slice(0, 15);
+      }
+    } catch (e) {
+      console.error("Failed to load memories:", e);
+    }
+
+    let systemPrompt = buildSystemPrompt(ctx.business_name, ctx.currency, "Africa/Blantyre", customInstructions, memories);
 
     const contextLines: string[] = [];
     if (convCtx.recent_customers?.length > 0) {

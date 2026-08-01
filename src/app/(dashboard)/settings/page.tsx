@@ -59,6 +59,8 @@ export default function SettingsPage() {
 
   // WhatsApp link state
   const [waNumber, setWaNumber] = useState("");
+  const [customInstructions, setCustomInstructions] = useState("");
+  const [customInstructionsSaved, setCustomInstructionsSaved] = useState(false);
   const [waLinked, setWaLinked] = useState(false);
   const [platformNumber, setPlatformNumber] = useState("");
   const [waSaving, setWaSaving] = useState(false);
@@ -97,6 +99,15 @@ export default function SettingsPage() {
         setWaLinked(!!wa.linked_number);
         setPlatformNumber(wa.platform_number ?? "");
       }
+
+      // Load custom instructions
+      try {
+        const ciRes = await fetch("/api/data/business-settings");
+        if (ciRes.ok) {
+          const ci = await ciRes.json();
+          setCustomInstructions(ci.custom_instructions || "");
+        }
+      } catch {}
     } catch (err: any) {
       toast({ title: "Couldn't load settings", description: err.message, variant: "destructive" });
     } finally {
@@ -118,6 +129,7 @@ export default function SettingsPage() {
           paychangu_secret_key: paychanguSecret || null,
           paychangu_public_key: paychanguPublic || null,
           payment_methods: paymentMethods,
+          custom_instructions: customInstructions,
         }),
       });
       const data = await res.json();
@@ -336,6 +348,36 @@ export default function SettingsPage() {
             <button onClick={addPaymentMethod} className="w-full rounded-xl border-2 border-dashed border-input py-3 flex items-center justify-center gap-2 text-sm text-muted-foreground hover:bg-muted/50 transition-colors">
               <Plus className="h-4 w-4" /> Add Payment Method
             </button>
+          </CardContent>
+        </Card>
+
+        {/* Custom Agent Instructions */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <MessageCircle className="h-5 w-5 text-blue-600" />
+              <CardTitle className="text-base">Agent Instructions</CardTitle>
+              <span className="ml-auto flex items-center gap-1 text-xs text-muted-foreground font-medium">
+                Customize your WhatsApp Finance Manager
+              </span>
+            </div>
+            <CardDescription>
+              Give your Finance Manager custom instructions on how to handle your business. These are injected into every conversation.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label>Custom Instructions</Label>
+              <textarea
+                className="flex min-h-[120px] w-full rounded-md border border-input bg-white px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                placeholder={"Examples:\n- Always confirm amounts in USD\n- My business is a graphic design studio\n- Notify me when a customer balance exceeds MK500k\n- Call me 'Boss' instead of by name\n- My financial year starts in April"}
+                value={customInstructions}
+                onChange={(e) => { setCustomInstructions(e.target.value); setCustomInstructionsSaved(false); }}
+              />
+              <p className="text-xs text-muted-foreground">
+                These instructions are specific to your business and persist across all WhatsApp conversations. They guide the agent on tone, preferences, and business-specific rules.
+              </p>
+            </div>
           </CardContent>
         </Card>
 

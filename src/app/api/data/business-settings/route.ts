@@ -14,6 +14,7 @@ export async function PUT(request: Request) {
       name, email, phone, address, website, currency, invoice_prefix,
       business_type, tax_id,
       paychangu_secret_key, paychangu_public_key, payment_methods,
+      custom_instructions,
     } = body;
 
     const { data: businesses, error: bizError } = await supabase
@@ -62,7 +63,60 @@ export async function PUT(request: Request) {
       .single();
     if (updateError) throw updateError;
 
-    return NextResponse.json({ business: result });
+    // Save custom instructions to platform_settings (separate from businesses table)
+  if (custom_instructions !== undefined) {
+    const ciKey = "custom_instructions_" + businessId;
+    const { data: existingCI } = await supabase
+      .from("platform_settings")
+      .select("key")
+      .eq("key", ciKey)
+      .maybeSingle();
+    
+    if (existingCI) {
+      await supabase
+        .from("platform_settings")
+        .update({ value: { text: custom_instructions || "" } })
+        .eq("key", ciKey);
+    } else {
+      await supabase
+        .from("platform_settings")
+        .insert({ key: ciKey, value: { text: custom_instructions || "" } });
+    }
+  }
+
+  return NextResponse.json({ business: result });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
+
+
+export async function GET() {
+  try {
+    const user = getDbUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const { data: businesses, error: bizError } = await supabase
+      .from('businesses')
+      .select('id')
+      .eq('owner_id', user.userId)
+      .order('created_at', { ascending: true })
+      .limit(1);
+    if (bizError) throw bizError;
+    if (!businesses || businesses.length === 0) {
+      return NextResponse.json({ error: "No business found" }, { status: 404 });
+    }
+    const businessId = businesses[0].id;
+
+    const { data: ciData } = await supabase
+      .from("platform_settings")
+      .select("value")
+      .eq("key", "custom_instructions_" + businessId)
+      .maybeSingle();
+
+    return NextResponse.json({ 
+      custom_instructions: ciData?.value ? (ciData.value as any).text || "" : "" 
+    });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
