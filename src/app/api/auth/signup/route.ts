@@ -119,6 +119,7 @@ export async function POST(request: Request) {
     // and trial_ends_at = now() + 14 days. No manual insert needed.
 
     // ── 3. Create business if provided ────────────────────────────────────────
+    const now = new Date().toISOString();
     if (businessName) {
       const bizId = crypto.randomUUID();
       await fetch(`${supabaseUrl}/rest/v1/businesses`, {
