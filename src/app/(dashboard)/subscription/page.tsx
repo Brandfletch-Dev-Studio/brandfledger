@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Header } from "@/components/layout/header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Check, Crown, Loader2, Clock, PartyPopper, Phone, Smartphone, CheckCircle2, RefreshCw, Calendar, AlertCircle } from "lucide-react";
+import { Check, Crown, Loader2, PartyPopper, Phone, Smartphone, CheckCircle2, RefreshCw, Calendar } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 
@@ -115,8 +115,6 @@ export default function SubscriptionPage() {
 
   const currency = pricing.currency || "MWK";
   const isSubscribed = trial?.status === "active";
-  const trialActive = trial?.status === "trial" && (trial.daysLeft ?? 0) > 0;
-  const isExpired = trial?.status === "expired" || (trial?.status === "trial" && (trial.daysLeft ?? 0) <= 0);
 
   if (loading) {
     return (
@@ -132,40 +130,6 @@ export default function SubscriptionPage() {
   return (
     <div>
       <Header title="Pricing" description="Simple, transparent pricing" icon={Crown} />
-
-      {/* Trial duration ticker — below header */}
-      {trialActive && !isSubscribed && (
-        <div className="flex items-center justify-between gap-2 px-3 sm:px-6 py-2 bg-amber-500/10 border-b border-amber-500/20">
-          <div className="flex items-center gap-2">
-            <Clock className="h-4 w-4 text-amber-600 shrink-0" />
-            <span className="text-sm font-medium text-amber-700 dark:text-amber-300">
-              {trial.daysLeft} day{trial.daysLeft !== 1 ? "s" : ""} left in your free trial
-            </span>
-            {trial.trialEndsAt && (
-              <span className="hidden sm:inline text-xs text-amber-600/70 dark:text-amber-400/70">
-                · ends {new Date(trial.trialEndsAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-              </span>
-            )}
-          </div>
-          <Button size="sm" className="h-7 text-xs gap-1 shrink-0" onClick={() => setStep("phone")}>
-            <Crown className="h-3 w-3" /> Subscribe Now
-          </Button>
-        </div>
-      )}
-
-      {isExpired && !isSubscribed && (
-        <div className="flex items-center justify-between gap-2 px-3 sm:px-6 py-2 bg-red-500/10 border-b border-red-500/20">
-          <div className="flex items-center gap-2">
-            <AlertCircle className="h-4 w-4 text-red-600 shrink-0" />
-            <span className="text-sm font-medium text-red-700 dark:text-red-300">
-              Your trial has expired — subscribe to continue
-            </span>
-          </div>
-          <Button size="sm" className="h-7 text-xs gap-1 shrink-0" onClick={() => setStep("phone")}>
-            <Crown className="h-3 w-3" /> Subscribe Now
-          </Button>
-        </div>
-      )}
 
       <div className="p-4 sm:p-6 max-w-lg mx-auto space-y-4">
 
