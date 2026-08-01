@@ -92,6 +92,26 @@ async function resolveCustomer(ctx: FunctionContext, name: string) {
   return { matched: false, new: true };
 }
 
+
+async function resolveProduct(ctx: FunctionContext, name: string) {
+  const { data } = await supabase
+    .from("products")
+    .select("id, name, price, cost, category, unit, is_active")
+    .eq("business_id", ctx.business_id);
+  if (!data) return { matched: false, new: true };
+
+  const normalized = name.toLowerCase().trim();
+  const exact = data.find((p) => p.name?.toLowerCase().trim() === normalized);
+  if (exact) return { product: exact, matched: true };
+
+  const partial = data.filter(
+    (p) => p.name?.toLowerCase().includes(normalized) || normalized.includes(p.name?.toLowerCase())
+  );
+  if (partial.length === 1) return { product: partial[0], matched: true };
+  if (partial.length > 1) return { products: partial, matched: false, ambiguous: true };
+  return { matched: false, new: true };
+}
+
 async function queryRevenue(ctx: FunctionContext, period?: string) {
   let query = supabase
     .from("transactions")
@@ -1273,7 +1293,19 @@ export const readFunctionDefinitions = [
       description: "Look up a customer by name. Returns the customer record if found, or indicates a new customer should be created.",
       parameters: {
         type: "object",
-        properties: { name: { type: "string", description: "The customer name to look up" } },
+        properties: { name: { type: "string", description: "The customer name to look up. ALWAYS call this before logging a transaction or creating an invoice that involves a customer." } },
+        required: ["name"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "resolve_product",
+      description: "Look up a product by name. Returns the product record if found (with price, cost, category), or indicates a new product should be created. ALWAYS call this before creating an invoice with product items.",
+      parameters: {
+        type: "object",
+        properties: { name: { type: "string", description: "The product name to look up" } },
         required: ["name"],
       },
     },
@@ -1639,6 +1671,7 @@ export async function executeReadFunction(
 ): Promise<any> {
   switch (name) {
     case "resolve_customer": return resolveCustomer(ctx, args.name);
+    case "resolve_product": return resolveProduct(ctx, args.name);
     case "query_revenue": return queryRevenue(ctx, args.period);
     case "query_expenses": return queryExpenses(ctx, args.period);
     case "query_receivables": return queryReceivables(ctx);
