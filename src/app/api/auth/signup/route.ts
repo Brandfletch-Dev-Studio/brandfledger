@@ -51,9 +51,8 @@ export async function POST(request: Request) {
         );
       }
     } else {
-      // RPC not available — do a raw SQL check via the management API pattern
-      // by querying the REST endpoint for auth.users (service role can see it)
-      const rawCheck = await fetch(
+      // RPC not available — check profiles table directly
+      const profileCheckRes = await fetch(
         `${supabaseUrl}/rest/v1/profiles?select=id&email=eq.${encodeURIComponent(normalizedEmail)}&limit=1`,
         {
           headers: {
@@ -62,7 +61,15 @@ export async function POST(request: Request) {
           },
         }
       );
-      // We'll use a workaround: query our own accounts table isn't enough.
+      if (profileCheckRes.ok) {
+        const existing = await profileCheckRes.json();
+        if (existing && existing.length > 0) {
+          return NextResponse.json(
+            { error: "An account with this email already exists. Please sign in instead." },
+            { status: 409 }
+          );
+        }
+      }
       // Fall through to let Auth API handle it, but map the error below.
     }
 
