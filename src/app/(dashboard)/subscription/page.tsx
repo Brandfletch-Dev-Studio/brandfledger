@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Header } from "@/components/layout/header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Check, Crown, Loader2, Clock, PartyPopper, Phone, Smartphone, CheckCircle2, RefreshCw } from "lucide-react";
+import { Check, Crown, Loader2, Clock, PartyPopper, Phone, Smartphone, CheckCircle2, RefreshCw, Calendar, AlertCircle } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 
@@ -27,7 +27,6 @@ type Step = "plan" | "phone" | "waiting" | "success" | "failed";
 
 export default function SubscriptionPage() {
   const { toast } = useToast();
-  // Stable toast ref — prevents infinite re-render in polling useEffect
   const toastRef = useRef(toast);
   toastRef.current = toast;
 
@@ -55,61 +54,41 @@ export default function SubscriptionPage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // Auto-detect operator from phone number
   useEffect(() => {
     const digits = phone.replace(/\D/g, "").replace(/^265/, "").replace(/^0/, "");
     if (/^(88|89)/.test(digits)) setOperator("tnm");
     else if (digits.length >= 2) setOperator("airtel");
   }, [phone]);
 
-  // Poll for payment confirmation — use chargeId and step as stable deps only
   useEffect(() => {
     if (step !== "waiting" || !chargeId) return;
-
     let stopped = false;
     let count = 0;
-
     const interval = setInterval(async () => {
       if (stopped) return;
       try {
         const res = await fetch(`/api/paychangu/verify?charge_id=${encodeURIComponent(chargeId)}`);
         const data = await res.json();
         if (data.status === "success") {
-          stopped = true;
-          clearInterval(interval);
+          stopped = true; clearInterval(interval);
           setStep("success");
           toastRef.current({ title: "🎉 Payment confirmed!", description: "Your subscription is now active." });
         } else if (data.status === "failed") {
-          stopped = true;
-          clearInterval(interval);
+          stopped = true; clearInterval(interval);
           setStep("failed");
         }
       } catch {}
       count += 1;
       setPollCount(count);
     }, 4000);
-
-    // Stop polling after 3 minutes
-    const timeout = setTimeout(() => {
-      stopped = true;
-      clearInterval(interval);
-    }, 300000);
-
-    return () => {
-      stopped = true;
-      clearInterval(interval);
-      clearTimeout(timeout);
-    };
-  }, [step, chargeId]); // NO toast in deps — use toastRef instead
+    const timeout = setTimeout(() => { stopped = true; clearInterval(interval); }, 300000);
+    return () => { stopped = true; clearInterval(interval); clearTimeout(timeout); };
+  }, [step, chargeId]);
 
   async function handlePay() {
     const digits = phone.replace(/\D/g, "").replace(/^265/, "").replace(/^0/, "");
     if (digits.length !== 9) {
-      toast({
-        title: "Invalid phone number",
-        description: `Enter your 9-digit number without the country code (e.g. 991234567). You entered ${digits.length} digits.`,
-        variant: "destructive"
-      });
+      toast({ title: "Invalid phone number", description: `Enter your 9-digit number without the country code (e.g. 991234567). You entered ${digits.length} digits.`, variant: "destructive" });
       return;
     }
     setPaying(true);
@@ -137,6 +116,7 @@ export default function SubscriptionPage() {
   const currency = pricing.currency || "MWK";
   const isSubscribed = trial?.status === "active";
   const trialActive = trial?.status === "trial" && (trial.daysLeft ?? 0) > 0;
+  const isExpired = trial?.status === "expired" || (trial?.status === "trial" && (trial.daysLeft ?? 0) <= 0);
 
   if (loading) {
     return (
@@ -152,14 +132,49 @@ export default function SubscriptionPage() {
   return (
     <div>
       <Header title="Pricing" description="Simple, transparent pricing" icon={Crown} />
+
+      {/* Trial duration ticker — below header */}
+      {trialActive && !isSubscribed && (
+        <div className="flex items-center justify-between gap-2 px-3 sm:px-6 py-2 bg-amber-500/10 border-b border-amber-500/20">
+          <div className="flex items-center gap-2">
+            <Clock className="h-4 w-4 text-amber-600 shrink-0" />
+            <span className="text-sm font-medium text-amber-700 dark:text-amber-300">
+              {trial.daysLeft} day{trial.daysLeft !== 1 ? "s" : ""} left in your free trial
+            </span>
+            {trial.trialEndsAt && (
+              <span className="hidden sm:inline text-xs text-amber-600/70 dark:text-amber-400/70">
+                · ends {new Date(trial.trialEndsAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+              </span>
+            )}
+          </div>
+          <Button size="sm" className="h-7 text-xs gap-1 shrink-0" onClick={() => setStep("phone")}>
+            <Crown className="h-3 w-3" /> Subscribe Now
+          </Button>
+        </div>
+      )}
+
+      {isExpired && !isSubscribed && (
+        <div className="flex items-center justify-between gap-2 px-3 sm:px-6 py-2 bg-red-500/10 border-b border-red-500/20">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 text-red-600 shrink-0" />
+            <span className="text-sm font-medium text-red-700 dark:text-red-300">
+              Your trial has expired — subscribe to continue
+            </span>
+          </div>
+          <Button size="sm" className="h-7 text-xs gap-1 shrink-0" onClick={() => setStep("phone")}>
+            <Crown className="h-3 w-3" /> Subscribe Now
+          </Button>
+        </div>
+      )}
+
       <div className="p-4 sm:p-6 max-w-lg mx-auto space-y-4">
 
-        {/* Trial / active banner */}
+        {/* Active subscription banner */}
         {isSubscribed && (
           <Card className="border-emerald-500/30 bg-emerald-500/5">
             <CardContent className="p-4 flex items-center gap-3">
               <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
-              <div>
+              <div className="flex-1">
                 <p className="font-semibold text-sm text-emerald-700 dark:text-emerald-300">Subscription active</p>
                 <p className="text-xs text-muted-foreground">
                   {trial?.subscriptionEndsAt
@@ -167,23 +182,13 @@ export default function SubscriptionPage() {
                     : "All features unlocked"}
                 </p>
               </div>
+              <Calendar className="h-4 w-4 text-emerald-600/50" />
             </CardContent>
           </Card>
         )}
 
-        {trialActive && !isSubscribed && (
-          <Card className="border-amber-500/30 bg-amber-500/5">
-            <CardContent className="p-4 flex items-center gap-3">
-              <Clock className="h-5 w-5 text-amber-600 shrink-0" />
-              <p className="text-sm text-amber-700 dark:text-amber-300">
-                <strong>{trial.daysLeft} day{trial.daysLeft !== 1 ? "s" : ""}</strong> left in your free trial
-              </p>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* ── STEP 1: Choose plan ── */}
-        {step === "plan" && (
+        {/* Plan selection — hide if subscribed */}
+        {!isSubscribed && step === "plan" && (
           <>
             <div className="grid grid-cols-2 gap-3">
               {(["monthly", "annual"] as const).map(plan => {
@@ -234,8 +239,8 @@ export default function SubscriptionPage() {
           </>
         )}
 
-        {/* ── STEP 2: Phone number ── */}
-        {step === "phone" && (
+        {/* Phone step */}
+        {!isSubscribed && step === "phone" && (
           <Card>
             <CardContent className="p-5 space-y-4">
               <div className="text-center">
@@ -301,22 +306,17 @@ export default function SubscriptionPage() {
               </div>
 
               <div className="flex gap-2">
-                <Button variant="outline" className="flex-1" onClick={() => setStep("plan")}>
-                  Back
-                </Button>
+                <Button variant="outline" className="flex-1" onClick={() => setStep("plan")}>Back</Button>
                 <Button className="flex-1 font-semibold" disabled={paying} onClick={handlePay}>
-                  {paying
-                    ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Sending…</>
-                    : "Pay Now"
-                  }
+                  {paying ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Sending…</> : "Pay Now"}
                 </Button>
               </div>
             </CardContent>
           </Card>
         )}
 
-        {/* ── STEP 3: Waiting ── */}
-        {step === "waiting" && (
+        {/* Waiting step */}
+        {!isSubscribed && step === "waiting" && (
           <Card>
             <CardContent className="p-6 text-center space-y-4">
               <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mx-auto">
@@ -335,9 +335,7 @@ export default function SubscriptionPage() {
                 Waiting for confirmation… ({Math.min(pollCount * 4, 300)}s)
               </div>
               <div className="flex gap-2">
-                <Button variant="outline" size="sm" className="flex-1" onClick={() => setStep("phone")}>
-                  Change number
-                </Button>
+                <Button variant="outline" size="sm" className="flex-1" onClick={() => setStep("phone")}>Change number</Button>
                 <Button variant="outline" size="sm" className="flex-1" onClick={() => setPollCount(0)}>
                   <RefreshCw className="h-3.5 w-3.5 mr-1" /> Refresh
                 </Button>
@@ -346,30 +344,26 @@ export default function SubscriptionPage() {
           </Card>
         )}
 
-        {/* ── STEP 4: Success ── */}
+        {/* Success */}
         {step === "success" && (
           <Card className="border-emerald-500/30 bg-emerald-500/5">
             <CardContent className="p-6 text-center space-y-3">
               <PartyPopper className="h-10 w-10 text-emerald-600 mx-auto" />
               <h3 className="font-bold text-base text-emerald-700 dark:text-emerald-300">Payment confirmed!</h3>
               <p className="text-sm text-muted-foreground">Your subscription is now active. All features unlocked.</p>
-              <Button className="w-full" onClick={() => (window.location.href = "/dashboard")}>
-                Go to Dashboard
-              </Button>
+              <Button className="w-full" onClick={() => (window.location.href = "/dashboard")}>Go to Dashboard</Button>
             </CardContent>
           </Card>
         )}
 
-        {/* ── STEP 5: Failed ── */}
+        {/* Failed */}
         {step === "failed" && (
           <Card className="border-destructive/30 bg-destructive/5">
             <CardContent className="p-6 text-center space-y-3">
               <div className="text-destructive text-3xl font-bold">✕</div>
               <h3 className="font-bold text-base text-destructive">Payment not completed</h3>
               <p className="text-sm text-muted-foreground">The payment was declined or timed out. Please try again.</p>
-              <Button variant="outline" className="w-full" onClick={() => setStep("phone")}>
-                Try Again
-              </Button>
+              <Button variant="outline" className="w-full" onClick={() => setStep("phone")}>Try Again</Button>
             </CardContent>
           </Card>
         )}

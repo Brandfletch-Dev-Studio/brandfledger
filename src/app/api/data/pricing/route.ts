@@ -33,24 +33,35 @@ export async function GET(request: Request) {
 
     let subscription = null;
     if (user) {
-      const { data: biz } = await supabase
-        .from('businesses')
-        .select('subscription_status, trial_ends_at, subscription_ends_at')
-        .eq('owner_id', user.userId)
-        .order('created_at')
-        .limit(1)
+      // Read from profiles table (where Paychangu activation writes to)
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('subscription_status, trial_ends_at, subscription_ends_at, plan')
+        .eq('id', user.userId)
         .maybeSingle();
-      if (biz) {
-        const status = biz.subscription_status || "trial";
+
+      if (profile) {
+        const status = profile.subscription_status || "trial";
+        const now = new Date();
         let daysLeft = 0;
-        if (status === "trial" && biz.trial_ends_at) {
-          daysLeft = Math.ceil((new Date(biz.trial_ends_at).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+
+        if (status === "trial" && profile.trial_ends_at) {
+          daysLeft = Math.max(0, Math.ceil((new Date(profile.trial_ends_at).getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
         }
+
+        let access: "active" | "trial" | "expired" = "expired";
+        if (status === "active" && (!profile.subscription_ends_at || new Date(profile.subscription_ends_at) > now)) {
+          access = "active";
+        } else if (status === "trial" && profile.trial_ends_at && new Date(profile.trial_ends_at) > now) {
+          access = "trial";
+        }
+
         subscription = {
-          status,
+          status: access,
           daysLeft,
-          trialEndsAt: biz.trial_ends_at,
-          subscriptionEndsAt: biz.subscription_ends_at,
+          trialEndsAt: profile.trial_ends_at,
+          subscriptionEndsAt: profile.subscription_ends_at,
+          plan: profile.plan,
         };
       }
     }

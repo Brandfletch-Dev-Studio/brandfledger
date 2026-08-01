@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
-import { AlertTriangle, Crown, X, Clock } from "lucide-react";
+import { AlertTriangle, Crown, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -8,7 +8,6 @@ import { cn } from "@/lib/utils";
 export function TrialBanner() {
   const router = useRouter();
   const [trial, setTrial] = useState<{ status: string; daysLeft: number } | null>(null);
-  const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
     loadTrial();
@@ -25,41 +24,43 @@ export function TrialBanner() {
     } catch {}
   }
 
-  if (!trial || dismissed) return null;
+  if (!trial) return null;
 
-  // Only show when trial is running low (≤5 days) or expired
+  // Don't show for active subscriptions
   if (trial.status === "active") return null;
-  if (trial.status === "trial" && trial.daysLeft > 5) return null;
 
   const isExpired = trial.status === "expired" || trial.daysLeft <= 0;
   const isLow = trial.daysLeft <= 3;
+  const isUrgent = trial.daysLeft <= 5;
 
   return (
     <div className={cn(
-      "flex items-center justify-between gap-2 px-4 py-2 text-sm",
-      isExpired ? "bg-red-600 text-white" : isLow ? "bg-amber-500 text-white" : "bg-primary/10 text-primary"
+      "flex items-center justify-between gap-2 px-3 sm:px-4 py-1.5 sm:py-2 text-xs sm:text-sm border-b",
+      isExpired
+        ? "bg-red-500/10 text-red-700 dark:text-red-300 border-red-500/20"
+        : isLow
+        ? "bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/20"
+        : "bg-primary/5 text-primary border-primary/10"
     )}>
       <div className="flex items-center gap-2 min-w-0">
         {isExpired
-          ? <AlertTriangle className="h-4 w-4 shrink-0" />
-          : <Clock className="h-4 w-4 shrink-0" />}
-        <span className="truncate">
+          ? <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+          : <Clock className="h-3.5 w-3.5 shrink-0" />}
+        <span className="truncate font-medium">
           {isExpired
-            ? "Your trial has expired."
-            : `${trial.daysLeft} day${trial.daysLeft !== 1 ? "s" : ""} left in your trial.`}
+            ? "Trial expired — subscribe to continue"
+            : `${trial.daysLeft} day${trial.daysLeft !== 1 ? "s" : ""} left in your free trial`}
         </span>
       </div>
-      <div className="flex items-center gap-2 shrink-0">
-        <Button size="sm" variant="secondary" className="h-7 text-xs gap-1"
-          onClick={() => router.push("/subscription")}>
-          <Crown className="h-3 w-3" /> Upgrade
-        </Button>
-        {!isExpired && (
-          <button onClick={() => setDismissed(true)} className="opacity-70 hover:opacity-100">
-            <X className="h-4 w-4" />
-          </button>
-        )}
-      </div>
+      <Button
+        size="sm"
+        className="h-7 text-xs gap-1 shrink-0"
+        variant={isLow || isExpired ? "default" : "secondary"}
+        onClick={() => router.push("/subscription")}
+      >
+        <Crown className="h-3 w-3" />
+        Subscribe
+      </Button>
     </div>
   );
 }
