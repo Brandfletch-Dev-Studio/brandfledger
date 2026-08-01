@@ -448,11 +448,11 @@ async function getReceivablesAging(ctx: FunctionContext) {
   if (!invoices || invoices.length === 0) return { aging: { current: 0, days_1_30: 0, days_31_60: 0, days_61_90: 0, days_90_plus: 0 }, total: 0, count: 0 };
 
   const now = new Date();
-  const buckets = { current: 0, days_1_30: 0, days_31_60: 0, days_61_90: 0, days_90_plus: 0 };
+  const buckets: Record<string, number> = { current: 0, days_1_30: 0, days_31_60: 0, days_61_90: 0, days_90_plus: 0 };
   const bucketDetails: Record<string, any[]> = { current: [], days_1_30: [], days_31_60: [], days_61_90: [], days_90_plus: [] };
 
   // Get customer names
-  const customerIds = [...new Set(invoices.map(i => i.customer_id).filter(Boolean))];
+  const customerIds = Array.from(new Set(invoices.map(i => i.customer_id).filter(Boolean)));
   let customerMap: Record<string, string> = {};
   if (customerIds.length > 0) {
     const { data: customers } = await supabase.from("customers").select("id, name").in("id", customerIds);
@@ -778,7 +778,7 @@ async function listRecentInvoices(ctx: FunctionContext, args: { limit?: number; 
   if (!invoices) return { invoices: [], count: 0 };
 
   // Enrich with customer names
-  const customerIds = [...new Set(invoices.map((i) => i.customer_id).filter(Boolean))];
+  const customerIds = Array.from(new Set(invoices.map((i) => i.customer_id).filter(Boolean)));
   let customerMap: Record<string, string> = {};
   if (customerIds.length > 0) {
     const { data: customers } = await supabase

@@ -53,9 +53,9 @@ function checkRateLimit(phoneNumber: string): boolean {
 function isDuplicateMessage(messageId: string): boolean {
   const now = Date.now();
   // Clean up old entries
-  for (const [id, ts] of processedMessageIds) {
+  processedMessageIds.forEach((ts, id) => {
     if (now - ts > PROCESSED_IDS_TTL_MS) processedMessageIds.delete(id);
-  }
+  });
   if (processedMessageIds.has(messageId)) return true;
   processedMessageIds.set(messageId, now);
   return false;
