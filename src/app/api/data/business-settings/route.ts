@@ -10,9 +10,12 @@ export async function PUT(request: Request) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const body = await request.json();
-    const { name, email, phone, address, website, currency, invoice_prefix, business_type, tax_id } = body;
+    const {
+      name, email, phone, address, website, currency, invoice_prefix,
+      business_type, tax_id,
+      paychangu_secret_key, paychangu_public_key, payment_methods,
+    } = body;
 
-    // Get the user's first business
     const { data: businesses, error: bizError } = await supabase
       .from('businesses')
       .select('id')
@@ -25,20 +28,35 @@ export async function PUT(request: Request) {
     }
     const businessId = businesses[0].id;
 
+    const updateData: Record<string, any> = {
+      name,
+      email: email || null,
+      phone: phone || null,
+      address: address || null,
+      website: website || null,
+      currency: currency || "USD",
+      invoice_prefix: invoice_prefix || "INV",
+      business_type: business_type || "other",
+      tax_id: tax_id || null,
+      updated_at: new Date().toISOString(),
+    };
+
+    // Only update Paychangu/payment fields if explicitly provided
+    if (paychangu_secret_key !== undefined) {
+      updateData.paychangu_secret_key = paychangu_secret_key || null;
+    }
+    if (paychangu_public_key !== undefined) {
+      updateData.paychangu_public_key = paychangu_public_key || null;
+    }
+    if (payment_methods !== undefined) {
+      if (Array.isArray(payment_methods) && payment_methods.length <= 10) {
+        updateData.payment_methods = payment_methods;
+      }
+    }
+
     const { data: result, error: updateError } = await supabase
       .from('businesses')
-      .update({
-        name,
-        email: email || null,
-        phone: phone || null,
-        address: address || null,
-        website: website || null,
-        currency: currency || "USD",
-        invoice_prefix: invoice_prefix || "INV",
-        business_type: business_type || "other",
-        tax_id: tax_id || null,
-        updated_at: new Date().toISOString()
-      })
+      .update(updateData)
       .eq('id', businessId)
       .select('*')
       .single();

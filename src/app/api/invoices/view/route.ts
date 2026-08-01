@@ -4,7 +4,6 @@ import { supabase, getDbUser } from "@/lib/db";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-// Public endpoint — no auth required (for shared invoice links)
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -15,42 +14,35 @@ export async function GET(request: Request) {
     }
 
     const { data: invoice, error: invoiceErr } = await supabase
-      .from("invoices")
-      .select("*")
-      .eq("id", id)
-      .maybeSingle();
-
+      .from("invoices").select("*").eq("id", id).maybeSingle();
     if (invoiceErr) throw invoiceErr;
     if (!invoice) return NextResponse.json({ error: "Invoice not found" }, { status: 404 });
 
-    // Get business info
+    // Include payment_methods and paychangu availability in business data
     const { data: business, error: businessErr } = await supabase
       .from("businesses")
-      .select("name, email, phone, address, currency")
-      .eq("id", invoice.business_id)
-      .maybeSingle();
-
+      .select("name, email, phone, address, currency, payment_methods, paychangu_secret_key")
+      .eq("id", invoice.business_id).maybeSingle();
     if (businessErr) throw businessErr;
 
-    // Get customer info
     let customer = null;
     if (invoice.customer_id) {
       const { data: customerData, error: customerErr } = await supabase
-        .from("customers")
-        .select("name, email, phone, address")
-        .eq("id", invoice.customer_id)
-        .maybeSingle();
-
+        .from("customers").select("name, email, phone, address").eq("id", invoice.customer_id).maybeSingle();
       if (customerErr) throw customerErr;
       customer = customerData;
     }
 
-    // items is a JSONB column
     const items = Array.isArray(invoice.items) ? invoice.items : [];
 
     return NextResponse.json({
       invoice: { ...invoice, items },
-      business: business || null,
+      business: {
+        name: business?.name, email: business?.email, phone: business?.phone,
+        address: business?.address, currency: business?.currency,
+        payment_methods: business?.payment_methods || [],
+        paychangu_enabled: !!business?.paychangu_secret_key,
+      },
       customer: customer || null,
     });
   } catch (err: any) {

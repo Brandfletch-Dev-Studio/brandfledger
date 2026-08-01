@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { FileText, CheckCircle2, Clock, Upload, Phone, X, Loader2, ShieldCheck, AlertCircle } from "lucide-react";
+import { FileText, CheckCircle2, Clock, Upload, Phone, X, Loader2, ShieldCheck, AlertCircle, Copy, ChevronRight, Landmark, Wallet } from "lucide-react";
 import { useParams } from "next/navigation";
 
 export default function PublicInvoiceView() {
@@ -11,9 +11,8 @@ export default function PublicInvoiceView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Payment modal state
   const [showPayModal, setShowPayModal] = useState(false);
-  const [payTab, setPayTab] = useState<"mobile" | "upload">("mobile");
+  const [payTab, setPayTab] = useState<"mobile" | "manual">("mobile");
   const [paying, setPaying] = useState(false);
   const [payStatus, setPayStatus] = useState<"idle" | "polling" | "success" | "failed">("idle");
   const [payMessage, setPayMessage] = useState("");
@@ -23,6 +22,10 @@ export default function PublicInvoiceView() {
   const [phone, setPhone] = useState("");
   const [operator, setOperator] = useState("");
   const [payerName, setPayerName] = useState("");
+
+  // Manual payment step
+  const [manualStep, setManualStep] = useState<1 | 2>(1);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
 
   // Proof upload form
   const [proofFile, setProofFile] = useState<File | null>(null);
@@ -44,6 +47,8 @@ export default function PublicInvoiceView() {
         }
         const d = await res.json();
         setData(d);
+        // Default to mobile if Paychangu enabled, else manual
+        setPayTab(d.business?.paychangu_enabled ? "mobile" : "manual");
       } catch {
         setError("Network error");
       } finally {
@@ -53,62 +58,45 @@ export default function PublicInvoiceView() {
     load();
   }, [invoiceId]);
 
-  // Cleanup polling on unmount
   useEffect(() => {
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, []);
 
+  function copyToClipboard(text: string, fieldId: string) {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedField(fieldId);
+      setTimeout(() => setCopiedField(null), 2000);
+    }).catch(() => {});
+  }
+
   async function handlePaychanguPayment() {
     if (!phone.trim()) { setPayMessage("Enter your phone number"); return; }
-    setPaying(true);
-    setPayStatus("idle");
-    setPayMessage("");
+    setPaying(true); setPayStatus("idle"); setPayMessage("");
 
     try {
       const res = await fetch("/api/invoices/pay", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          invoice_id: invoiceId,
-          phone: phone.trim(),
-          operator: operator || undefined,
-          payer_name: payerName.trim() || undefined,
-        }),
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ invoice_id: invoiceId, phone: phone.trim(), operator: operator || undefined, payer_name: payerName.trim() || undefined }),
       });
       const result = await res.json();
+      if (!res.ok) { setPayMessage(result.error || "Payment failed to start"); setPaying(false); return; }
 
-      if (!res.ok) {
-        setPayMessage(result.error || "Payment failed to start");
-        setPaying(false);
-        return;
-      }
-
-      setChargeId(result.chargeId);
-      setPayStatus("polling");
+      setChargeId(result.chargeId); setPayStatus("polling");
       setPayMessage(result.message || "Check your phone and approve the payment prompt.");
 
-      // Poll for payment status
       let attempts = 0;
       pollRef.current = setInterval(async () => {
         attempts++;
-        if (attempts > 30) { // ~5 min timeout
+        if (attempts > 30) {
           if (pollRef.current) clearInterval(pollRef.current);
-          setPayStatus("failed");
-          setPayMessage("Payment timed out. Please try again.");
-          setPaying(false);
-          return;
+          setPayStatus("failed"); setPayMessage("Payment timed out. Please try again."); setPaying(false); return;
         }
-
         try {
           const pollRes = await fetch(`/api/invoices/verify-payment?charge_id=${result.chargeId}`);
           const pollData = await pollRes.json();
-
           if (pollData.status === "success") {
             if (pollRef.current) clearInterval(pollRef.current);
-            setPayStatus("success");
-            setPayMessage("Payment confirmed! Thank you.");
-            setPaying(false);
-            // Reload invoice data
+            setPayStatus("success"); setPayMessage("Payment confirmed! Thank you."); setPaying(false);
             const refreshRes = await fetch(`/api/invoices/view?id=${invoiceId}`);
             if (refreshRes.ok) setData(await refreshRes.json());
           } else if (pollData.status === "failed") {
@@ -118,90 +106,61 @@ export default function PublicInvoiceView() {
             setPaying(false);
           }
         } catch {}
-      }, 10000); // poll every 10 seconds
+      }, 10000);
     } catch {
-      setPayMessage("Network error. Please try again.");
-      setPaying(false);
+      setPayMessage("Network error. Please try again."); setPaying(false);
     }
   }
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024) {
-      setPayMessage("File too large. Maximum 5MB.");
-      return;
-    }
-    setProofFile(file);
-    setPayMessage("");
-
-    // Create preview for images
+    if (file.size > 5 * 1024 * 1024) { setPayMessage("File too large. Maximum 5MB."); return; }
+    setProofFile(file); setPayMessage("");
     if (file.type.startsWith("image/")) {
       const reader = new FileReader();
       reader.onload = (ev) => setProofPreview(ev.target?.result as string);
       reader.readAsDataURL(file);
-    } else {
-      setProofPreview("");
-    }
+    } else { setProofPreview(""); }
   }
 
   async function handleProofUpload() {
     if (!proofFile) { setPayMessage("Select a proof of payment file first"); return; }
-    setUploading(true);
-    setPayMessage("");
+    setUploading(true); setPayMessage("");
 
     try {
-    // Convert to base64
-    const reader = new FileReader();
-    const base64 = await new Promise<string>((resolve, reject) => {
-      reader.onload = () => {
-        const result = reader.result as string;
-        // Strip the data URL prefix (e.g., "data:image/jpeg;base64,")
-        const base64Data = result.split(",")[1] || result;
-        resolve(base64Data);
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(proofFile);
-    });
+      const reader = new FileReader();
+      const base64 = await new Promise<string>((resolve, reject) => {
+        reader.onload = () => {
+          const result = reader.result as string;
+          const base64Data = result.split(",")[1] || result;
+          resolve(base64Data);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(proofFile);
+      });
 
-    const res = await fetch("/api/invoices/proof", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        invoice_id: invoiceId,
-        proof_base64: base64,
-        proof_filename: proofFile.name,
-        proof_content_type: proofFile.type,
-        payer_name: payerName.trim() || undefined,
-        payer_phone: phone.trim() || undefined,
-      }),
-    });
-    const result = await res.json();
-
-    if (!res.ok) {
-      setPayMessage(result.error || "Upload failed");
-    } else {
-      setUploadDone(true);
-      setPayMessage(result.message || "Proof uploaded successfully.");
-      // Reload invoice data
-      const refreshRes = await fetch(`/api/invoices/view?id=${invoiceId}`);
-      if (refreshRes.ok) setData(await refreshRes.json());
-    }
-  } catch {
-    setPayMessage("Network error. Please try again.");
-  } finally {
-    setUploading(false);
-  }
+      const res = await fetch("/api/invoices/proof", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ invoice_id: invoiceId, proof_base64: base64, proof_filename: proofFile.name, proof_content_type: proofFile.type, payer_name: payerName.trim() || undefined, payer_phone: phone.trim() || undefined }),
+      });
+      const result = await res.json();
+      if (!res.ok) { setPayMessage(result.error || "Upload failed"); }
+      else {
+        setUploadDone(true);
+        setPayMessage(result.message || "Proof uploaded successfully.");
+        const refreshRes = await fetch(`/api/invoices/view?id=${invoiceId}`);
+        if (refreshRes.ok) setData(await refreshRes.json());
+      }
+    } catch { setPayMessage("Network error. Please try again."); }
+    finally { setUploading(false); }
   }
 
   function closeModal() {
     if (pollRef.current) clearInterval(pollRef.current);
-    setShowPayModal(false);
-    setPayStatus("idle");
-    setPayMessage("");
-    setProofFile(null);
-    setProofPreview("");
-    setUploadDone(false);
+    setShowPayModal(false); setPayStatus("idle"); setPayMessage("");
+    setProofFile(null); setProofPreview(""); setUploadDone(false);
+    setManualStep(1);
   }
 
   if (loading) return (
@@ -223,6 +182,8 @@ export default function PublicInvoiceView() {
   const { invoice, business, customer } = data;
   const currency = business?.currency ?? "MWK";
   const items = invoice.items || [];
+  const paymentMethods: any[] = business?.payment_methods || [];
+  const paychanguEnabled = business?.paychangu_enabled;
 
   const balanceDue = Number(invoice.balance_due || (invoice.total - (invoice.amount_paid || 0)));
   const amountPaid = Number(invoice.amount_paid || 0);
@@ -270,7 +231,6 @@ export default function PublicInvoiceView() {
           )}
         </div>
 
-        {/* Payment banner for pending verification */}
         {isPendingVerification && (
           <div className="mx-6 sm:mx-8 mt-3 rounded-lg bg-purple-50 border border-purple-200 p-3 flex items-start gap-2">
             <Clock className="h-5 w-5 text-purple-600 mt-0.5 flex-shrink-0" />
@@ -418,23 +378,21 @@ export default function PublicInvoiceView() {
               </div>
             ) : (
               <div className="p-5 space-y-4">
-                {/* Tab switcher */}
+                {/* Tab switcher — only show mobile tab if Paychangu is enabled */}
                 <div className="flex gap-2">
+                  {paychanguEnabled && (
+                    <button
+                      onClick={() => setPayTab("mobile")}
+                      className={`flex-1 rounded-xl py-2.5 text-sm font-medium transition-colors ${payTab === "mobile" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}
+                    >
+                      Mobile Money
+                    </button>
+                  )}
                   <button
-                    onClick={() => setPayTab("mobile")}
-                    className={`flex-1 rounded-xl py-2.5 text-sm font-medium transition-colors ${
-                      payTab === "mobile" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"
-                    }`}
+                    onClick={() => { setPayTab("manual"); setManualStep(1); }}
+                    className={`flex-1 rounded-xl py-2.5 text-sm font-medium transition-colors ${payTab === "manual" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}
                   >
-                    Mobile Money
-                  </button>
-                  <button
-                    onClick={() => setPayTab("upload")}
-                    className={`flex-1 rounded-xl py-2.5 text-sm font-medium transition-colors ${
-                      payTab === "upload" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"
-                    }`}
-                  >
-                    Upload Proof
+                    Manual Payment
                   </button>
                 </div>
 
@@ -451,33 +409,23 @@ export default function PublicInvoiceView() {
                 </div>
 
                 {/* Mobile Money Tab */}
-                {payTab === "mobile" && (
+                {payTab === "mobile" && paychanguEnabled && (
                   <>
                     <div>
                       <label className="text-xs font-medium text-muted-foreground mb-1 block">Phone Number</label>
-                      <input
-                        type="tel"
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        placeholder="0991234567"
-                        className="w-full rounded-lg border border-input bg-white px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                      />
+                      <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="0991234567"
+                        className="w-full rounded-lg border border-input bg-white px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
                       <p className="text-xs text-muted-foreground mt-1">Enter the number registered with your mobile money account.</p>
                     </div>
-
                     <div>
                       <label className="text-xs font-medium text-muted-foreground mb-1 block">Operator (auto-detected)</label>
                       <div className="flex gap-2">
-                        <button
-                          onClick={() => setOperator("airtel")}
-                          className={`flex-1 rounded-lg py-2 text-sm font-medium border ${operator === "airtel" || (!operator && phone && !phone.match(/^(88|89)/)) ? "border-primary bg-primary/5" : "border-input bg-white"}`}
-                        >
+                        <button onClick={() => setOperator("airtel")}
+                          className={`flex-1 rounded-lg py-2 text-sm font-medium border ${operator === "airtel" || (!operator && phone && !phone.match(/^(88|89)/)) ? "border-primary bg-primary/5" : "border-input bg-white"}`}>
                           Airtel Money
                         </button>
-                        <button
-                          onClick={() => setOperator("tnm")}
-                          className={`flex-1 rounded-lg py-2 text-sm font-medium border ${operator === "tnm" ? "border-primary bg-primary/5" : "border-input bg-white"}`}
-                        >
+                        <button onClick={() => setOperator("tnm")}
+                          className={`flex-1 rounded-lg py-2 text-sm font-medium border ${operator === "tnm" ? "border-primary bg-primary/5" : "border-input bg-white"}`}>
                           TNM Mpamba
                         </button>
                       </div>
@@ -496,86 +444,142 @@ export default function PublicInvoiceView() {
                       </div>
                     ) : null}
 
-                    {payMessage && payStatus === "idle" && (
-                      <p className="text-sm text-rose-600">{payMessage}</p>
-                    )}
+                    {payMessage && payStatus === "idle" && <p className="text-sm text-rose-600">{payMessage}</p>}
 
-                    <button
-                      onClick={handlePaychanguPayment}
-                      disabled={paying || payStatus === "polling"}
-                      className="w-full bg-primary text-primary-foreground rounded-xl py-3 font-semibold text-sm disabled:opacity-50 flex items-center justify-center gap-2"
-                    >
-                      {paying || payStatus === "polling" ? (
-                        <><Loader2 className="h-4 w-4 animate-spin" /> Processing...</>
-                      ) : (
-                        <>Pay {formatCurrency(balanceDue, currency)}</>
-                      )}
+                    <button onClick={handlePaychanguPayment} disabled={paying || payStatus === "polling"}
+                      className="w-full bg-primary text-primary-foreground rounded-xl py-3 font-semibold text-sm disabled:opacity-50 flex items-center justify-center gap-2">
+                      {paying || payStatus === "polling" ? <><Loader2 className="h-4 w-4 animate-spin" /> Processing...</> : <>Pay {formatCurrency(balanceDue, currency)}</>}
                     </button>
                   </>
                 )}
 
-                {/* Upload Proof Tab */}
-                {payTab === "upload" && (
+                {/* Manual Payment Tab */}
+                {payTab === "manual" && (
                   <>
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground mb-1 block">Phone Number (optional)</label>
-                      <input
-                        type="tel"
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        placeholder="0991234567"
-                        className="w-full rounded-lg border border-input bg-white px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                      />
-                    </div>
+                    {manualStep === 1 ? (
+                      /* Step 1: Show payment methods with copy buttons */
+                      <div className="space-y-3">
+                        <div className="rounded-lg bg-blue-50 border border-blue-200 p-3 flex items-start gap-2">
+                          <Wallet className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                          <div>
+                            <p className="text-sm font-medium text-blue-900">Send {formatCurrency(balanceDue, currency)} to one of the methods below</p>
+                            <p className="text-xs text-blue-600 mt-0.5">Use invoice number <span className="font-mono font-semibold">{invoice.invoice_number}</span> as reference</p>
+                          </div>
+                        </div>
 
-                    <div>
-                      <label className="text-xs font-medium text-muted-foreground mb-1 block">Proof of Payment</label>
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp,image/gif,application/pdf"
-                        onChange={handleFileSelect}
-                        className="hidden"
-                      />
-                      <button
-                        onClick={() => fileInputRef.current?.click()}
-                        className="w-full rounded-xl border-2 border-dashed border-input bg-muted/30 py-6 flex flex-col items-center gap-2 hover:bg-muted/50 transition-colors"
-                      >
-                        {proofPreview ? (
-                          <img src={proofPreview} alt="Proof preview" className="max-h-32 rounded-lg" />
+                        {paymentMethods.length === 0 ? (
+                          <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-center">
+                            <p className="text-sm text-amber-700">No manual payment methods configured for this business.</p>
+                            <p className="text-xs text-amber-600 mt-1">Please contact the business owner for payment instructions.</p>
+                          </div>
                         ) : (
-                          <>
-                            <Upload className="h-8 w-8 text-muted-foreground" />
-                            <span className="text-sm text-muted-foreground">Tap to upload screenshot or photo</span>
-                            <span className="text-xs text-muted-foreground/70">JPG, PNG, WebP, or PDF · Max 5MB</span>
-                          </>
+                          <div className="space-y-2.5">
+                            {paymentMethods.map((method: any, idx: number) => (
+                              <div key={idx} className="rounded-xl border border-input bg-white p-3.5 space-y-2">
+                                <div className="flex items-center gap-2">
+                                  {method.type === "bank" ? (
+                                    <Landmark className="h-4 w-4 text-muted-foreground" />
+                                  ) : method.type === "mobile_money" ? (
+                                    <Phone className="h-4 w-4 text-muted-foreground" />
+                                  ) : (
+                                    <Wallet className="h-4 w-4 text-muted-foreground" />
+                                  )}
+                                  <span className="font-medium text-sm">{method.label || method.type}</span>
+                                </div>
+
+                                {method.account_name && (
+                                  <div className="flex items-center justify-between">
+                                    <div>
+                                      <p className="text-xs text-muted-foreground">Account Name</p>
+                                      <p className="text-sm font-medium">{method.account_name}</p>
+                                    </div>
+                                    <button onClick={() => copyToClipboard(method.account_name, `name-${idx}`)}
+                                      className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground">
+                                      {copiedField === `name-${idx}` ? <CheckCircle2 className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}
+                                    </button>
+                                  </div>
+                                )}
+
+                                {method.account_number && (
+                                  <div className="flex items-center justify-between">
+                                    <div>
+                                      <p className="text-xs text-muted-foreground">{method.type === "bank" ? "Account Number" : "Phone Number"}</p>
+                                      <p className="text-sm font-mono font-medium">{method.account_number}</p>
+                                    </div>
+                                    <button onClick={() => copyToClipboard(method.account_number, `num-${idx}`)}
+                                      className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground">
+                                      {copiedField === `num-${idx}` ? <CheckCircle2 className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}
+                                    </button>
+                                  </div>
+                                )}
+
+                                {method.bank_name && (
+                                  <div>
+                                    <p className="text-xs text-muted-foreground">Bank</p>
+                                    <p className="text-sm font-medium">{method.bank_name}</p>
+                                  </div>
+                                )}
+
+                                {method.instructions && (
+                                  <div className="text-xs text-muted-foreground bg-muted/50 rounded-md p-2">{method.instructions}</div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
                         )}
-                      </button>
-                      {proofFile && !proofPreview && (
-                        <p className="text-xs text-muted-foreground mt-1.5 truncate">{proofFile.name}</p>
-                      )}
-                    </div>
 
-                    {payMessage && payStatus === "idle" && (
-                      <p className="text-sm text-rose-600">{payMessage}</p>
+                        <button
+                          onClick={() => setManualStep(2)}
+                          disabled={paymentMethods.length === 0}
+                          className="w-full bg-primary text-primary-foreground rounded-xl py-3 font-semibold text-sm disabled:opacity-50 flex items-center justify-center gap-2"
+                        >
+                          I've Sent the Payment <ChevronRight className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      /* Step 2: Upload proof of payment */
+                      <div className="space-y-4">
+                        <div className="flex items-center gap-2 text-sm">
+                          <button onClick={() => setManualStep(1)} className="text-primary text-xs font-medium hover:underline">← Back to payment methods</button>
+                        </div>
+
+                        <div>
+                          <label className="text-xs font-medium text-muted-foreground mb-1 block">Phone Number (optional)</label>
+                          <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="0991234567"
+                            className="w-full rounded-lg border border-input bg-white px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
+                        </div>
+
+                        <div>
+                          <label className="text-xs font-medium text-muted-foreground mb-1 block">Proof of Payment</label>
+                          <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif,application/pdf" onChange={handleFileSelect} className="hidden" />
+                          <button onClick={() => fileInputRef.current?.click()}
+                            className="w-full rounded-xl border-2 border-dashed border-input bg-muted/30 py-6 flex flex-col items-center gap-2 hover:bg-muted/50 transition-colors">
+                            {proofPreview ? (
+                              <img src={proofPreview} alt="Proof preview" className="max-h-32 rounded-lg" />
+                            ) : (
+                              <>
+                                <Upload className="h-8 w-8 text-muted-foreground" />
+                                <span className="text-sm text-muted-foreground">Tap to upload screenshot or photo</span>
+                                <span className="text-xs text-muted-foreground/70">JPG, PNG, WebP, or PDF · Max 5MB</span>
+                              </>
+                            )}
+                          </button>
+                          {proofFile && !proofPreview && <p className="text-xs text-muted-foreground mt-1.5 truncate">{proofFile.name}</p>}
+                        </div>
+
+                        {payMessage && payStatus === "idle" && <p className="text-sm text-rose-600">{payMessage}</p>}
+
+                        <button onClick={handleProofUpload} disabled={uploading || !proofFile}
+                          className="w-full bg-primary text-primary-foreground rounded-xl py-3 font-semibold text-sm disabled:opacity-50 flex items-center justify-center gap-2">
+                          {uploading ? <><Loader2 className="h-4 w-4 animate-spin" /> Uploading...</> : <>Submit Proof</>}
+                        </button>
+
+                        <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 flex items-start gap-2">
+                          <ShieldCheck className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                          <p className="text-xs text-amber-700">Your payment will be marked as "under review" until the business owner verifies it.</p>
+                        </div>
+                      </div>
                     )}
-
-                    <button
-                      onClick={handleProofUpload}
-                      disabled={uploading || !proofFile}
-                      className="w-full bg-primary text-primary-foreground rounded-xl py-3 font-semibold text-sm disabled:opacity-50 flex items-center justify-center gap-2"
-                    >
-                      {uploading ? (
-                        <><Loader2 className="h-4 w-4 animate-spin" /> Uploading...</>
-                      ) : (
-                        <>Submit Proof</>
-                      )}
-                    </button>
-
-                    <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 flex items-start gap-2">
-                      <ShieldCheck className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
-                      <p className="text-xs text-amber-700">Your payment will be marked as "under review" until the business owner verifies it.</p>
-                    </div>
                   </>
                 )}
               </div>
