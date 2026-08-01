@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Save, Building2, MessageCircle, CheckCircle2, AlertCircle, ExternalLink, CreditCard, Plus, Trash2, Landmark, Wallet } from "lucide-react";
+import { Loader2, Save, Building2, MessageCircle, CheckCircle2, CreditCard, Plus, Trash2, Landmark, Wallet } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const currencies = ["USD", "EUR", "GBP", "CAD", "AUD", "MWK", "ZAR", "NGN", "KES", "GHS", "INR", "PKR", "TZS", "UGX", "RWF"];
