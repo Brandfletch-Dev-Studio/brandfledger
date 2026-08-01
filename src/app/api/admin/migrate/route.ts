@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { Pool } from "pg";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -18,21 +17,55 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Missing 'sql' field" }, { status: 400 });
     }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
     const projectRef = supabaseUrl.replace("https://", "").replace(".supabase.co", "");
 
-    const connectionString = "postgresql://postgres." + projectRef + ":" + serviceKey + "@aws-0-us-east-1.pooler.supabase.com:5432/postgres";
-    
-    const pool = new Pool({ connectionString, max: 1, connectionTimeoutMillis: 15000 });
-    const client = await pool.connect();
-    
+    const { Pool } = await import("pg");
+
+    // Try direct connection first
+    const directConnStr = "postgresql://postgres:" + serviceKey + "@db." + projectRef + ".supabase.co:5432/postgres";
+
+    let pool;
     try {
-      await client.query(sql);
-      return NextResponse.json({ success: true, message: "Migration applied" });
-    } finally {
-      client.release();
-      await pool.end();
+      pool = new Pool({ connectionString: directConnStr, max: 1, connectionTimeoutMillis: 10000, ssl: { rejectUnauthorized: false } });
+      const client = await pool.connect();
+      try {
+        await client.query(sql);
+        return NextResponse.json({ success: true, method: "direct", projectRef });
+      } finally {
+        client.release();
+        await pool.end();
+      }
+    } catch (directErr: any) {
+      console.log("Direct failed:", directErr.message);
+      if (pool) await pool.end().catch(() => {});
+
+      // Try pooler with different regions
+      const regions = ["us-east-1", "eu-west-1", "ap-southeast-1", "us-west-1", "eu-central-1"];
+      for (const region of regions) {
+        const poolerConnStr = "postgresql://postgres." + projectRef + ":" + serviceKey + "@aws-0-" + region + ".pooler.supabase.com:5432/postgres";
+        try {
+          pool = new Pool({ connectionString: poolerConnStr, max: 1, connectionTimeoutMillis: 8000 });
+          const client = await pool.connect();
+          try {
+            await client.query(sql);
+            return NextResponse.json({ success: true, method: "pooler", region, projectRef });
+          } finally {
+            client.release();
+            await pool.end();
+          }
+        } catch (poolErr: any) {
+          console.log("Pooler " + region + " failed:", poolErr.message);
+          if (pool) await pool.end().catch(() => {});
+        }
+      }
+
+      return NextResponse.json({
+        error: "All connection attempts failed",
+        directError: directErr.message,
+        projectRef,
+      }, { status: 500 });
     }
   } catch (err: any) {
     console.error("Migration error:", err);
