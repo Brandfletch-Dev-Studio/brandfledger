@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import { LiveBadge } from "@/components/ui/live-badge";
 import { Header } from "@/components/layout/header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -101,6 +102,19 @@ export default function TransactionsPage() {
 
   const transactions = pageData?.transactions ?? [];
   const products = pageData?.products ?? [];
+
+  // Live polling — auto-refresh every 30s while tab is visible
+  const [isLive, setIsLive] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval>;
+    const start = () => { timer = setInterval(() => { refetch(); setLastUpdated(new Date()); }, 30000); setIsLive(true); };
+    const stop = () => { clearInterval(timer); setIsLive(false); };
+    const onVis = () => { if (document.hidden) stop(); else { refetch(); start(); } };
+    start();
+    document.addEventListener("visibilitychange", onVis);
+    return () => { stop(); document.removeEventListener("visibilitychange", onVis); };
+  }, [refetch]);
 
   const lineTotals = useMemo(() => {
     let totalAmount = 0, totalCost = 0;
@@ -323,10 +337,13 @@ export default function TransactionsPage() {
         description="Log income & expenses with auto-profit tracking"
         actions={
           <div className="flex items-center gap-2">
-            <button onClick={() => { clearCache(`transactions_v2:${bizId ?? "default"}`); refetch(); }}
-              className="h-8 w-8 rounded-lg border flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors" disabled={refreshing}>
-              <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-            </button>
+            <div className="flex items-center gap-2">
+              <LiveBadge isLive={isLive} lastUpdated={lastUpdated} />
+              <button onClick={() => { clearCache(`transactions_v2:${bizId ?? "default"}`); refetch(); }}
+                className="h-8 w-8 rounded-lg border flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors" disabled={refreshing}>
+                <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+              </button>
+            </div>
             <Button size="sm" className="gap-1.5" onClick={() => setOpen(true)}>
               <Plus className="h-4 w-4" /> Quick Add
             </Button>

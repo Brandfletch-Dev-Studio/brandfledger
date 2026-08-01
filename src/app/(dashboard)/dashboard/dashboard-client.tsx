@@ -1,5 +1,6 @@
 "use client";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   DollarSign, TrendingUp, TrendingDown, Clock, Users, FileText,
@@ -8,6 +9,7 @@ import {
 } from "lucide-react";
 import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { PeriodSelect } from "./period-select";
+import { LiveBadge } from "@/components/ui/live-badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -240,7 +242,51 @@ export default function DashboardClient({
   setupStatus,
   period = "this_month",
 }: Props) {
+  const router = useRouter();
   const [granularity, setGranularity] = useState<Granularity>("monthly");
+  const [isLive, setIsLive] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+
+  // Live refresh — polls router.refresh() every 30s while tab is visible
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval>;
+    let lastRefresh = 0;
+
+    const doRefresh = () => {
+      const now = Date.now();
+      if (now - lastRefresh < 5000) return; // debounce
+      lastRefresh = now;
+      router.refresh();
+      setLastUpdated(new Date());
+    };
+
+    const start = () => {
+      timer = setInterval(doRefresh, 30000);
+      setIsLive(true);
+    };
+
+    const stop = () => {
+      clearInterval(timer);
+      setIsLive(false);
+    };
+
+    const onVisibility = () => {
+      if (document.hidden) {
+        stop();
+      } else {
+        doRefresh();
+        start();
+      }
+    };
+
+    start();
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [router]);
 
   if (!business) {
     return (
@@ -285,7 +331,8 @@ export default function DashboardClient({
       </div>
 
       {/* Quick action pills */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+      <LiveBadge isLive={isLive} lastUpdated={lastUpdated} />
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 -mx-1 px-1">
         <Link href="/transactions?new=1" className="shrink-0">
           <Button size="sm" className="rounded-full"><Plus className="h-3.5 w-3.5 mr-1.5" />New Invoice</Button>
         </Link>

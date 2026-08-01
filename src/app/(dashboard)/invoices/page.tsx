@@ -1,5 +1,6 @@
 "use client";
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { LiveBadge } from "@/components/ui/live-badge";
 import { Header } from "@/components/layout/header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -97,6 +98,8 @@ export default function InvoicesPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [pageLoading, setPageLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [isLive, setIsLive] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const loadData = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true); else setPageLoading(true);
@@ -116,6 +119,17 @@ export default function InvoicesPage() {
   }, [toast]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // Live polling — auto-refresh every 30s while tab is visible
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval>;
+    const start = () => { timer = setInterval(() => { loadData(); setLastUpdated(new Date()); }, 30000); setIsLive(true); };
+    const stop = () => { clearInterval(timer); setIsLive(false); };
+    const onVis = () => { if (document.hidden) stop(); else { loadData(); start(); } };
+    start();
+    document.addEventListener("visibilitychange", onVis);
+    return () => { stop(); document.removeEventListener("visibilitychange", onVis); };
+  }, [loadData]);
 
   const customerMap = useMemo(() => {
     const m: Record<string, any> = {};
@@ -206,6 +220,7 @@ export default function InvoicesPage() {
       <Header title="Invoices" description="Create and share professional invoices" icon={FileText}
         actions={
           <div className="flex items-center gap-2">
+            <LiveBadge isLive={isLive} lastUpdated={lastUpdated} />
             {refreshing && <RefreshCw className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
             <Button size="sm" onClick={() => router.push("/invoices/create")}>
               <Plus className="mr-1.5 h-4 w-4" />Create

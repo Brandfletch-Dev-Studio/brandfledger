@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
+import { LiveBadge } from "@/components/ui/live-badge";
 import { Header } from "@/components/layout/header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,6 +40,8 @@ export default function CustomersPage() {
   const [loading, setLoading] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [isLive, setIsLive] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [form, setForm] = useState(BLANK_FORM);
 
   const fetchData = useCallback(async (isRefresh = false) => {
@@ -60,6 +63,17 @@ export default function CustomersPage() {
   }, [toast]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Live polling — auto-refresh every 30s while tab is visible
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval>;
+    const start = () => { timer = setInterval(() => { fetchData(); setLastUpdated(new Date()); }, 30000); setIsLive(true); };
+    const stop = () => { clearInterval(timer); setIsLive(false); };
+    const onVis = () => { if (document.hidden) stop(); else { fetchData(); start(); } };
+    start();
+    document.addEventListener("visibilitychange", onVis);
+    return () => { stop(); document.removeEventListener("visibilitychange", onVis); };
+  }, [fetchData]);
 
   function openAdd() { setEditing(null); setForm(BLANK_FORM); setOpen(true); }
   function openEdit(c: any) {
@@ -137,6 +151,7 @@ export default function CustomersPage() {
         icon={Users}
         actions={
           <div className="flex items-center gap-2">
+            <LiveBadge isLive={isLive} lastUpdated={lastUpdated} />
             {refreshing && <RefreshCw className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
             <Dialog open={open} onOpenChange={handleOpenChange}>
               <DialogTrigger asChild>
