@@ -1376,7 +1376,7 @@ export const readFunctionDefinitions = [
       description: "Get top customers by revenue for a period.",
       parameters: {
         type: "object",
-        properties: { period: { type: "string", enum: ["this_month", "last_month", "this_year"] } },
+        properties: { period: { type: "string", enum: ["this_month", "last_month", "this_year"], description: "Default to this_month if not specified. Never ask." } },
       },
     },
   },
@@ -1390,7 +1390,7 @@ export const readFunctionDefinitions = [
         properties: {
           limit: { type: "number", description: "Number of transactions to return (default 10, max 20)" },
           type: { type: "string", enum: ["income", "expense"], description: "Filter by transaction type" },
-          period: { type: "string", enum: ["today", "yesterday", "this_month", "last_month", "this_week", "last_week", "this_year"], description: "Filter by time period" },
+          period: { type: "string", enum: ["today", "yesterday", "this_month", "last_month", "this_week", "last_week", "this_year"], description: "Filter by time period. Default to this_month if not specified." },
         },
       },
     },
