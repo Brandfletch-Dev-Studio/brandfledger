@@ -334,6 +334,411 @@ async function topCustomers(ctx: FunctionContext, period?: string) {
 }
 
 
+// ============================================================
+// ADVANCED READ FUNCTIONS — State of the Art
+// ============================================================
+
+async function listCustomers(ctx: FunctionContext, args: { limit?: number }) {
+  const limit = Math.min(args.limit || 15, 50);
+  const { data } = await supabase
+    .from("customers")
+    .select("id, name, phone, email, total_invoiced, created_at")
+    .eq("business_id", ctx.business_id)
+    .order("total_invoiced", { ascending: false })
+    .limit(limit);
+  return { customers: data || [], count: data?.length || 0 };
+}
+
+async function getCustomerDetail(ctx: FunctionContext, args: { customer_name?: string; customer_id?: string }) {
+  // Find the customer
+  let query = supabase
+    .from("customers")
+    .select("id, name, phone, email, address, notes, total_invoiced, created_at")
+    .eq("business_id", ctx.business_id);
+
+  if (args.customer_id) {
+    query = query.eq("id", args.customer_id);
+  } else if (args.customer_name) {
+    // Try exact match first, then partial
+    const { data: all } = await supabase
+      .from("customers")
+      .select("id, name, phone, email, address, notes, total_invoiced, created_at")
+      .eq("business_id", ctx.business_id);
+    if (!all) return { error: "No customers found" };
+    const norm = args.customer_name.toLowerCase().trim();
+    const exact = all.find(c => c.name?.toLowerCase().trim() === norm);
+    const customer = exact || all.find(c => c.name?.toLowerCase().includes(norm) || norm.includes(c.name?.toLowerCase()));
+    if (!customer) return { error: `No customer found matching "${args.customer_name}"` };
+    return getCustomerFullProfile(ctx, customer);
+  } else {
+    return { error: "Provide customer_name or customer_id" };
+  }
+
+  const { data: customer } = await query.maybeSingle();
+  if (!customer) return { error: "Customer not found" };
+  return getCustomerFullProfile(ctx, customer);
+}
+
+async function getCustomerFullProfile(ctx: FunctionContext, customer: any) {
+  const [txRes, invRes] = await Promise.all([
+    supabase
+      .from("transactions")
+      .select("id, type, amount, description, date, profit, margin")
+      .eq("business_id", ctx.business_id)
+      .eq("client_name", customer.name)
+      .order("date", { ascending: false })
+      .limit(10),
+    supabase
+      .from("invoices")
+      .select("id, invoice_number, status, issue_date, due_date, total, amount_paid, balance_due")
+      .eq("business_id", ctx.business_id)
+      .eq("customer_id", customer.id)
+      .order("issue_date", { ascending: false })
+      .limit(10),
+  ]);
+
+  const txs = txRes.data || [];
+  const totalRevenue = sum(txs.filter(t => t.type === "income"), "amount");
+  const outstandingInvoices = (invRes.data || []).filter(i => ["sent", "partial", "overdue"].includes(i.status));
+  const totalOutstanding = sum(outstandingInvoices, "balance_due");
+
+  return {
+    customer: { name: customer.name, phone: customer.phone, email: customer.email, address: customer.address, notes: customer.notes },
+    total_invoiced: customer.total_invoiced,
+    total_outstanding: totalOutstanding,
+    transaction_count: txs.length,
+    recent_transactions: txs.slice(0, 5).map(t => ({ type: t.type, amount: t.amount, description: t.description, date: t.date, profit: t.profit, margin: t.margin })),
+    recent_invoices: (invRes.data || []).slice(0, 5).map(i => ({ number: i.invoice_number, status: i.status, total: i.total, balance: i.balance_due, due: i.due_date })),
+  };
+}
+
+async function searchTransactions(ctx: FunctionContext, args: { query?: string; min_amount?: number; max_amount?: number; type?: string; start_date?: string; end_date?: string; limit?: number }) {
+  const limit = Math.min(args.limit || 15, 30);
+  let query = supabase
+    .from("transactions")
+    .select("id, type, amount, description, client_name, vendor_name, category_name, date, payment_method, profit, margin")
+    .eq("business_id", ctx.business_id)
+    .order("date", { ascending: false })
+    .limit(limit);
+
+  if (args.type) query = query.eq("type", args.type);
+  if (args.min_amount) query = query.gte("amount", args.min_amount);
+  if (args.max_amount) query = query.lte("amount", args.max_amount);
+  if (args.start_date) query = query.gte("date", args.start_date);
+  if (args.end_date) query = query.lte("date", args.end_date);
+  if (args.query) {
+    // Text search on description and client_name
+    query = query.or(`description.ilike.%${args.query}%,client_name.ilike.%${args.query}%,vendor_name.ilike.%${args.query}%,category_name.ilike.%${args.query}%`);
+  }
+
+  const { data } = await query;
+  return { transactions: data || [], count: data?.length || 0 };
+}
+
+async function getReceivablesAging(ctx: FunctionContext) {
+  const { data: invoices } = await supabase
+    .from("invoices")
+    .select("id, invoice_number, customer_id, total, balance_due, due_date, status, issue_date")
+    .eq("business_id", ctx.business_id)
+    .in("status", ["sent", "partial", "overdue"]);
+
+  if (!invoices || invoices.length === 0) return { aging: { current: 0, days_1_30: 0, days_31_60: 0, days_61_90: 0, days_90_plus: 0 }, total: 0, count: 0 };
+
+  const now = new Date();
+  const buckets = { current: 0, days_1_30: 0, days_31_60: 0, days_61_90: 0, days_90_plus: 0 };
+  const bucketDetails: Record<string, any[]> = { current: [], days_1_30: [], days_31_60: [], days_61_90: [], days_90_plus: [] };
+
+  // Get customer names
+  const customerIds = [...new Set(invoices.map(i => i.customer_id).filter(Boolean))];
+  let customerMap: Record<string, string> = {};
+  if (customerIds.length > 0) {
+    const { data: customers } = await supabase.from("customers").select("id, name").in("id", customerIds);
+    customers?.forEach(c => { customerMap[c.id] = c.name; });
+  }
+
+  for (const inv of invoices) {
+    const balance = Number(inv.balance_due ?? inv.total);
+    if (balance <= 0) continue;
+    const dueDate = new Date(inv.due_date);
+    const daysOverdue = Math.floor((now.getTime() - dueDate.getTime()) / 86400000);
+
+    let bucket: string;
+    if (daysOverdue <= 0) bucket = "current";
+    else if (daysOverdue <= 30) bucket = "days_1_30";
+    else if (daysOverdue <= 60) bucket = "days_31_60";
+    else if (daysOverdue <= 90) bucket = "days_61_90";
+    else bucket = "days_90_plus";
+
+    buckets[bucket] += balance;
+    bucketDetails[bucket].push({
+      invoice: inv.invoice_number,
+      customer: customerMap[inv.customer_id] || "Unknown",
+      balance,
+      due_date: inv.due_date,
+      days_overdue: Math.max(0, daysOverdue),
+    });
+  }
+
+  return {
+    aging: buckets,
+    total: Object.values(buckets).reduce((a, b) => a + b, 0),
+    count: invoices.filter(i => Number(i.balance_due ?? i.total) > 0).length,
+    details: bucketDetails,
+  };
+}
+
+async function getExpenseBreakdown(ctx: FunctionContext, args: { period?: string }) {
+  const { start, end } = dateRange(args.period);
+  const { data } = await supabase
+    .from("transactions")
+    .select("amount, category_name, description, vendor_name, date")
+    .eq("business_id", ctx.business_id)
+    .eq("type", "expense")
+    .gte("date", start)
+    .lte("date", end);
+
+  if (!data || data.length === 0) return { categories: [], total: 0, count: 0 };
+
+  const byCategory: Record<string, { total: number; count: number; items: any[] }> = {};
+  for (const tx of data) {
+    const cat = tx.category_name || "Uncategorized";
+    if (!byCategory[cat]) byCategory[cat] = { total: 0, count: 0, items: [] };
+    byCategory[cat].total += Number(tx.amount);
+    byCategory[cat].count += 1;
+    if (byCategory[cat].items.length < 3) {
+      byCategory[cat].items.push({ description: tx.description, amount: tx.amount, date: tx.date, vendor: tx.vendor_name });
+    }
+  }
+
+  const total = sum(data, "amount");
+  const categories = Object.entries(byCategory)
+    .map(([name, info]) => ({
+      category: name,
+      total: info.total,
+      count: info.count,
+      percentage: total > 0 ? Math.round(info.total / total * 100) : 0,
+      top_items: info.items,
+    }))
+    .sort((a, b) => b.total - a.total);
+
+  return { categories, total, count: data.length, period: args.period || "this_month" };
+}
+
+async function getProfitAnalysis(ctx: FunctionContext, args: { period?: string; by?: string }) {
+  const { start, end } = dateRange(args.period);
+  const { data } = await supabase
+    .from("transactions")
+    .select("amount, cost_amount, profit, margin, client_name, description, type, date")
+    .eq("business_id", ctx.business_id)
+    .eq("type", "income")
+    .gte("date", start)
+    .lte("date", end);
+
+  if (!data || data.length === 0) return { total_revenue: 0, total_cost: 0, total_profit: 0, avg_margin: 0, count: 0 };
+
+  const totalRevenue = sum(data, "amount");
+  const totalCost = sum(data, "cost_amount");
+  const totalProfit = sum(data, "profit");
+  const avgMargin = totalRevenue > 0 ? Math.round(totalProfit / totalRevenue * 100) : 0;
+
+  if (args.by === "customer") {
+    const byCustomer: Record<string, any> = {};
+    for (const tx of data) {
+      const name = tx.client_name || "Unknown";
+      if (!byCustomer[name]) byCustomer[name] = { revenue: 0, cost: 0, profit: 0, count: 0 };
+      byCustomer[name].revenue += Number(tx.amount);
+      byCustomer[name].cost += Number(tx.cost_amount || 0);
+      byCustomer[name].profit += Number(tx.profit || 0);
+      byCustomer[name].count += 1;
+    }
+    const customers = Object.entries(byCustomer)
+      .map(([name, v]) => ({ customer: name, ...v, margin: v.revenue > 0 ? Math.round(v.profit / v.revenue * 100) : 0 }))
+      .sort((a, b) => b.profit - a.profit);
+    return { total_revenue: totalRevenue, total_cost: totalCost, total_profit: totalProfit, avg_margin: avgMargin, count: data.length, by_customer: customers };
+  }
+
+  return {
+    total_revenue: totalRevenue,
+    total_cost: totalCost,
+    total_profit: totalProfit,
+    avg_margin: avgMargin,
+    count: data.length,
+    best_margin: data.reduce((best, tx) => (tx.margin > best.margin ? tx : best), data[0]),
+    worst_margin: data.reduce((worst, tx) => (tx.margin < worst.margin ? tx : worst), data[0]),
+  };
+}
+
+async function getFinancialHealth(ctx: FunctionContext) {
+  const now = new Date();
+  const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
+  const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().split("T")[0];
+  const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().split("T")[0];
+  const today = now.toISOString().split("T")[0];
+  const threeMonthsAgo = new Date(now.getTime() - 90 * 86400000).toISOString().split("T")[0];
+
+  const [thisMonthRes, lastMonthRes, receivablesRes, overdueRes, allTxRes] = await Promise.all([
+    supabase.from("transactions").select("type, amount").eq("business_id", ctx.business_id).gte("date", thisMonthStart).lte("date", today),
+    supabase.from("transactions").select("type, amount").eq("business_id", ctx.business_id).gte("date", lastMonthStart).lte("date", lastMonthEnd),
+    supabase.from("invoices").select("balance_due, status").eq("business_id", ctx.business_id).in("status", ["sent", "partial", "overdue"]),
+    supabase.from("invoices").select("balance_due, due_date").eq("business_id", ctx.business_id).in("status", ["sent", "partial", "overdue"]).lt("due_date", today),
+    supabase.from("transactions").select("type, amount, profit").eq("business_id", ctx.business_id).gte("date", threeMonthsAgo).lte("date", today),
+  ]);
+
+  const thisIncome = sum(thisMonthRes.data?.filter(t => t.type === "income"), "amount");
+  const thisExpenses = sum(thisMonthRes.data?.filter(t => t.type === "expense"), "amount");
+  const lastIncome = sum(lastMonthRes.data?.filter(t => t.type === "income"), "amount");
+  const lastExpenses = sum(lastMonthRes.data?.filter(t => t.type === "expense"), "amount");
+
+  const totalReceivables = sum(receivablesRes.data, "balance_due");
+  const totalOverdue = sum(overdueRes.data, "balance_due");
+
+  const threeMoIncome = sum(allTxRes.data?.filter(t => t.type === "income"), "amount");
+  const threeMoProfit = sum(allTxRes.data?.filter(t => t.type === "income"), "profit");
+  const threeMoExpenses = sum(allTxRes.data?.filter(t => t.type === "expense"), "amount");
+
+  // Revenue trend: +1 growing, 0 stable, -1 declining
+  const revenueTrend = thisIncome > lastIncome * 1.1 ? 1 : thisIncome < lastIncome * 0.9 ? -1 : 0;
+
+  // Profit margin
+  const profitMargin = thisIncome > 0 ? Math.round((thisIncome - thisExpenses) / thisIncome * 100) : 0;
+
+  // Burn rate (monthly expenses average)
+  const monthlyBurn = threeMoExpenses / 3;
+
+  // Liquidity: receivables vs monthly burn
+  const runwayMonths = monthlyBurn > 0 ? Math.round(totalReceivables / monthlyBurn * 10) / 10 : 0;
+
+  // Score calculation (0-100)
+  let score = 50;
+  if (revenueTrend > 0) score += 15;
+  if (revenueTrend < 0) score -= 15;
+  if (profitMargin >= 30) score += 15;
+  else if (profitMargin >= 15) score += 8;
+  else if (profitMargin < 0) score -= 20;
+  if (totalOverdue === 0) score += 10;
+  else if (totalOverdue > totalReceivables * 0.5) score -= 15;
+  if (thisIncome > thisExpenses) score += 10;
+  else score -= 10;
+  score = Math.max(0, Math.min(100, score));
+
+  const grade = score >= 80 ? "A" : score >= 65 ? "B" : score >= 50 ? "C" : score >= 35 ? "D" : "F";
+
+  return {
+    score,
+    grade,
+    revenue_trend: revenueTrend > 0 ? "growing" : revenueTrend < 0 ? "declining" : "stable",
+    this_month: { income: thisIncome, expenses: thisExpenses, net: thisIncome - thisExpenses, margin: profitMargin },
+    vs_last_month: { income_change: thisIncome - lastIncome, expense_change: thisExpenses - lastExpenses },
+    receivables: { total: totalReceivables, overdue: totalOverdue, overdue_pct: totalReceivables > 0 ? Math.round(totalOverdue / totalReceivables * 100) : 0 },
+    burn_rate: { monthly: Math.round(monthlyBurn), runway_months: runwayMonths },
+    quarterly: { income: threeMoIncome, profit: threeMoProfit, avg_margin: threeMoIncome > 0 ? Math.round(threeMoProfit / threeMoIncome * 100) : 0 },
+  };
+}
+
+async function getBurnRate(ctx: FunctionContext) {
+  const now = new Date();
+  const threeMonthsAgo = new Date(now.getTime() - 90 * 86400000).toISOString().split("T")[0];
+  const today = now.toISOString().split("T")[0];
+
+  const { data } = await supabase
+    .from("transactions")
+    .select("type, amount, date")
+    .eq("business_id", ctx.business_id)
+    .gte("date", threeMonthsAgo)
+    .lte("date", today);
+
+  if (!data) return { monthly_burn: 0, monthly_income: 0, net_monthly: 0 };
+
+  const income = sum(data.filter(t => t.type === "income"), "amount");
+  const expenses = sum(data.filter(t => t.type === "expense"), "amount");
+  const monthlyIncome = Math.round(income / 3);
+  const monthlyBurn = Math.round(expenses / 3);
+  const netMonthly = monthlyIncome - monthlyBurn;
+
+  return {
+    monthly_burn: monthlyBurn,
+    monthly_income: monthlyIncome,
+    net_monthly: netMonthly,
+    trend: netMonthly >= 0 ? "profitable" : "burning",
+    status: netMonthly >= 0 ? "The business is generating positive cash flow." : "The business is spending more than it earns.",
+  };
+}
+
+async function getTaxSummary(ctx: FunctionContext, args: { year?: number; quarter?: number }) {
+  // Tax REPORTING only — not advice
+  const year = args.year || new Date().getFullYear();
+  const now = new Date();
+
+  let start: string, end: string;
+  if (args.quarter) {
+    const qStartMonth = (args.quarter - 1) * 3;
+    start = new Date(year, qStartMonth, 1).toISOString().split("T")[0];
+    end = new Date(year, qStartMonth + 3, 0).toISOString().split("T")[0];
+  } else {
+    start = new Date(year, 0, 1).toISOString().split("T")[0];
+    end = new Date(year, 11, 31).toISOString().split("T")[0];
+  }
+
+  const { data } = await supabase
+    .from("transactions")
+    .select("type, amount, cost_amount, profit, category_name, date")
+    .eq("business_id", ctx.business_id)
+    .gte("date", start)
+    .lte("date", end);
+
+  if (!data) return { income: 0, expenses: 0, net: 0, count: 0 };
+
+  const income = sum(data.filter(t => t.type === "income"), "amount");
+  const expenses = sum(data.filter(t => t.type === "expense"), "amount");
+  const cost = sum(data.filter(t => t.type === "income"), "cost_amount");
+  const profit = sum(data.filter(t => t.type === "income"), "profit");
+
+  // Category breakdown for expenses
+  const expenseCats: Record<string, number> = {};
+  data.filter(t => t.type === "expense").forEach(t => {
+    const cat = t.category_name || "Uncategorized";
+    expenseCats[cat] = (expenseCats[cat] || 0) + Number(t.amount);
+  });
+
+  return {
+    period: args.quarter ? `Q${args.quarter} ${year}` : `FY ${year}`,
+    income,
+    expenses,
+    net: income - expenses,
+    cost_of_goods: cost,
+    gross_profit: profit,
+    expense_categories: Object.entries(expenseCats).map(([k, v]) => ({ category: k, amount: v })).sort((a, b) => b.amount - a.amount),
+    transaction_count: data.length,
+    disclaimer: "This is a factual report of recorded transactions. Not tax advice — consult a qualified accountant for tax filing.",
+  };
+}
+
+async function listProducts(ctx: FunctionContext, args: { limit?: number; active_only?: boolean }) {
+  const limit = Math.min(args.limit || 20, 50);
+  let query = supabase
+    .from("products")
+    .select("id, name, description, price, cost, category, unit, is_active")
+    .eq("business_id", ctx.business_id)
+    .order("name")
+    .limit(limit);
+
+  if (args.active_only !== false) query = query.eq("is_active", true);
+
+  const { data } = await query;
+  const products = (data || []).map(p => ({
+    name: p.name,
+    price: Number(p.price),
+    cost: Number(p.cost || 0),
+    margin: p.price > 0 ? Math.round((p.price - Number(p.cost || 0)) / p.price * 100) : 0,
+    category: p.category,
+    unit: p.unit,
+    description: p.description,
+    active: p.is_active,
+  }));
+
+  return { products, count: products.length };
+}
+
 async function listRecentTransactions(ctx: FunctionContext, args: { limit?: number; type?: string; period?: string }) {
   const limit = Math.min(args.limit || 10, 20);
   let query = supabase
@@ -828,6 +1233,127 @@ export const readFunctionDefinitions = [
       parameters: { type: "object", properties: {} },
     },
   },
+  {
+    type: "function" as const,
+    function: {
+      name: "list_customers",
+      description: "List all customers sorted by total invoiced (highest first). Use when the user asks to see, show, or list customers/clients.",
+      parameters: {
+        type: "object",
+        properties: { limit: { type: "number", description: "Max customers to return (default 15, max 50)" } },
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_customer_detail",
+      description: "Get a full customer profile: contact info, total invoiced, outstanding balance, recent transactions, and recent invoices. Use when the user asks about a specific customer.",
+      parameters: {
+        type: "object",
+        properties: {
+          customer_name: { type: "string", description: "The customer name (or partial name)" },
+          customer_id: { type: "string", description: "The customer UUID" },
+        },
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "search_transactions",
+      description: "Search transactions by text, amount range, type, or date range. Use when the user asks to 'find', 'search', or 'look for' specific transactions.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Search term (matches description, client name, vendor, category)" },
+          min_amount: { type: "number", description: "Minimum amount" },
+          max_amount: { type: "number", description: "Maximum amount" },
+          type: { type: "string", enum: ["income", "expense"] },
+          start_date: { type: "string", description: "YYYY-MM-DD" },
+          end_date: { type: "string", description: "YYYY-MM-DD" },
+          limit: { type: "number", description: "Max results (default 15, max 30)" },
+        },
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_receivables_aging",
+      description: "Get receivables aging report — buckets outstanding invoices by how overdue they are (current, 1-30, 31-60, 61-90, 90+ days). Use when the user asks about aging, late invoices, or how overdue things are.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_expense_breakdown",
+      description: "Get a detailed expense breakdown by category for a period. Shows total per category, percentage, and top items. Use when the user asks 'where did my money go?' or wants expense categories.",
+      parameters: {
+        type: "object",
+        properties: { period: { type: "string", enum: ["today", "yesterday", "this_month", "last_month", "this_week", "last_week", "this_year"] } },
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_profit_analysis",
+      description: "Analyze profit margins — overall or by customer. Shows revenue, cost, profit, and margin. Use when the user asks about profitability, margins, or which customers are most profitable.",
+      parameters: {
+        type: "object",
+        properties: {
+          period: { type: "string", enum: ["today", "yesterday", "this_month", "last_month", "this_week", "last_week", "this_year"] },
+          by: { type: "string", enum: ["customer"], description: "Break down by customer" },
+        },
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_financial_health",
+      description: "Get a comprehensive financial health score (A-F grade) based on revenue trend, profit margin, receivables, and burn rate. Use when the user asks 'how healthy is my business?' or wants an overall assessment.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_burn_rate",
+      description: "Calculate the monthly burn rate (average expenses) and compare to income. Shows if the business is profitable or burning cash. Use when the user asks about burn rate, runway, or cash flow sustainability.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_tax_summary",
+      description: "Get a factual tax summary report (income, expenses, net, cost of goods, expense categories) for a year or quarter. REPORTING ONLY — not tax advice. Use when the user asks for a quarterly or annual summary for tax purposes.",
+      parameters: {
+        type: "object",
+        properties: {
+          year: { type: "number", description: "The year (e.g. 2026)" },
+          quarter: { type: "number", enum: [1, 2, 3, 4], description: "The quarter (1-4)" },
+        },
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "list_products",
+      description: "List products/services with prices, costs, and margins. Use when the user asks to see, show, or list products, services, or prices.",
+      parameters: {
+        type: "object",
+        properties: {
+          limit: { type: "number", description: "Max products (default 20, max 50)" },
+          active_only: { type: "boolean", description: "Only active products (default true)" },
+        },
+      },
+    },
+  },
 ];
 
 // preview_action — available when there is NO pending action (phase 1)
@@ -901,6 +1427,16 @@ export async function executeReadFunction(
     case "list_recent_invoices": return listRecentInvoices(ctx, args);
     case "get_invoice_detail": return getInvoiceDetail(ctx, args);
     case "get_business_snapshot": return getBusinessSnapshot(ctx);
+    case "list_customers": return listCustomers(ctx, args);
+    case "get_customer_detail": return getCustomerDetail(ctx, args);
+    case "search_transactions": return searchTransactions(ctx, args);
+    case "get_receivables_aging": return getReceivablesAging(ctx);
+    case "get_expense_breakdown": return getExpenseBreakdown(ctx, args);
+    case "get_profit_analysis": return getProfitAnalysis(ctx, args);
+    case "get_financial_health": return getFinancialHealth(ctx);
+    case "get_burn_rate": return getBurnRate(ctx);
+    case "get_tax_summary": return getTaxSummary(ctx, args);
+    case "list_products": return listProducts(ctx, args);
     default: return { error: `Unknown function: ${name}` };
   }
 }
