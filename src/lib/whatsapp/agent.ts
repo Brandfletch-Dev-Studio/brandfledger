@@ -31,10 +31,17 @@ async function getOpenAIKey(): Promise<string> {
   return process.env.OPENAI_API_KEY || "";
 }
 
-export async function resolveUser(whatsappNumber: string): Promise<FunctionContext | null> {
-  const normalized = whatsappNumber.replace(/[\s+]/g, "");
+// Result of user resolution \u2014 includes subscription status for gating
+export interface ResolveResult {
+  ctx: FunctionContext;
+  subscriptionStatus: string;
+  trialEndsAt: string | null;
+}
 
-  // Look up business_members by WhatsApp number (exact match first)
+export async function resolveUser(whatsappNumber: string): Promise<ResolveResult | null> {
+  const normalized = whatsappNumber.replace(/[^0-9]/g, "");
+
+  // Look up business_members by WhatsApp number (exact match)
   const { data: member } = await supabase
     .from("business_members")
     .select("business_id, user_id, whatsapp_number")
@@ -50,36 +57,87 @@ export async function resolveUser(whatsappNumber: string): Promise<FunctionConte
     const { data: allMembers } = await supabase
       .from("business_members")
       .select("business_id, user_id, whatsapp_number");
-    const match = allMembers?.find((m: any) => m.whatsapp_number?.replace(/[\s+]/g, "") === normalized);
+    const match = allMembers?.find((m: any) => {
+      const mNorm = m.whatsapp_number?.replace(/[^0-9]/g, "");
+      return mNorm && mNorm === normalized;
+    });
     if (!match) return null;
     businessId = match.business_id;
   }
 
   if (!businessId) return null;
 
+  // Get business + subscription status
   const { data: business } = await supabase
     .from("businesses")
-    .select("id, name, currency, owner_id")
+    .select("id, name, currency, owner_id, subscription_status, trial_ends_at")
     .eq("id", businessId)
     .maybeSingle();
   if (!business) return null;
 
+  // Get subscription status from profiles table (source of truth)
+  let subscriptionStatus = business.subscription_status || "trial";
+  let trialEndsAt = business.trial_ends_at;
+
+  if (business.owner_id) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("subscription_status, trial_ends_at")
+      .eq("id", business.owner_id)
+      .maybeSingle();
+    if (profile?.subscription_status) {
+      subscriptionStatus = profile.subscription_status;
+      trialEndsAt = profile.trial_ends_at;
+    }
+  }
+
   return {
-    business_id: business.id,
-    business_name: business.name,
-    currency: business.currency || "MWK",
+    ctx: {
+      business_id: business.id,
+      business_name: business.name,
+      currency: business.currency || "MWK",
+    },
+    subscriptionStatus,
+    trialEndsAt,
   };
+}
+
+/**
+ * Check if the subscription is active or trial is still valid.
+ */
+function checkSubscription(status: string, trialEndsAt: string | null): { active: boolean; message?: string } {
+  if (status === "active") return { active: true };
+
+  if (status === "trial" || !status) {
+    if (trialEndsAt) {
+      const expires = new Date(trialEndsAt);
+      const now = new Date();
+      if (expires > now) {
+        const daysLeft = Math.ceil((expires.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        return { active: true, message: daysLeft <= 3 ? "Your trial ends in " + daysLeft + " day(s). Visit brandfledger.com to subscribe." : undefined };
+      } else {
+        return { active: false, message: "Your Brandfledger trial has expired. Please visit brandfledger.com to subscribe and continue using the WhatsApp assistant." };
+      }
+    }
+    return { active: true };
+  }
+
+  if (status === "cancelled" || status === "expired" || status === "suspended") {
+    return { active: false, message: "Your Brandfledger subscription needs to be renewed. Please visit brandfledger.com to renew and continue using the WhatsApp assistant." };
+  }
+
+  return { active: true };
 }
 
 export async function processWhatsAppMessage(
   whatsappNumber: string,
-  messageText: string
+  messageText: string,
+  messageId?: string
 ): Promise<void> {
   try {
-    // 1. Resolve user
-    const ctx = await resolveUser(whatsappNumber);
-    if (!ctx) {
-      // Send "not recognized" message using platform-level WhatsApp credentials
+    // 1. Resolve user + subscription status
+    const resolved = await resolveUser(whatsappNumber);
+    if (!resolved) {
       console.error("Could not resolve WhatsApp user:", whatsappNumber);
       await sendWhatsAppMessage(
         whatsappNumber,
@@ -88,7 +146,16 @@ export async function processWhatsAppMessage(
       return;
     }
 
-    // 2. Get conversation context
+    const { ctx, subscriptionStatus, trialEndsAt } = resolved;
+
+    // 2. Subscription gating
+    const sub = checkSubscription(subscriptionStatus, trialEndsAt);
+    if (!sub.active) {
+      await sendWhatsAppMessage(whatsappNumber, sub.message || "Your subscription is inactive. Please visit brandfledger.com to renew.");
+      return;
+    }
+
+    // 3. Get conversation context
     let convCtx = await getContext(ctx.business_id, whatsappNumber);
     if (!convCtx) {
       convCtx = {
@@ -154,7 +221,7 @@ export async function processWhatsAppMessage(
 
     const messages: any[] = [
       { role: "system", content: systemPrompt },
-      { role: "user", content: messageText },
+      { role: "user", content: messageText.slice(0, 2000) },
     ];
 
     let functionCallCount = 0;
@@ -185,7 +252,7 @@ export async function processWhatsAppMessage(
         console.error("OpenAI API error:", errText);
         await sendWhatsAppMessage(
           whatsappNumber,
-          "I'm having trouble processing that. Please try again.",
+          "I couldn't process that right now. Please try again in a moment.",
           ctx.business_id
         );
         return;
@@ -198,7 +265,7 @@ export async function processWhatsAppMessage(
       if (!message) {
         await sendWhatsAppMessage(
           whatsappNumber,
-          "I didn't catch that. Could you rephrase?",
+          "I couldn't understand that. Could you rephrase?",
           ctx.business_id
         );
         return;

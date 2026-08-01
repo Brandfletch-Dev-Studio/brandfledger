@@ -427,8 +427,11 @@ async function searchTransactions(ctx: FunctionContext, args: { query?: string; 
   if (args.start_date) query = query.gte("date", args.start_date);
   if (args.end_date) query = query.lte("date", args.end_date);
   if (args.query) {
-    // Text search on description and client_name
-    query = query.or(`description.ilike.%${args.query}%,client_name.ilike.%${args.query}%,vendor_name.ilike.%${args.query}%,category_name.ilike.%${args.query}%`);
+    // Sanitize search query: strip PostgREST-special characters to prevent filter injection
+    const sanitized = args.query.replace(/[,.()\\]/g, " ").trim();
+    if (sanitized) {
+      query = query.or(`description.ilike.%${sanitized}%,client_name.ilike.%${sanitized}%,vendor_name.ilike.%${sanitized}%,category_name.ilike.%${sanitized}%`);
+    }
   }
 
   const { data } = await query;
