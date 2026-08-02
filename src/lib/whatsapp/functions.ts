@@ -1109,7 +1109,9 @@ export async function recordTransaction(
   const trimmedClientName = client_name?.trim() || null;
   const numCost = Number(cost) || 0;
   const numCostQty = Number(cost_qty) || 0;
-  const computedProfit = type === "income" ? Number(amount) - numCost : 0;
+  // If cost_qty > 1, cost is likely per-unit — multiply to get total cost
+  const totalCost = numCostQty > 1 ? numCost * numCostQty : numCost;
+  const computedProfit = type === "income" ? Number(amount) - totalCost : 0;
   const { data: tx, error } = await supabase
     .from("transactions")
     .insert({
@@ -1119,7 +1121,7 @@ export async function recordTransaction(
       vendor_name: vendor_name || null,
       description: description || null,
       amount: Number(amount),
-      cost_amount: numCost,
+      cost_amount: totalCost,
       cost_qty: numCostQty,
       profit: computedProfit,
       product_id: product_id || null,
@@ -1690,7 +1692,7 @@ export const previewActionDefinition = {
             category_name: { type: "string" },
             payment_method: { type: "string" },
             date: { type: "string" },
-            cost: { type: "number", description: "Cost of goods sold for this income transaction (what it cost you to deliver). Used to calculate profit." },
+            cost: { type: "number", description: "TOTAL cost of goods sold (per-unit cost × quantity). Used to calculate profit = amount - cost." },
             cost_qty: { type: "number", description: "Quantity of units sold (for cost tracking)" },
             product_id: { type: "string", description: "Product ID if this transaction is for a specific product" },
             customer_name: { type: "string" },
