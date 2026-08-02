@@ -511,6 +511,9 @@ export async function processWhatsAppMessage(
       await upsertContext(convCtx);
     }
 
+    // Always persist chat history + context (covers preview, execute, and topic-change cases)
+    await upsertContext(convCtx);
+
     // If the user seems to have changed topic and there was a pending action that wasn't executed,
     // and the response doesn't reference the pending action, clear it
     if (hasPendingAction && !pendingActionExecuted && !pendingActionStored) {
