@@ -1718,7 +1718,6 @@ export const previewActionDefinition = {
             address: { type: "string" },
             transaction_id: { type: "string" },
             is_active: { type: "boolean" },
-            cost: { type: "number" },
             category: { type: "string" },
             unit: { type: "string" },
           },
