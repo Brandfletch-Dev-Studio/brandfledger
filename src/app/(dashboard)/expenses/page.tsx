@@ -217,23 +217,23 @@ export default function ExpensesPage() {
           <div className="grid gap-2">
             {filtered.map(e => (
               <Card key={e.id} className="shadow-sm hover:shadow-md transition-shadow">
-                <CardContent className="flex items-center justify-between p-4 gap-3">
-                  <div className="flex items-center gap-3 min-w-0">
+                <CardContent className="flex items-center p-3 gap-2">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
                     <div className="h-9 w-9 rounded-lg bg-rose-100 flex items-center justify-center shrink-0">
                       <Receipt className="h-4 w-4 text-rose-500" />
                     </div>
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium truncate">{e.description}</p>
-                      <p className="text-xs text-muted-foreground">
+                      <p className="text-xs text-muted-foreground truncate">
                         {e.vendor_name ? `${e.vendor_name} · ` : ""}{formatDate(e.date)}
                         {e.payment_method ? ` · ${e.payment_method}` : ""}
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <p className="text-sm font-semibold text-rose-600">-{formatCurrency(Number(e.amount), currency)}</p>
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(e)}><Pencil className="h-3.5 w-3.5" /></Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleDelete(e.id)}><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <p className="text-sm font-semibold text-rose-600 whitespace-nowrap">-{formatCurrency(Number(e.amount), currency)}</p>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(e)}><Pencil className="h-3.5 w-3.5" /></Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDelete(e.id)}><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
                   </div>
                 </CardContent>
               </Card>
@@ -244,3 +244,4 @@ export default function ExpensesPage() {
     </div>
   );
 }
+
