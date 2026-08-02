@@ -57,9 +57,6 @@ function dateRange(period?: string): { start: string; end: string } {
       start = new Date(now.getFullYear(), 0, 1);
       end = today;  // up to today — correct
       break;
-        case "save_memory": return saveMemory(ctx, args);
-    case "recall_memories": return recallMemories(ctx, args);
-    case "delete_memory": return deleteMemory(ctx, args);
     default:
       start = new Date(now.getTime() - 30 * 86400000);
       end = today;  // last 30 days up to today — correct
@@ -1657,57 +1654,6 @@ export const readFunctionDefinitions = [
         type: "object",
         properties: {
           memory_id: { type: "string", description: "The ID of the memory to delete" },
-        },
-        required: ["memory_id"],
-      },
-    },
-  },
-  {
-    type: "function" as const,
-    function: {
-      name: "save_memory",
-      description: "Save a durable fact/preference about the business.",
-      parameters: {
-        type: "object",
-        properties: {
-          content: { type: "string", description: "The memory text to save" },
-          category: {
-            type: "string",
-            enum: ["preference", "business_info", "customer_note", "routine", "goal", "general"],
-            description: "Category of the memory",
-          },
-        },
-        required: ["content"],
-      },
-    },
-  },
-  {
-    type: "function" as const,
-    function: {
-      name: "recall_memories",
-      description: "Retrieve saved memories.",
-      parameters: {
-        type: "object",
-        properties: {
-          category: {
-            type: "string",
-            enum: ["preference", "business_info", "customer_note", "routine", "goal", "general", "all"],
-            description: "Filter memories by category",
-          },
-          query: { type: "string", description: "Optional search query to match memory content" },
-        },
-      },
-    },
-  },
-  {
-    type: "function" as const,
-    function: {
-      name: "delete_memory",
-      description: "Delete a memory by ID.",
-      parameters: {
-        type: "object",
-        properties: {
-          memory_id: { type: "string", description: "ID of the memory to delete" },
         },
         required: ["memory_id"],
       },
