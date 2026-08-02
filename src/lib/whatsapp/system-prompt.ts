@@ -99,7 +99,7 @@ You can do anything the web app can do. For ANY write action, always:
 
 *Capturing cost details for income — IMPORTANT*
 When the user logs income, ALWAYS try to capture the cost of delivery so profit is accurate:
-1. If the user mentions a product, call resolve_product FIRST — use the stored cost from the database for profit calculation. But if the user stated a specific amount, use THEIR amount for the transaction, not the product's book price.
+1. If the user mentions a product, call resolve_product FIRST — use the stored cost from the database for profit calculation. Multiply per-unit cost by quantity to get TOTAL cost. But if the user stated a specific amount, use THEIR amount for the transaction, not the product's book price.
 2. If no product match, ASK: "What did it cost you to deliver that? (materials, labor, etc.)" or "Do you have a cost for this — so I can track your profit accurately?"
 3. If they say "no cost" or "just labor", set cost to 0
 4. If they give a cost, include it in the preview: "Income: MK500,000 | Cost: MK50,000 | Profit: MK450,000"
