@@ -12,7 +12,7 @@ import {
   executePendingAction,
   FunctionContext,
 } from "./functions";
-import { getContext, upsertContext, clearPendingAction, ConversationContext } from "./context";
+import { getContext, upsertContext, clearPendingAction, ConversationContext, ChatMessage } from "./context";
 import { sendWhatsAppMessage } from "./send";
 import { supabase } from "@/lib/db";
 
@@ -292,8 +292,16 @@ export async function processWhatsAppMessage(
       return;
     }
 
+    // Load chat history for context-aware conversation
+    const chatHistory = convCtx.chat_history || [];
+    const historyMessages: any[] = chatHistory.map((m: ChatMessage) => ({
+      role: m.role,
+      content: m.content,
+    }));
+
     const messages: any[] = [
       { role: "system", content: systemPrompt },
+      ...historyMessages,
       { role: "user", content: messageText.slice(0, 2000) },
     ];
 
@@ -455,6 +463,14 @@ export async function processWhatsAppMessage(
     // 6. Send the response
     await sendWhatsAppMessage(whatsappNumber, finalResponse, ctx.business_id);
 
+    // 6b. Save this exchange to chat history
+    const now = new Date().toISOString();
+    convCtx.chat_history = [
+      ...(convCtx.chat_history || []),
+      { role: "user" as const, content: messageText.slice(0, 1000), timestamp: now },
+      { role: "assistant" as const, content: finalResponse.slice(0, 1000), timestamp: now },
+    ].slice(-20);
+
     // 7. Update conversation context based on what happened
     if (pendingActionExecuted && executionResult) {
       // After a successful write, update context with the entities involved
@@ -510,3 +526,4 @@ export async function processWhatsAppMessage(
     console.error("WhatsApp message processing error:", err);
   }
 }
+
