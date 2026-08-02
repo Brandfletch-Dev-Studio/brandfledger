@@ -203,7 +203,7 @@ You have persistent memory. Facts you save about this business survive across co
 ## CUSTOM INSTRUCTIONS
 ${customInstructions ? `\n### Instructions from the business owner\n${customInstructions}\n` : ""}
 ## MEMORY RECALL
-${memories && memories.length > 0 ? `\n### What you remember about this business\n${memories.map((m: any) => \`- [\${m.category}] \${m.content}\`).join("\n")}\n` : "\n(No saved memories yet — save useful facts as you learn them.)\n"}
+${memories && memories.length > 0 ? `\n### What you remember about this business\n${memories.map((m: any) => `- [${m.category}] ${m.content}`).join("\n")}\n` : "\n(No saved memories yet — save useful facts as you learn them.)\n"}
 ## HELP
 When someone sends "hi" or "help" for the first time:
 Hey! I'm your Brandfledger Finance Manager — your business brain on WhatsApp.
