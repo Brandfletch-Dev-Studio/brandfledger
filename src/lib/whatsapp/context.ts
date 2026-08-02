@@ -3,6 +3,12 @@
 
 import { supabase } from "@/lib/db";
 
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+  timestamp: string;
+}
+
 export interface ConversationContext {
   business_id: string;
   whatsapp_number: string;
@@ -15,7 +21,10 @@ export interface ConversationContext {
   last_amount?: number;
   pending_action?: string;
   pending_action_data?: any;
+  chat_history?: ChatMessage[];
 }
+
+const MAX_HISTORY = 20; // Keep last 20 messages (10 exchanges)
 
 export async function getContext(businessId: string, whatsappNumber: string): Promise<ConversationContext | null> {
   const { data } = await supabase
@@ -37,6 +46,7 @@ export async function getContext(businessId: string, whatsappNumber: string): Pr
     last_amount: data.last_amount,
     pending_action: data.pending_action,
     pending_action_data: data.pending_action_data,
+    chat_history: data.chat_history || [],
   };
 }
 
@@ -53,6 +63,7 @@ export async function upsertContext(ctx: ConversationContext): Promise<void> {
     last_amount: ctx.last_amount || 0,
     pending_action: ctx.pending_action || null,
     pending_action_data: ctx.pending_action_data || null,
+    chat_history: (ctx.chat_history || []).slice(-MAX_HISTORY),
     updated_at: new Date().toISOString(),
   };
 
@@ -102,10 +113,23 @@ export async function updateContext(
   if (updates.last_amount !== undefined) row.last_amount = updates.last_amount;
   if (updates.pending_action !== undefined) row.pending_action = updates.pending_action;
   if (updates.pending_action_data !== undefined) row.pending_action_data = updates.pending_action_data;
+  if (updates.chat_history !== undefined) row.chat_history = updates.chat_history;
 
   await supabase
     .from("whatsapp_conversation_context")
     .update(row)
     .eq("business_id", businessId)
     .eq("whatsapp_number", whatsappNumber);
+}
+
+export async function appendChatHistory(
+  businessId: string,
+  whatsappNumber: string,
+  messages: ChatMessage[]
+): Promise<ChatMessage[]> {
+  const ctx = await getContext(businessId, whatsappNumber);
+  const history = ctx?.chat_history || [];
+  const updated = [...history, ...messages].slice(-MAX_HISTORY);
+  await updateContext(businessId, whatsappNumber, { chat_history: updated });
+  return updated;
 }
