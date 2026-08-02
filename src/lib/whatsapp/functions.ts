@@ -1773,68 +1773,6 @@ async function deleteMemory(ctx: FunctionContext, args: { memory_id: string }): 
 // Stored in platform_settings as JSON to avoid needing a migration
 // ============================================================
 
-async function saveMemory(ctx: FunctionContext, args: { content: string; category?: string }): Promise<any> {
-  const key = "agent_memories_" + ctx.business_id;
-  const { data: existing } = await supabase
-    .from("platform_settings")
-    .select("value")
-    .eq("key", key)
-    .maybeSingle();
-  const memories: any[] = (existing?.value as any)?.memories || [];
-  const dupe = memories.find((m: any) =>
-    m.content.toLowerCase().trim() === args.content.toLowerCase().trim() &&
-    (m.category || "general") === (args.category || "general")
-  );
-  if (dupe) { return { saved: false, message: "This memory already exists.", memory: dupe }; }
-  const newMemory = {
-    id: crypto.randomUUID(),
-    category: args.category || "general",
-    content: args.content,
-    created_at: new Date().toISOString(),
-  };
-  memories.push(newMemory);
-  const trimmed = memories.slice(-100);
-  if (existing) {
-    await supabase.from("platform_settings").update({ value: { memories: trimmed } }).eq("key", key);
-  } else {
-    await supabase.from("platform_settings").insert({ key, value: { memories: trimmed } });
-  }
-  return { saved: true, memory: newMemory, total_memories: trimmed.length };
-}
-
-async function recallMemories(ctx: FunctionContext, args: { category?: string; query?: string }): Promise<any> {
-  const key = "agent_memories_" + ctx.business_id;
-  const { data } = await supabase
-    .from("platform_settings")
-    .select("value")
-    .eq("key", key)
-    .maybeSingle();
-  let memories: any[] = (data?.value as any)?.memories || [];
-  if (args.category && args.category !== "all") {
-    memories = memories.filter((m: any) => (m.category || "general") === args.category);
-  }
-  if (args.query) {
-    const q = args.query.toLowerCase();
-    memories = memories.filter((m: any) => m.content.toLowerCase().includes(q));
-  }
-  memories.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-  return { memories: memories.slice(0, 20), total: memories.length };
-}
-
-async function deleteMemory(ctx: FunctionContext, args: { memory_id: string }): Promise<any> {
-  const key = "agent_memories_" + ctx.business_id;
-  const { data: existing } = await supabase
-    .from("platform_settings")
-    .select("value")
-    .eq("key", key)
-    .maybeSingle();
-  const memories: any[] = (existing?.value as any)?.memories || [];
-  const filtered = memories.filter((m: any) => m.id !== args.memory_id);
-  if (filtered.length === memories.length) { return { deleted: false, message: "Memory not found." }; }
-  await supabase.from("platform_settings").update({ value: { memories: filtered } }).eq("key", key);
-  return { deleted: true, remaining: filtered.length };
-}
-
 export async function executeReadFunction(
   name: string,
   args: any,
