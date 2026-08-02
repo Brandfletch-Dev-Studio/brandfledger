@@ -1103,10 +1103,13 @@ async function getReportsData(ctx: FunctionContext, args: { months?: number }) {
 
 export async function recordTransaction(
   ctx: FunctionContext,
-  params: { type: string; amount: number; description?: string; client_name?: string; vendor_name?: string; category_name?: string; payment_method?: string; date?: string }
+  params: { type: string; amount: number; description?: string; client_name?: string; vendor_name?: string; category_name?: string; payment_method?: string; date?: string; cost?: number; cost_qty?: number; product_id?: string }
 ) {
-  const { type, amount, description, client_name, vendor_name, category_name, payment_method, date } = params;
+  const { type, amount, description, client_name, vendor_name, category_name, payment_method, date, cost, cost_qty, product_id } = params;
   const trimmedClientName = client_name?.trim() || null;
+  const numCost = Number(cost) || 0;
+  const numCostQty = Number(cost_qty) || 0;
+  const computedProfit = type === "income" ? Number(amount) - numCost : 0;
   const { data: tx, error } = await supabase
     .from("transactions")
     .insert({
@@ -1116,6 +1119,10 @@ export async function recordTransaction(
       vendor_name: vendor_name || null,
       description: description || null,
       amount: Number(amount),
+      cost_amount: numCost,
+      cost_qty: numCostQty,
+      profit: computedProfit,
+      product_id: product_id || null,
       category_name: category_name || null,
       payment_method: payment_method || "cash",
       date: date || new Date().toISOString().split("T")[0],
@@ -1683,6 +1690,9 @@ export const previewActionDefinition = {
             category_name: { type: "string" },
             payment_method: { type: "string" },
             date: { type: "string" },
+            cost: { type: "number", description: "Cost of goods sold for this income transaction (what it cost you to deliver). Used to calculate profit." },
+            cost_qty: { type: "number", description: "Quantity of units sold (for cost tracking)" },
+            product_id: { type: "string", description: "Product ID if this transaction is for a specific product" },
             customer_name: { type: "string" },
             items: {
               type: "array",
@@ -1813,3 +1823,4 @@ export async function executeReadFunction(
     default: return { error: `Unknown function: \${name}` };
   }
 }
+
