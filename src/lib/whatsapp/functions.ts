@@ -1713,7 +1713,6 @@ export const previewActionDefinition = {
             due_date: { type: "string" },
             notes: { type: "string" },
             invoice_id: { type: "string" },
-            product_id: { type: "string" },
             email: { type: "string" },
             phone: { type: "string" },
             address: { type: "string" },
