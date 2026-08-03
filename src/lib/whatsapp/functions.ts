@@ -96,7 +96,7 @@ async function resolveCustomer(ctx: FunctionContext, name: string) {
 async function resolveProduct(ctx: FunctionContext, name: string) {
   const { data } = await supabase
     .from("products")
-    .select("id, name, price, cost, category, unit, is_active")
+    .select("id, name, price, cost, category, unit, is_active, stock_quantity, reorder_level, stock_unit")
     .eq("business_id", ctx.business_id);
   if (!data) return { matched: false, new: true };
 
@@ -244,6 +244,96 @@ async function getWeeklySummary(ctx: FunctionContext) {
     biggest_expense_category: sortedCats[0]?.[0] || null,
     biggest_expense_amount: sortedCats[0]?.[1] || 0,
   };
+}
+
+// INVENTORY MANAGEMENT
+async function queryInventory(ctx: FunctionContext, args?: { low_stock_only?: boolean }) {
+  let query = supabase
+    .from("products")
+    .select("id, name, price, cost, stock_quantity, reorder_level, stock_unit, category, is_active")
+    .eq("business_id", ctx.business_id)
+    .order("name");
+
+  const { data, error } = await query;
+  if (error) throw error;
+  if (!data || data.length === 0) return { products: [], total_products: 0, total_stock_value: 0, low_stock_count: 0 };
+
+  const products = data.map((p: any) => ({
+    name: p.name,
+    stock: Number(p.stock_quantity || 0),
+    unit: p.stock_unit || "units",
+    reorder_level: Number(p.reorder_level || 0),
+    is_low_stock: Number(p.stock_quantity || 0) <= Number(p.reorder_level || 0) && Number(p.reorder_level || 0) > 0,
+    out_of_stock: Number(p.stock_quantity || 0) <= 0,
+    price: Number(p.price || 0),
+    cost: Number(p.cost || 0),
+    stock_value: Number(p.cost || 0) * Number(p.stock_quantity || 0),
+    active: p.is_active,
+  }));
+
+  const totalStockValue = products.reduce((s: number, p: any) => s + p.stock_value, 0);
+  const lowStockItems = products.filter((p: any) => p.is_low_stock);
+  const outOfStockItems = products.filter((p: any) => p.out_of_stock);
+
+  const filtered = args?.low_stock_only
+    ? products.filter((p: any) => p.is_low_stock || p.out_of_stock)
+    : products;
+
+  return {
+    products: filtered,
+    total_products: data.length,
+    total_stock_value: totalStockValue,
+    low_stock_count: lowStockItems.length,
+    out_of_stock_count: outOfStockItems.length,
+    low_stock_items: lowStockItems.map((p: any) => ({ name: p.name, stock: p.stock, reorder_level: p.reorder_level, unit: p.unit })),
+    out_of_stock_items: outOfStockItems.map((p: any) => ({ name: p.name, unit: p.unit })),
+  };
+}
+
+async function restockProduct(ctx: FunctionContext, args: { product_name: string; quantity: number; unit_cost?: number; note?: string }) {
+  // Resolve product first
+  const resolved = await resolveProduct(ctx, args.product_name);
+  if (!resolved.matched || !resolved.product) {
+    return { error: `Product "${args.product_name}" not found. Create it first or check the name.` };
+  }
+
+  await supabase.rpc("increment_product_stock", {
+    p_product_id: resolved.product.id,
+    p_quantity: Number(args.quantity) || 0,
+    p_unit_cost: Number(args.unit_cost) || 0,
+    p_note: args.note || null,
+  });
+
+  // Return updated product
+  const { data: updated } = await supabase
+    .from("products")
+    .select("*")
+    .eq("id", resolved.product.id)
+    .maybeSingle();
+
+  return { product: updated, restocked: true, new_stock: Number(updated?.stock_quantity || 0) };
+}
+
+async function adjustStock(ctx: FunctionContext, args: { product_name: string; new_quantity: number; note?: string; movement_type?: string }) {
+  const resolved = await resolveProduct(ctx, args.product_name);
+  if (!resolved.matched || !resolved.product) {
+    return { error: `Product "${args.product_name}" not found.` };
+  }
+
+  await supabase.rpc("adjust_product_stock", {
+    p_product_id: resolved.product.id,
+    p_new_quantity: Number(args.new_quantity) || 0,
+    p_note: args.note || null,
+    p_movement_type: args.movement_type || "adjustment",
+  });
+
+  const { data: updated } = await supabase
+    .from("products")
+    .select("*")
+    .eq("id", resolved.product.id)
+    .maybeSingle();
+
+  return { product: updated, adjusted: true, new_stock: Number(updated?.stock_quantity || 0) };
 }
 
 async function checkOverdueInvoices(ctx: FunctionContext) {
@@ -1142,6 +1232,22 @@ export async function recordTransaction(
       p_amount: Number(amount),
     });
   }
+
+  // Auto-decrement stock when a product is sold
+  if (type === "income" && product_id) {
+    const qtyToDecrement = effectiveQty;
+    try {
+      await supabase.rpc("decrement_product_stock", {
+        p_product_id: product_id,
+        p_quantity: qtyToDecrement,
+        p_transaction_id: tx.id,
+      });
+    } catch (e) {
+      // Don't fail the transaction if stock decrement fails — but log it
+      console.error("Stock decrement failed:", e);
+    }
+  }
+
   return { transaction: tx };
 }
 
@@ -1300,6 +1406,8 @@ export async function executePendingAction(
     case "delete_transaction": return deleteTransaction(ctx, pendingData.action_params);
     case "mark_invoice_sent": return markInvoiceSent(ctx, pendingData.action_params);
     case "delete_invoice": return deleteInvoice(ctx, pendingData.action_params);
+    case "restock_product": return restockProduct(ctx, pendingData.action_params);
+    case "adjust_stock": return adjustStock(ctx, pendingData.action_params);
     default: return { error: `Unknown action type: ${pendingData.action_type}` };
   }
 }
@@ -1393,6 +1501,53 @@ export const readFunctionDefinitions = [
       name: "get_weekly_summary",
       description: "Get a weekly financial summary with comparison to the previous week.",
       parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "query_inventory",
+      description: "Check product stock levels. Returns current stock, low-stock alerts, out-of-stock items, and total inventory value. Use when user asks about stock, inventory, or what needs restocking.",
+      parameters: {
+        type: "object",
+        properties: {
+          low_stock_only: { type: "boolean", description: "If true, only return products that are at or below their reorder level. Default false." },
+        },
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "restock_product",
+      description: "Restock a product (add inventory). Call this when the user says they bought more stock or received a delivery.",
+      parameters: {
+        type: "object",
+        properties: {
+          product_name: { type: "string", description: "Product name to restock" },
+          quantity: { type: "number", description: "Number of units to add to stock" },
+          unit_cost: { type: "number", description: "Cost per unit of the new stock (optional, updates product cost if provided)" },
+          note: { type: "string", description: "Optional note about this restock (e.g. supplier name, invoice number)" },
+        },
+        required: ["product_name", "quantity"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "adjust_stock",
+      description: "Adjust stock level to a specific quantity (for stock takes, damages, losses). Use when the user counts their stock and wants to correct the number.",
+      parameters: {
+        type: "object",
+        properties: {
+          product_name: { type: "string", description: "Product name" },
+          new_quantity: { type: "number", description: "The actual counted quantity to set stock to" },
+          note: { type: "string", description: "Reason for adjustment (e.g. 'stock take', '2 units damaged')" },
+          movement_type: { type: "string", enum: ["adjustment", "loss"], description: "Type of adjustment (default: adjustment, use 'loss' for damaged/lost stock)" },
+        },
+        required: ["product_name", "new_quantity"],
+      },
     },
   },
   {
@@ -1681,7 +1836,7 @@ export const previewActionDefinition = {
     parameters: {
       type: "object",
       properties: {
-        action_type: { type: "string", enum: ["record_transaction", "create_invoice", "record_payment", "create_customer", "create_product", "update_product", "delete_transaction", "mark_invoice_sent", "delete_invoice"] },
+        action_type: { type: "string", enum: ["record_transaction", "create_invoice", "record_payment", "create_customer", "create_product", "update_product", "delete_transaction", "mark_invoice_sent", "delete_invoice", "restock_product", "adjust_stock"] },
         action_params: {
           type: "object",
           description: "The exact parameters that will be passed to the write function when confirmed",
@@ -1800,6 +1955,9 @@ export async function executeReadFunction(
     case "get_daily_summary": return getDailySummary(ctx, args.period);
     case "get_weekly_summary": return getWeeklySummary(ctx);
     case "check_overdue_invoices": return checkOverdueInvoices(ctx);
+    case "query_inventory": return queryInventory(ctx, args);
+    case "restock_product": return restockProduct(ctx, args);
+    case "adjust_stock": return adjustStock(ctx, args);
     case "analyze_cash_flow": return analyzeCashFlow(ctx);
     case "compare_periods": return comparePeriods(ctx, args.period1, args.period2);
     case "top_customers": return topCustomers(ctx, args.period);
