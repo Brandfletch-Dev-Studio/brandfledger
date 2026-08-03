@@ -1109,8 +1109,10 @@ export async function recordTransaction(
   const trimmedClientName = client_name?.trim() || null;
   const numCost = Number(cost) || 0;
   const numCostQty = Number(cost_qty) || 0;
-  // If cost_qty > 1, cost is likely per-unit — multiply to get total cost
-  const totalCost = numCostQty > 1 ? numCost * numCostQty : numCost;
+  // cost is ALWAYS per-unit. Multiply by qty to get total cost.
+  // If no qty specified, treat as 1 unit.
+  const effectiveQty = Math.max(1, numCostQty);
+  const totalCost = numCost * effectiveQty;
   const computedProfit = type === "income" ? Number(amount) - totalCost : 0;
   const { data: tx, error } = await supabase
     .from("transactions")
@@ -1692,7 +1694,7 @@ export const previewActionDefinition = {
             category_name: { type: "string" },
             payment_method: { type: "string" },
             date: { type: "string" },
-            cost: { type: "number", description: "TOTAL cost of goods sold (per-unit cost × quantity). Used to calculate profit = amount - cost." },
+            cost: { type: "number", description: "PER-UNIT cost of goods sold for ONE unit (from resolve_product or user input). The system multiplies this by cost_qty to calculate total COGS. Do NOT pre-multiply." },
             cost_qty: { type: "number", description: "Quantity of units sold (for cost tracking)" },
             product_id: { type: "string", description: "Product ID if this transaction is for a specific product" },
             customer_name: { type: "string" },
