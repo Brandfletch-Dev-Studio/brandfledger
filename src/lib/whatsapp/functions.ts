@@ -246,6 +246,128 @@ async function getWeeklySummary(ctx: FunctionContext) {
   };
 }
 
+// SERVICE BUSINESS: Time Tracking & WIP Management
+async function logTimeEntry(ctx: FunctionContext, args: {
+  customer_name: string;
+  description?: string;
+  hours: number;
+  hourly_rate?: number;
+  billable?: boolean;
+  work_date?: string;
+}) {
+  const { data, error } = await supabase.rpc("log_time_entry", {
+    p_business_id: ctx.business_id,
+    p_customer_name: args.customer_name,
+    p_description: args.description || null,
+    p_hours: Number(args.hours) || 0,
+    p_hourly_rate: Number(args.hourly_rate) || 0,
+    p_billable: args.billable !== false,
+    p_work_date: args.work_date || null,
+  });
+
+  if (error) throw error;
+  return { time_entry: data, logged: true };
+}
+
+async function queryWip(ctx: FunctionContext, args?: { customer_name?: string }) {
+  const { data, error } = await supabase.rpc("get_wip_summary", {
+    p_business_id: ctx.business_id,
+  });
+
+  if (error) throw error;
+  if (!data || data.length === 0) return { wip: [], total_unbilled: 0, message: "No unbilled work. All caught up!" };
+
+  const filtered = args?.customer_name
+    ? data.filter((e: any) => e.customer_name?.toLowerCase().includes(args.customer_name!.toLowerCase()))
+    : data;
+
+  const totalUnbilled = filtered.reduce((s: number, e: any) => s + Number(e.unbilled_amount || 0), 0);
+  const totalHours = filtered.reduce((s: number, e: any) => s + Number(e.billable_hours || 0), 0);
+
+  return {
+    wip: filtered,
+    total_unbilled: totalUnbilled,
+    total_hours: totalHours,
+    client_count: filtered.length,
+  };
+}
+
+async function queryClientProfitability(ctx: FunctionContext, args?: { customer_name?: string }) {
+  const { data, error } = await supabase.rpc("get_client_profitability", {
+    p_business_id: ctx.business_id,
+    p_customer_name: args?.customer_name || null,
+  });
+
+  if (error) throw error;
+  if (!data || data.length === 0) return { clients: [], message: "No client data yet." };
+
+  return {
+    clients: data,
+    total_revenue: data.reduce((s: number, c: any) => s + Number(c.total_revenue || 0), 0),
+    total_profit: data.reduce((s: number, c: any) => s + Number(c.total_profit || 0), 0),
+    total_hours: data.reduce((s: number, c: any) => s + Number(c.hours_worked || 0), 0),
+    total_unbilled_wip: data.reduce((s: number, c: any) => s + Number(c.unbilled_wip || 0), 0),
+  };
+}
+
+async function createInvoiceFromWip(ctx: FunctionContext, args: {
+  customer_name: string;
+  description?: string;
+  due_date?: string;
+}) {
+  // Get unbilled time entries for this customer
+  const { data: entries, error } = await supabase
+    .from("time_entries")
+    .select("*")
+    .eq("business_id", ctx.business_id)
+    .eq("customer_name", args.customer_name)
+    .eq("billed", false)
+    .eq("billable", true);
+
+  if (error) throw error;
+  if (!entries || entries.length === 0) {
+    return { error: `No unbilled work found for ${args.customer_name}. All work has been invoiced.` };
+  }
+
+  // Group by hourly rate to create line items
+  const lineItems: any[] = [];
+  let totalHours = 0;
+
+  for (const entry of entries) {
+    const hours = Number(entry.hours);
+    const rate = Number(entry.hourly_rate || 0);
+    totalHours += hours;
+
+    lineItems.push({
+      description: entry.description || `${hours} hours of work`,
+      amount: hours * rate,
+      quantity: 1,
+    });
+  }
+
+  // Use createInvoice to actually create it
+  const invoiceResult = await createInvoice(ctx, {
+    customer_name: args.customer_name,
+    items: lineItems,
+    due_date: args.due_date,
+  });
+
+  // Mark time entries as billed
+  if (invoiceResult.invoice?.id) {
+    await supabase
+      .from("time_entries")
+      .update({ billed: true, invoice_id: invoiceResult.invoice.id })
+      .in("id", entries.map((e: any) => e.id));
+  }
+
+  return {
+    invoice: invoiceResult.invoice,
+    hours_invoiced: totalHours,
+    entries_billed: entries.length,
+    message: `Created invoice for ${entries.length} time entries totaling ${totalHours} hours`,
+  };
+}
+
 // INVENTORY MANAGEMENT
 async function queryInventory(ctx: FunctionContext, args?: { low_stock_only?: boolean }) {
   let query = supabase
@@ -1408,6 +1530,8 @@ export async function executePendingAction(
     case "delete_invoice": return deleteInvoice(ctx, pendingData.action_params);
     case "restock_product": return restockProduct(ctx, pendingData.action_params);
     case "adjust_stock": return adjustStock(ctx, pendingData.action_params);
+    case "log_time": return logTimeEntry(ctx, pendingData.action_params);
+    case "invoice_wip": return createInvoiceFromWip(ctx, pendingData.action_params);
     default: return { error: `Unknown action type: ${pendingData.action_type}` };
   }
 }
@@ -1501,6 +1625,67 @@ export const readFunctionDefinitions = [
       name: "get_weekly_summary",
       description: "Get a weekly financial summary with comparison to the previous week.",
       parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "log_time",
+      description: "Log time spent working for a client. Use when the user mentions hours worked, time spent, or tracking time. Calculates billable amount from hours × hourly_rate.",
+      parameters: {
+        type: "object",
+        properties: {
+          customer_name: { type: "string", description: "Client/customer name" },
+          description: { type: "string", description: "What work was done" },
+          hours: { type: "number", description: "Number of hours worked (e.g. 2.5)" },
+          hourly_rate: { type: "number", description: "Billing rate per hour (optional if client has a set rate)" },
+          billable: { type: "boolean", description: "Is this billable to the client? Default true" },
+          work_date: { type: "string", description: "Date of work in YYYY-MM-DD format (default: today)" },
+        },
+        required: ["customer_name", "hours"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "query_wip",
+      description: "Check Work In Progress — unbilled time entries per client. Use when user asks about unbilled work, what they can invoice, or outstanding WIP.",
+      parameters: {
+        type: "object",
+        properties: {
+          customer_name: { type: "string", description: "Filter to a specific client (optional)" },
+        },
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "query_client_profitability",
+      description: "Get profitability analysis per client — revenue, cost, profit, hours worked, effective hourly rate, outstanding, and unbilled WIP. Use when user asks about client performance, who's most profitable, or how a specific client is doing.",
+      parameters: {
+        type: "object",
+        properties: {
+          customer_name: { type: "string", description: "Specific client to analyze (optional — if omitted, returns all clients)" },
+        },
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "invoice_wip",
+      description: "Create an invoice from unbilled time entries for a client. Automatically groups time entries into invoice line items. Use when user says 'invoice ABC for unbilled work' or 'bill ABC Ltd for all hours'.",
+      parameters: {
+        type: "object",
+        properties: {
+          customer_name: { type: "string", description: "Client to invoice" },
+          description: { type: "string", description: "Invoice description (optional)" },
+          due_date: { type: "string", description: "Due date in YYYY-MM-DD format (optional)" },
+        },
+        required: ["customer_name"],
+      },
     },
   },
   {
@@ -1836,7 +2021,7 @@ export const previewActionDefinition = {
     parameters: {
       type: "object",
       properties: {
-        action_type: { type: "string", enum: ["record_transaction", "create_invoice", "record_payment", "create_customer", "create_product", "update_product", "delete_transaction", "mark_invoice_sent", "delete_invoice", "restock_product", "adjust_stock"] },
+        action_type: { type: "string", enum: ["record_transaction", "create_invoice", "record_payment", "create_customer", "create_product", "update_product", "delete_transaction", "mark_invoice_sent", "delete_invoice", "restock_product", "adjust_stock", "log_time", "invoice_wip"] },
         action_params: {
           type: "object",
           description: "The exact parameters that will be passed to the write function when confirmed",
@@ -1958,6 +2143,10 @@ export async function executeReadFunction(
     case "query_inventory": return queryInventory(ctx, args);
     case "restock_product": return restockProduct(ctx, args);
     case "adjust_stock": return adjustStock(ctx, args);
+    case "log_time": return logTimeEntry(ctx, args);
+    case "query_wip": return queryWip(ctx, args);
+    case "query_client_profitability": return queryClientProfitability(ctx, args);
+    case "invoice_wip": return createInvoiceFromWip(ctx, args);
     case "analyze_cash_flow": return analyzeCashFlow(ctx);
     case "compare_periods": return comparePeriods(ctx, args.period1, args.period2);
     case "top_customers": return topCustomers(ctx, args.period);
