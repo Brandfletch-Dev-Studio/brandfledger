@@ -62,7 +62,7 @@ export async function POST(request: Request) {
     const businessId = await getBusinessId(user.userId, body.business_id);
     if (!businessId) return NextResponse.json({ error: "No business found" }, { status: 404 });
 
-    const { name, description, price, cost, unit } = body;
+    const { name, description, price, cost, unit, stock_quantity, reorder_level } = body;
     if (!name?.trim()) return NextResponse.json({ error: "Name required" }, { status: 400 });
 
     const parsedPrice = parseFloat(price) || 0;
@@ -80,7 +80,10 @@ export async function POST(request: Request) {
         category_id: null,
         unit: unit || null,
         is_active: true,
-        profit_margin: profitMargin
+        profit_margin: profitMargin,
+        stock_quantity: parseFloat(stock_quantity) || 0,
+        reorder_level: parseFloat(reorder_level) || 0,
+        stock_unit: unit || 'units'
       })
       .select('*')
       .single();
@@ -98,7 +101,7 @@ export async function PUT(request: Request) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const body = await request.json();
-    const { id, name, description, price, cost, unit, is_active } = body;
+    const { id, name, description, price, cost, unit, is_active, stock_quantity, reorder_level } = body;
     if (!id) return NextResponse.json({ error: "ID required" }, { status: 400 });
 
     // Verify ownership via business (two-step)
@@ -136,6 +139,8 @@ export async function PUT(request: Request) {
         unit: unit || null,
         is_active: is_active ?? true,
         profit_margin: profitMargin,
+        stock_quantity: stock_quantity !== undefined ? parseFloat(stock_quantity) : undefined,
+        reorder_level: reorder_level !== undefined ? parseFloat(reorder_level) : undefined,
         updated_at: new Date().toISOString()
       })
       .eq('id', id)
@@ -149,6 +154,68 @@ export async function PUT(request: Request) {
   }
 }
 
+// Stock adjustment endpoint
+export async function PATCH(request: Request) {
+  try {
+    const user = getDbUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const body = await request.json();
+    const { product_id, action, quantity, unit_cost, note } = body;
+    if (!product_id) return NextResponse.json({ error: "Product ID required" }, { status: 400 });
+
+    // Verify ownership
+    const { data: productCheck } = await supabase
+      .from('products')
+      .select('business_id')
+      .eq('id', product_id)
+      .maybeSingle();
+    if (!productCheck) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+    const { data: businessCheck } = await supabase
+      .from('businesses')
+      .select('id')
+      .eq('id', productCheck.business_id)
+      .eq('owner_id', user.userId)
+      .maybeSingle();
+    if (!businessCheck) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+    if (action === 'restock') {
+      const { error } = await supabase.rpc('increment_product_stock', {
+        p_product_id: product_id,
+        p_quantity: parseFloat(quantity) || 0,
+        p_unit_cost: parseFloat(unit_cost) || 0,
+        p_note: note || null
+      });
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    } else if (action === 'adjust') {
+      const { error } = await supabase.rpc('adjust_product_stock', {
+        p_product_id: product_id,
+        p_new_quantity: parseFloat(quantity) || 0,
+        p_note: note || null
+      });
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    } else if (action === 'loss') {
+      const { error } = await supabase.rpc('adjust_product_stock', {
+        p_product_id: product_id,
+        p_new_quantity: parseFloat(quantity) || 0,
+        p_note: note || null,
+        p_movement_type: 'loss'
+      });
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    } else {
+      return NextResponse.json({ error: "Unknown action. Use: restock, adjust, loss" }, { status: 400 });
+    }
+
+    // Return updated product
+    const { data: updated } = await supabase.from('products').select('*').eq('id', product_id).maybeSingle();
+    return NextResponse.json({ product: updated });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
+
+// Stock movement history endpoint
 export async function DELETE(request: Request) {
   try {
     const user = getDbUser();
