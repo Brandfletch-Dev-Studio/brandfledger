@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Save, Building2, MessageCircle, CheckCircle2, CreditCard, Plus, Trash2, Landmark, Wallet } from "lucide-react";
+import { Loader2, Save, Building2, MessageCircle, CheckCircle2, CreditCard, Plus, Trash2, Landmark, Wallet, Palette, Upload, Image as ImageIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const currencies = ["USD", "EUR", "GBP", "CAD", "AUD", "MWK", "ZAR", "NGN", "KES", "GHS", "INR", "PKR", "TZS", "UGX", "RWF"];
@@ -48,6 +48,10 @@ export default function SettingsPage() {
     name: "", email: "", phone: "", address: "", website: "",
     currency: "USD", invoice_prefix: "INV", business_type: "other", tax_id: "",
   });
+  const [logoUrl, setLogoUrl] = useState("");
+  const [accentColor, setAccentColor] = useState("#4f46e5");
+  const [invoiceTemplate, setInvoiceTemplate] = useState("classic");
+  const [uploadingLogo, setUploadingLogo] = useState(false);
 
   // Paychangu config
   const [paychanguSecret, setPaychanguSecret] = useState("");
@@ -87,6 +91,9 @@ export default function SettingsPage() {
           setPaychanguSecret(biz.paychangu_secret_key ?? "");
           setPaychanguPublic(biz.paychangu_public_key ?? "");
           setPaychanguConfigured(!!biz.paychangu_secret_key);
+          setLogoUrl(biz.logo_url ?? "");
+          setAccentColor(biz.invoice_accent_color ?? "#4f46e5");
+          setInvoiceTemplate(biz.invoice_template ?? "classic");
           if (Array.isArray(biz.payment_methods)) {
             setPaymentMethods(biz.payment_methods);
           }
@@ -130,6 +137,9 @@ export default function SettingsPage() {
           paychangu_public_key: paychanguPublic || null,
           payment_methods: paymentMethods,
           custom_instructions: customInstructions,
+          logo_url: logoUrl || null,
+          invoice_accent_color: accentColor,
+          invoice_template: invoiceTemplate,
         }),
       });
       const data = await res.json();
@@ -174,6 +184,34 @@ export default function SettingsPage() {
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     } finally { setWaSaving(false); }
+  }
+
+  async function handleLogoUpload(file: File) {
+    if (file.size > 2 * 1024 * 1024) {
+      toast({ title: "File too large", description: "Logo must be under 2MB.", variant: "destructive" });
+      return;
+    }
+    if (!file.type.startsWith("image/")) {
+      toast({ title: "Invalid file", description: "Please upload an image file (PNG, JPG).", variant: "destructive" });
+      return;
+    }
+    setUploadingLogo(true);
+    try {
+      const reader = new FileReader();
+      reader.onload = () => {
+        setLogoUrl(reader.result as string);
+        setUploadingLogo(false);
+        toast({ title: "Logo uploaded", description: "Don't forget to save your settings." });
+      };
+      reader.onerror = () => {
+        setUploadingLogo(false);
+        toast({ title: "Upload failed", description: "Could not read the file.", variant: "destructive" });
+      };
+      reader.readAsDataURL(file);
+    } catch (err: any) {
+      setUploadingLogo(false);
+      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+    }
   }
 
   function addPaymentMethod() {
@@ -245,6 +283,85 @@ export default function SettingsPage() {
               <div className="space-y-2"><Label>Invoice prefix</Label><Input placeholder="INV" value={bizForm.invoice_prefix} onChange={e => setBizForm(p => ({ ...p, invoice_prefix: e.target.value.toUpperCase() }))} /></div>
               <div className="space-y-2 col-span-2"><Label>Currency</Label><Select value={bizForm.currency} onValueChange={v => setBizForm(p => ({ ...p, currency: v }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent className="bg-white">{currencies.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select></div>
               <div className="space-y-2 col-span-3"><Label>Business Type</Label><Select value={bizForm.business_type} onValueChange={v => setBizForm(p => ({ ...p, business_type: v }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent className="bg-white">{businessTypes.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}</SelectContent></Select></div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Invoice Branding */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Palette className="h-5 w-5 text-muted-foreground" />
+              <CardTitle className="text-base">Invoice Branding</CardTitle>
+            </div>
+            <CardDescription>Customize how your invoices look — logo, colors, and layout</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            {/* Logo */}
+            <div className="space-y-2">
+              <Label>Business Logo</Label>
+              <div className="flex items-center gap-4">
+                {logoUrl ? (
+                  <div className="relative h-16 w-16 rounded-lg border border-input bg-white overflow-hidden flex items-center justify-center flex-shrink-0">
+                    <img src={logoUrl} alt="Logo" className="max-h-full max-w-full object-contain" />
+                  </div>
+                ) : (
+                  <div className="h-16 w-16 rounded-lg border border-dashed border-input bg-muted/30 flex items-center justify-center flex-shrink-0">
+                    <ImageIcon className="h-6 w-6 text-muted-foreground" />
+                  </div>
+                )}
+                <div className="flex flex-col gap-2">
+                  <label className="inline-flex items-center gap-2 rounded-lg border border-input bg-white px-3 py-2 text-xs font-semibold hover:bg-muted cursor-pointer transition-colors">
+                    {uploadingLogo ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                    {uploadingLogo ? "Uploading..." : "Upload Logo"}
+                    <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleLogoUpload(f); }} />
+                  </label>
+                  {logoUrl && (
+                    <button onClick={() => setLogoUrl("")} className="text-xs text-rose-500 hover:text-rose-600 font-medium">
+                      Remove logo
+                    </button>
+                  )}
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">PNG or JPG, max 2MB. Shows on invoice PDFs and the client view.</p>
+            </div>
+
+            {/* Accent Color */}
+            <div className="space-y-2">
+              <Label>Accent Color</Label>
+              <div className="flex items-center gap-3 flex-wrap">
+                {["#4f46e5", "#0ea5e9", "#059669", "#dc2626", "#ea580c", "#7c3aed", "#db2777", "#0f172a"].map(color => (
+                  <button key={color} onClick={() => setAccentColor(color)}
+                    className={`h-9 w-9 rounded-lg border-2 transition-all ${accentColor === color ? "border-foreground scale-110" : "border-transparent hover:scale-105"}`}
+                    style={{ backgroundColor: color }}
+                    title={color}
+                  />
+                ))}
+                <div className="flex items-center gap-2">
+                  <input type="color" value={accentColor} onChange={e => setAccentColor(e.target.value)}
+                    className="h-9 w-9 rounded-lg border border-input cursor-pointer bg-white" />
+                  <span className="text-xs text-muted-foreground font-mono">{accentColor}</span>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">Used for invoice headers, table headers, and total amounts.</p>
+            </div>
+
+            {/* Invoice Template */}
+            <div className="space-y-2">
+              <Label>Invoice Layout</Label>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { value: "classic", label: "Classic", desc: "Bold header band" },
+                  { value: "modern", label: "Modern", desc: "Accent sidebar" },
+                  { value: "minimal", label: "Minimal", desc: "Clean & compact" },
+                ].map(t => (
+                  <button key={t.value} onClick={() => setInvoiceTemplate(t.value)}
+                    className={`rounded-lg border-2 p-3 text-left transition-all ${invoiceTemplate === t.value ? "border-foreground bg-muted/30" : "border-input hover:bg-muted/20"}`}>
+                    <div className="text-sm font-semibold">{t.label}</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">{t.desc}</div>
+                  </button>
+                ))}
+              </div>
             </div>
           </CardContent>
         </Card>
