@@ -87,7 +87,7 @@ function statusColor(status: string): [number, number, number] {
   return map[status] ?? [107, 114, 128];
 }
 
-export function generateInvoicePDF(invoice: InvoicePDFData, business: BusinessPDFData) {
+export function generateInvoicePDF(invoice: InvoicePDFData, business: BusinessPDFData): boolean {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -299,4 +299,5 @@ export function generateInvoicePDF(invoice: InvoicePDFData, business: BusinessPD
 
   const safeName = (invoice.invoice_number || "invoice").replace(/[^a-zA-Z0-9_-]/g, "_");
   doc.save(`${safeName}.pdf`);
+  return true;
 }
