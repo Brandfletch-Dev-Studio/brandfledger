@@ -78,7 +78,7 @@ async function resolveCustomer(ctx: FunctionContext, name: string) {
     .from("customers")
     .select("id, name, phone, email, total_invoiced")
     .eq("business_id", ctx.business_id);
-  if (!data) return { matched: false, new: true };
+  if (!data) return { matched: false, new: true, note: "New customer will be auto-created when you record a transaction or invoice. Do NOT call create_customer separately." };
 
   const normalized = name.toLowerCase().trim();
   const exact = data.find((c) => c.name?.toLowerCase().trim() === normalized);
@@ -89,7 +89,7 @@ async function resolveCustomer(ctx: FunctionContext, name: string) {
   );
   if (partial.length === 1) return { customer: partial[0], matched: true };
   if (partial.length > 1) return { customers: partial, matched: false, ambiguous: true };
-  return { matched: false, new: true };
+  return { matched: false, new: true, note: "New customer will be auto-created when you record a transaction or invoice. Do NOT call create_customer separately." };
 }
 
 
@@ -1148,6 +1148,7 @@ async function createCustomer(ctx: FunctionContext, args: { name: string; email?
       phone: args.phone || null,
       address: args.address || null,
       notes: args.notes || null,
+      total_invoiced: 0,
     })
     .select("id, name")
     .single();
@@ -1333,7 +1334,7 @@ export async function recordTransaction(
       type,
       client_name: trimmedClientName,
       vendor_name: vendor_name || null,
-      description: description || null,
+      description: description || (type === "income" ? `Income from ${trimmedClientName || "client"}` : `Expense${vendor_name ? " - " + vendor_name : ""}`),
       amount: Number(amount),
       cost_amount: totalCost,
       cost_qty: numCostQty,
@@ -1345,7 +1346,10 @@ export async function recordTransaction(
     })
     .select("*")
     .single();
-  if (error) throw error;
+  if (error) {
+    console.error("[recordTransaction] Insert failed:", error.message, { type, amount, client_name: trimmedClientName, description });
+    throw new Error(`Failed to record transaction: ${error.message}`);
+  }
 
   if (type === "income" && trimmedClientName) {
     await supabase.rpc("upsert_customer_and_increment", {
@@ -1446,7 +1450,7 @@ export async function createInvoice(
     })
     .select("*")
     .single();
-  if (error) throw error;
+  if (error) throw new Error(`Failed to create invoice: ${error.message}`);
 
   return { invoice, invoice_number: invNumber, total };
 }
