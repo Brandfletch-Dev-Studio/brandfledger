@@ -27,6 +27,9 @@ export interface BusinessPDFData {
   phone?: string;
   address?: string;
   currency?: string;
+  logo_url?: string;
+  accent_color?: string;
+  template?: string;
 }
 
 function currencySymbol(currency: string): string {
@@ -52,6 +55,24 @@ function formatMoney(amount: number, currency: string): string {
     maximumFractionDigits: 2,
   }).format(Math.abs(amount || 0));
   return `${amount < 0 ? "-" : ""}${sym}${formatted}`;
+}
+
+function hexToRgb(hex: string): [number, number, number] {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.substring(0, 2), 16);
+  const g = parseInt(h.substring(2, 4), 16);
+  const b = parseInt(h.substring(4, 6), 16);
+  return [r, g, b];
+}
+
+function lightenColor(hex: string, percent: number): [number, number, number] {
+  const [r, g, b] = hexToRgb(hex);
+  const factor = 1 + percent / 100;
+  return [
+    Math.min(255, Math.round(r * factor)),
+    Math.min(255, Math.round(g * factor)),
+    Math.min(255, Math.round(b * factor)),
+  ];
 }
 
 function formatDate(date: string | null | undefined): string {
@@ -94,15 +115,44 @@ export function generateInvoicePDF(invoice: InvoicePDFData, business: BusinessPD
   const margin = 15;
   const contentWidth = pageWidth - margin * 2;
   const currency = business.currency ?? "MWK";
+  const accentHex = business.accent_color || "#4f46e5";
+  const accent = hexToRgb(accentHex);
+  const accentLight = lightenColor(accentHex, 40);
+  const template = business.template || "classic";
+  const hasLogo = !!business.logo_url;
+
+  // Handle logo — jsPDF addImage needs the image data
+  let logoAdded = false;
+  let logoWidth = 0;
+  let logoHeight = 0;
+  if (hasLogo) {
+    try {
+      // Determine format from URL/data URL
+      const logoUrl = business.logo_url!;
+      const format = logoUrl.startsWith("data:image/png") ? "PNG" : "JPEG";
+      // Logo dimensions: max 20mm wide, 15mm tall, maintain aspect ratio
+      logoWidth = 20;
+      logoHeight = 15;
+      doc.addImage(logoUrl, format, margin, margin + 2, logoWidth, logoHeight);
+      logoAdded = true;
+    } catch {
+      // If logo fails, continue without it
+      logoAdded = false;
+    }
+  }
 
   // Header band
-  doc.setFillColor(79, 70, 229);
-  doc.roundedRect(margin, margin, contentWidth, 28, 2, 2, "F");
+  doc.setFillColor(accent[0], accent[1], accent[2]);
+  const headerHeight = template === "minimal" ? 20 : 28;
+  doc.roundedRect(margin, margin, contentWidth, headerHeight, 2, 2, "F");
 
   doc.setTextColor(255, 255, 255);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(16);
-  doc.text(business.name || "Your Business", margin + 5, margin + 12);
+
+  // If logo was added, offset business name to the right of it
+  const nameX = logoAdded ? margin + logoWidth + 5 : margin + 5;
+  doc.text(business.name || "Your Business", nameX, margin + 12);
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
@@ -111,12 +161,12 @@ export function generateInvoicePDF(invoice: InvoicePDFData, business: BusinessPD
   if (business.phone) contactParts.push(business.phone);
   if (business.address) contactParts.push(business.address);
   if (contactParts.length > 0) {
-    doc.text(contactParts.join("  -  "), margin + 5, margin + 18);
+    doc.text(contactParts.join("  -  "), nameX, margin + 18);
   }
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
-  doc.setTextColor(199, 210, 254);
+  doc.setTextColor(accentLight[0], accentLight[1], accentLight[2]);
   doc.text("INVOICE", pageWidth - margin - 5, margin + 10, { align: "right" });
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(13);
@@ -128,10 +178,11 @@ export function generateInvoicePDF(invoice: InvoicePDFData, business: BusinessPD
   const stText = statusLabel(invoice.status);
   doc.setFontSize(8);
   const stWidth = doc.getTextWidth(stText) + 8;
-  doc.roundedRect(pageWidth - margin - stWidth, margin + 32, stWidth, 6, 1, 1, "F");
+  const badgeY = template === "minimal" ? margin + 24 : margin + 32;
+  doc.roundedRect(pageWidth - margin - stWidth, badgeY, stWidth, 6, 1, 1, "F");
   doc.setTextColor(255, 255, 255);
   doc.setFont("helvetica", "bold");
-  doc.text(stText, pageWidth - margin - stWidth / 2, margin + 36.3, { align: "center" });
+  doc.text(stText, pageWidth - margin - stWidth / 2, badgeY + 4.3, { align: "center" });
 
   // Bill To + Dates
   let y = margin + 44;
@@ -183,7 +234,7 @@ export function generateInvoicePDF(invoice: InvoicePDFData, business: BusinessPD
     body: items.length > 0 ? items : [["No items", "", "", ""]],
     theme: "striped",
     headStyles: {
-      fillColor: [79, 70, 229],
+      fillColor: [accent[0], accent[1], accent[2]],
       textColor: [255, 255, 255],
       fontStyle: "bold",
       fontSize: 9,
@@ -262,7 +313,7 @@ export function generateInvoicePDF(invoice: InvoicePDFData, business: BusinessPD
   doc.setFontSize(11);
   doc.setTextColor(17, 24, 39);
   doc.text("TOTAL", labelX, afterTableY);
-  doc.setTextColor(79, 70, 229);
+  doc.setTextColor(accent[0], accent[1], accent[2]);
   doc.text(formatMoney(Number(invoice.total), currency), valueX, afterTableY, { align: "right" });
 
   // Notes
