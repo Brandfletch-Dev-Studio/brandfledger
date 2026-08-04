@@ -179,6 +179,9 @@ export default function InvoiceDetailPage() {
         phone: business.phone,
         address: business.address,
         currency: business.currency ?? "MWK",
+        logo_url: business.logo_url,
+        accent_color: business.invoice_accent_color,
+        template: business.invoice_template,
       });
       toast({ title: "PDF downloaded", description: `${invoice.invoice_number}.pdf saved to your device` });
     } catch (err: any) {
@@ -236,11 +239,14 @@ export default function InvoiceDetailPage() {
       </div>
 
       <div className="rounded-2xl overflow-hidden border shadow-sm bg-card">
-        <div className="bg-indigo-600 text-white px-5 py-4 flex items-center justify-between">
+        <div className="text-white px-5 py-4 flex items-center justify-between" style={{ backgroundColor: business?.invoice_accent_color || "#4f46e5" }}>
           <div className="flex items-center gap-2.5">
             <BFLogo size={32} className="rounded-lg" />
             <div>
-              <p className="font-bold leading-tight">{business?.name ?? "Your Business"}</p>
+              {business?.logo_url && (
+              <img src={business.logo_url} alt="Logo" className="h-8 w-8 rounded object-contain bg-white/10 mb-1" />
+            )}
+            <p className="font-bold leading-tight">{business?.name ?? "Your Business"}</p>
               {business?.email && <p className="text-xs text-indigo-200">{business.email}</p>}
             </div>
           </div>
