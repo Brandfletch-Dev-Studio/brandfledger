@@ -234,6 +234,9 @@ export default function PublicInvoiceView() {
           phone: business?.phone,
           address: business?.address,
           currency: business?.currency ?? "MWK",
+          logo_url: business?.logo_url,
+          accent_color: business?.invoice_accent_color,
+          template: business?.invoice_template,
         }
       );
       setDownloadNotice(`Downloaded ${invoice.invoice_number}.pdf`);
@@ -250,9 +253,12 @@ export default function PublicInvoiceView() {
     <div className="min-h-screen bg-muted/30 py-6 px-3">
       <div className="max-w-2xl mx-auto bg-card rounded-2xl shadow-lg overflow-hidden">
         {/* Header */}
-        <div className="bg-primary text-primary-foreground p-6 sm:p-8">
+        <div className="text-white p-6 sm:p-8" style={{ backgroundColor: business?.invoice_accent_color || "#4f46e5" }}>
           <div className="flex items-center justify-between gap-3">
             <div>
+              {business?.logo_url && (
+                <img src={business.logo_url} alt="Logo" className="h-10 w-10 rounded-lg object-contain bg-white/10 mb-2" />
+              )}
               <h1 className="text-2xl font-bold">{business?.name ?? "Invoice"}</h1>
               <p className="opacity-80 text-sm mt-1">{business?.email ?? ""}</p>
               {business?.phone && <p className="opacity-80 text-sm">{business.phone}</p>}
