@@ -15,6 +15,8 @@ export default function PublicInvoiceView() {
   const [showPayModal, setShowPayModal] = useState(false);
   const [payTab, setPayTab] = useState<"mobile" | "manual">("mobile");
   const [paying, setPaying] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadNotice, setDownloadNotice] = useState<string | null>(null);
   const [payStatus, setPayStatus] = useState<"idle" | "polling" | "success" | "failed">("idle");
   const [payMessage, setPayMessage] = useState("");
   const [chargeId, setChargeId] = useState("");
@@ -201,35 +203,47 @@ export default function PublicInvoiceView() {
   };
   const status = statusConfig[invoice.status] ?? statusConfig.draft;
 
-  function handleDownloadPDF() {
+  async function handleDownloadPDF() {
     if (!invoice || !business) return;
-    generateInvoicePDF(
-      {
-        invoice_number: invoice.invoice_number,
-        status: invoice.status,
-        issue_date: invoice.issue_date,
-        due_date: invoice.due_date,
-        total: Number(invoice.total),
-        subtotal: Number(invoice.subtotal),
-        tax_rate: Number(invoice.tax_rate),
-        tax_amount: Number(invoice.tax_amount),
-        discount_amount: Number(invoice.discount_amount),
-        notes: invoice.notes,
-        items: invoice.items,
-        customer_name: customer?.name ?? invoice.customer_name,
-        customer_email: customer?.email,
-        customer_phone: customer?.phone,
-        amount_paid: Number(invoice.amount_paid),
-        balance_due: Number(invoice.balance_due),
-      },
-      {
-        name: business?.name ?? "Your Business",
-        email: business?.email,
-        phone: business?.phone,
-        address: business?.address,
-        currency: business?.currency ?? "MWK",
-      }
-    );
+    setDownloading(true);
+    setDownloadNotice("Generating PDF...");
+    try {
+      await new Promise((r) => setTimeout(r, 300));
+      generateInvoicePDF(
+        {
+          invoice_number: invoice.invoice_number,
+          status: invoice.status,
+          issue_date: invoice.issue_date,
+          due_date: invoice.due_date,
+          total: Number(invoice.total),
+          subtotal: Number(invoice.subtotal),
+          tax_rate: Number(invoice.tax_rate),
+          tax_amount: Number(invoice.tax_amount),
+          discount_amount: Number(invoice.discount_amount),
+          notes: invoice.notes,
+          items: invoice.items,
+          customer_name: customer?.name ?? invoice.customer_name,
+          customer_email: customer?.email,
+          customer_phone: customer?.phone,
+          amount_paid: Number(invoice.amount_paid),
+          balance_due: Number(invoice.balance_due),
+        },
+        {
+          name: business?.name ?? "Your Business",
+          email: business?.email,
+          phone: business?.phone,
+          address: business?.address,
+          currency: business?.currency ?? "MWK",
+        }
+      );
+      setDownloadNotice(`Downloaded ${invoice.invoice_number}.pdf`);
+      setTimeout(() => setDownloadNotice(null), 4000);
+    } catch (err: any) {
+      setDownloadNotice("Download failed. Please try again.");
+      setTimeout(() => setDownloadNotice(null), 4000);
+    } finally {
+      setDownloading(false);
+    }
   }
 
   return (
@@ -263,11 +277,19 @@ export default function PublicInvoiceView() {
               </span>
             )}
           </div>
-          <button onClick={handleDownloadPDF}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-input bg-background px-3 py-1.5 text-xs font-semibold hover:bg-muted transition-colors">
-            <Download className="h-3.5 w-3.5" /> Download PDF
+          <button onClick={handleDownloadPDF} disabled={downloading}
+            className="inline-flex items-center gap-2 rounded-lg border border-input bg-background px-4 py-2 text-xs font-semibold hover:bg-muted transition-colors disabled:opacity-50">
+            {downloading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+            {downloading ? "Generating..." : "Download PDF"}
           </button>
         </div>
+
+        {downloadNotice && (
+          <div className="mx-6 sm:mx-8 mt-3 rounded-lg bg-indigo-50 border border-indigo-200 px-4 py-2.5 flex items-center gap-2 animate-in fade-in slide-in-from-top-1 duration-200">
+            <Download className="h-4 w-4 text-indigo-600 flex-shrink-0" />
+            <p className="text-sm font-medium text-indigo-700">{downloadNotice}</p>
+          </div>
+        )}
 
         {isPendingVerification && (
           <div className="mx-6 sm:mx-8 mt-3 rounded-lg bg-purple-50 border border-purple-200 p-3 flex items-start gap-2">
