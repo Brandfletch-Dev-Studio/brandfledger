@@ -2,14 +2,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { LayoutGrid, Package, Users, MoreHorizontal, ArrowLeftRight } from "lucide-react";
+import { LayoutGrid, Briefcase, Users, MoreHorizontal, ArrowLeftRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AppMenu } from "./app-menu";
 
 const tabs = [
   { href: "/dashboard", label: "Home", icon: LayoutGrid },
   { href: "/transactions", label: "Log", icon: ArrowLeftRight },
-  { href: "/products", label: "Products", icon: Package },
+  { href: "/products", label: "Services", icon: Briefcase },
   { href: "/customers", label: "Clients", icon: Users },
 ];
 
