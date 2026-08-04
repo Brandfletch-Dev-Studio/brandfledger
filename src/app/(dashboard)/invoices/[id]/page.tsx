@@ -166,15 +166,26 @@ export default function InvoiceDetailPage() {
   const clientEmail = invoice.customer_email || "";
   const clientPhone = invoice.customer_phone || "";
 
-  function handleDownloadPDF() {
+  async function handleDownloadPDF() {
     if (!invoice || !business) return;
-    generateInvoicePDF(invoice, {
-      name: business.name || "Your Business",
-      email: business.email,
-      phone: business.phone,
-      address: business.address,
-      currency: business.currency ?? "MWK",
-    });
+    setActing("pdf");
+    toast({ title: "Generating PDF...", description: `Preparing ${invoice.invoice_number} for download` });
+    try {
+      // Small delay so the toast can render before the save dialog
+      await new Promise((r) => setTimeout(r, 300));
+      generateInvoicePDF(invoice, {
+        name: business.name || "Your Business",
+        email: business.email,
+        phone: business.phone,
+        address: business.address,
+        currency: business.currency ?? "MWK",
+      });
+      toast({ title: "PDF downloaded", description: `${invoice.invoice_number}.pdf saved to your device` });
+    } catch (err: any) {
+      toast({ title: "Download failed", description: err.message, variant: "destructive" });
+    } finally {
+      setActing(null);
+    }
   }
 
   return (
@@ -190,9 +201,10 @@ export default function InvoiceDetailPage() {
           <Badge className={`mt-1 text-xs ${status.cls}`}>{status.label}</Badge>
         </div>
         <div className="flex items-center gap-1.5">
-          <button onClick={handleDownloadPDF} title="Download PDF"
-            className="h-8 px-3 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 flex items-center gap-1.5 text-xs font-semibold transition-colors">
-            <Download className="h-3.5 w-3.5" /> PDF
+          <button onClick={handleDownloadPDF} title="Download PDF" disabled={acting === "pdf"}
+            className="h-9 px-4 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 flex items-center gap-2 text-xs font-semibold transition-colors disabled:opacity-50">
+            {acting === "pdf" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+            {acting === "pdf" ? "Generating..." : "Download PDF"}
           </button>
           <button onClick={copyLink} title="Copy share link"
             className="h-8 w-8 rounded-lg border flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
