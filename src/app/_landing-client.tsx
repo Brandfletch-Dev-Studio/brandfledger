@@ -10,85 +10,85 @@ import {
 
 // ── Static data ────────────────────────────────────────────────────────────────
 const PAIN_POINTS = [
-  { icon: "😩", text: "Losing track of which clients owe you money" },
+  { icon: "⏰", text: "Forgetting to bill clients for hours you actually worked" },
+  { icon: "😩", text: "Not knowing which clients are profitable and which drain your time" },
   { icon: "📝", text: "Writing invoices manually in WhatsApp or notebooks" },
-  { icon: "🤔", text: "Not knowing if your business is actually making profit" },
-  { icon: "📊", text: "Spending hours on month-end calculations" },
+  { icon: "🤔", text: "Having no idea what your effective hourly rate really is" },
 ];
 
 const FEATURES = [
   {
-    icon: Receipt,
-    color: "text-indigo-600",
-    bg: "bg-indigo-50",
-    title: "Professional Invoices",
-    body: "Create a branded invoice in under 60 seconds. Send via WhatsApp or link. Get paid faster.",
+    icon: MessageCircle,
+    color: "text-emerald-600",
+    bg: "bg-emerald-50",
+    title: "WhatsApp Finance Manager",
+    body: "Log time, record income, send invoices — all from WhatsApp. No app to open. Just message and it's done.",
   },
   {
     icon: TrendingUp,
-    color: "text-emerald-600",
-    bg: "bg-emerald-50",
-    title: "Real Profit Tracking",
-    body: "See your actual profit — not just revenue. Set costs per product and know your margins instantly.",
+    color: "text-indigo-600",
+    bg: "bg-indigo-50",
+    title: "Time Tracking & WIP",
+    body: "Log billable hours per client. See exactly how much work is unbilled. Invoice it in one message.",
   },
   {
-    icon: PieChart,
+    icon: Receipt,
     color: "text-amber-600",
     bg: "bg-amber-50",
-    title: "Business Reports",
-    body: "Revenue, expenses, profit — all in clear charts. No accountant needed. Understand your money.",
+    title: "Professional Invoices",
+    body: "Create a branded invoice in under 60 seconds. Send via WhatsApp or link. Get paid faster.",
   },
   {
     icon: Users,
     color: "text-purple-600",
     bg: "bg-purple-50",
-    title: "Client Management",
-    body: "Full client history, lifetime value, payment status. Never lose track of a customer again.",
+    title: "Client Profitability",
+    body: "See which clients make you money and which drain your time. Revenue, hours, effective rate — per client.",
   },
   {
-    icon: ShieldCheck,
+    icon: PieChart,
     color: "text-rose-600",
     bg: "bg-rose-50",
-    title: "Multiple Businesses",
-    body: "Manage all your businesses under one login. Separate books. One subscription.",
+    title: "Business Reports",
+    body: "Revenue, expenses, profit — all in clear charts. No accountant needed. Understand your money.",
   },
   {
     icon: Smartphone,
     color: "text-sky-600",
     bg: "bg-sky-50",
-    title: "Works on Your Phone",
-    body: "Designed for mobile. Install it like an app. Works everywhere — even with slow internet.",
+    title: "Built for Mobile",
+    body: "Designed for your phone. Install it like an app. Works everywhere — even with slow internet.",
   },
 ];
 
 const TESTIMONIALS = [
   {
     name: "Takondwa M.",
-    role: "Salon Owner, Lilongwe",
-    text: "Before Brandfledger, I had no idea which services were actually profitable. Now I know exactly where my money is going.",
+    role: "Branding Studio, Lilongwe",
+    text: "Before Brandfledger, I had no idea which clients were actually profitable. Now I track my hours, see my effective rate, and invoice in seconds.",
     stars: 5,
   },
   {
     name: "James C.",
-    role: "IT Services, Blantyre",
-    text: "I send professional invoices to my clients in seconds. They're impressed and I get paid faster. Worth every kwacha.",
+    role: "IT Consultant, Blantyre",
+    text: "I just WhatsApp 'spent 3 hours on ABC Ltd at 50k per hour' and it's logged. When it's time to invoice, one message and it's done. Game changer.",
     stars: 5,
   },
   {
     name: "Grace N.",
-    role: "Boutique Owner, Mzuzu",
-    text: "The multi-business feature is amazing. I run 3 businesses and manage them all from one phone.",
+    role: "Design Agency, Mzuzu",
+    text: "The unbilled work alerts saved me. I was sitting on MK750k of work I forgot to invoice. Brandfledger caught it.",
     stars: 5,
   },
 ];
 
 const PLAN_FEATURES = [
   "Unlimited invoices",
-  "Profit tracking per product",
-  "Full client management",
+  "Time tracking & WIP management",
+  "Client profitability analytics",
+  "WhatsApp Finance Manager",
   "Business reports & charts",
   "Multiple businesses",
-  "WhatsApp invoice sharing",
   "14-day free trial",
   "Mobile app (installable)",
 ];
@@ -170,13 +170,13 @@ export default function LandingClient() {
 
           {/* Headline */}
           <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold leading-tight tracking-tight text-gray-900 mb-5">
-            Finally, A Simple Way to{" "}
-            <span className="text-indigo-600">Manage Your<br className="hidden sm:block" /> Business Finances</span>
+            The Finance App Built for{" "}
+            <span className="text-indigo-600">Service<br className="hidden sm:block" /> Businesses</span>
           </h1>
 
           <p className="text-lg sm:text-xl text-gray-600 max-w-2xl mx-auto mb-8 leading-relaxed">
-            Send professional invoices, track real profit, and understand your business — all from your phone.
-            Built for Malawian businesses.
+            Track billable hours, send professional invoices, and see which clients actually make you money —
+            all from WhatsApp. Built for Malawian service businesses.
           </p>
 
           {/* CTAs */}
@@ -194,7 +194,7 @@ export default function LandingClient() {
           {/* Social proof bar */}
           <div className="flex items-center justify-center gap-4 text-sm text-gray-500 flex-wrap">
             <Stars count={5} />
-            <span className="font-semibold text-gray-700">Trusted by 100+ businesses</span>
+            <span className="font-semibold text-gray-700">Trusted by 100+ service businesses</span>
             <span>·</span>
             <span>MK 15,000/month</span>
           </div>
@@ -222,8 +222,8 @@ export default function LandingClient() {
         <div className="max-w-3xl mx-auto text-center">
           <p className="text-sm font-bold uppercase tracking-widest text-gray-400 mb-4">Sound familiar?</p>
           <h2 className="text-2xl sm:text-3xl font-extrabold mb-10">
-            Running a business is hard enough —<br />
-            <span className="text-indigo-400">your finances shouldn't be a mystery.</span>
+            Running a service business is hard enough —<br />
+            <span className="text-indigo-400">your time and money shouldn't be a mystery.</span>
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-left">
             {PAIN_POINTS.map(p => (
@@ -245,10 +245,10 @@ export default function LandingClient() {
           <div className="text-center mb-12">
             <p className="text-xs font-bold uppercase tracking-widest text-indigo-600 mb-3">Everything you need</p>
             <h2 className="text-3xl sm:text-4xl font-extrabold text-gray-900">
-              One app. All your business finances.
+              Everything your service business needs.
             </h2>
             <p className="mt-3 text-gray-500 max-w-xl mx-auto">
-              No spreadsheets. No complexity. Just a clean, fast app that keeps your money in order.
+              No spreadsheets. No complexity. Just WhatsApp and a clean app that keeps your service business running.
             </p>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -273,8 +273,8 @@ export default function LandingClient() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-8">
             {[
               { step: "1", title: "Create your account", body: "Sign up free. Set up your business in under 2 minutes. No card needed." },
-              { step: "2", title: "Add products & clients", body: "Add what you sell and who you sell it to. One time setup — use forever." },
-              { step: "3", title: "Invoice & track profits", body: "Create invoices, log sales, and watch your profit grow in real time." },
+              { step: "2", title: "Add services & clients", body: "Set up your service packages and client list. One time setup — use forever." },
+              { step: "3", title: "Track time & get paid", body: "Log hours on WhatsApp, invoice unbilled work, and see your profit per client." },
             ].map(s => (
               <div key={s.step} className="relative">
                 <div className="h-12 w-12 rounded-full bg-indigo-600 text-white font-extrabold text-lg flex items-center justify-center mx-auto mb-4 shadow-lg shadow-indigo-200">
@@ -371,10 +371,10 @@ export default function LandingClient() {
       <section className="py-20 px-4 bg-indigo-600 text-white text-center">
         <div className="max-w-2xl mx-auto">
           <h2 className="text-3xl sm:text-4xl font-extrabold mb-4">
-            Ready to take control of your business?
+            Ready to take control of your service business?
           </h2>
           <p className="text-indigo-100 text-lg mb-8 leading-relaxed">
-            Join 100+ Malawian businesses who track profit, send invoices, and grow with confidence.
+            Join 100+ Malawian service businesses who track time, send invoices, and get paid faster.
           </p>
           <Link href="/register"
             className="inline-flex items-center gap-2 bg-white text-indigo-700 font-bold px-8 py-4 rounded-2xl text-base hover:bg-indigo-50 transition-colors shadow-xl">
