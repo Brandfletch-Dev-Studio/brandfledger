@@ -1,8 +1,9 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { FileText, CheckCircle2, Clock, Upload, Phone, X, Loader2, ShieldCheck, AlertCircle, Copy, ChevronRight, Landmark, Wallet } from "lucide-react";
+import { FileText, CheckCircle2, Clock, Upload, Phone, X, Loader2, ShieldCheck, AlertCircle, Copy, ChevronRight, Landmark, Wallet, Download } from "lucide-react";
 import { useParams } from "next/navigation";
+import { generateInvoicePDF } from "@/lib/invoice-pdf";
 
 export default function PublicInvoiceView() {
   const params = useParams();
@@ -200,6 +201,37 @@ export default function PublicInvoiceView() {
   };
   const status = statusConfig[invoice.status] ?? statusConfig.draft;
 
+  function handleDownloadPDF() {
+    if (!invoice || !business) return;
+    generateInvoicePDF(
+      {
+        invoice_number: invoice.invoice_number,
+        status: invoice.status,
+        issue_date: invoice.issue_date,
+        due_date: invoice.due_date,
+        total: Number(invoice.total),
+        subtotal: Number(invoice.subtotal),
+        tax_rate: Number(invoice.tax_rate),
+        tax_amount: Number(invoice.tax_amount),
+        discount_amount: Number(invoice.discount_amount),
+        notes: invoice.notes,
+        items: invoice.items,
+        customer_name: customer?.name ?? invoice.customer_name,
+        customer_email: customer?.email,
+        customer_phone: customer?.phone,
+        amount_paid: Number(invoice.amount_paid),
+        balance_due: Number(invoice.balance_due),
+      },
+      {
+        name: business?.name ?? "Your Business",
+        email: business?.email,
+        phone: business?.phone,
+        address: business?.address,
+        currency: business?.currency ?? "MWK",
+      }
+    );
+  }
+
   return (
     <div className="min-h-screen bg-muted/30 py-6 px-3">
       <div className="max-w-2xl mx-auto bg-card rounded-2xl shadow-lg overflow-hidden">
@@ -219,16 +251,22 @@ export default function PublicInvoiceView() {
           </div>
         </div>
 
-        {/* Status badge */}
+        {/* Status badge + Download */}
         <div className="px-6 sm:px-8 pt-4 flex items-center justify-between">
-          <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${status.color}`}>
-            {status.label}
-          </span>
-          {isPaid && (
-            <span className="inline-flex items-center gap-1 text-emerald-600 text-sm font-medium">
-              <CheckCircle2 className="h-4 w-4" /> Fully Paid
+          <div className="flex items-center gap-2">
+            <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${status.color}`}>
+              {status.label}
             </span>
-          )}
+            {isPaid && (
+              <span className="inline-flex items-center gap-1 text-emerald-600 text-sm font-medium">
+                <CheckCircle2 className="h-4 w-4" /> Fully Paid
+              </span>
+            )}
+          </div>
+          <button onClick={handleDownloadPDF}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-input bg-background px-3 py-1.5 text-xs font-semibold hover:bg-muted transition-colors">
+            <Download className="h-3.5 w-3.5" /> Download PDF
+          </button>
         </div>
 
         {isPendingVerification && (
