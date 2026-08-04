@@ -7,19 +7,18 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import {
-  Plus, Search, Pencil, Trash2, Package, Loader2, RefreshCw, TrendingUp,
-  AlertTriangle, Boxes, PackageCheck, ArrowDownToLine, ClipboardCheck, X
+  Plus, Search, Pencil, Trash2, Briefcase, Loader2, RefreshCw, TrendingUp,
+  Clock, DollarSign, Users, Sparkles
 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 
-const BLANK_FORM = { name: "", description: "", price: "", cost: "", unit: "", stock_quantity: "", reorder_level: "" };
+const BLANK_FORM = { name: "", description: "", price: "", cost: "", unit: "hr", estimated_hours: "" };
 
-export default function ProductsPage() {
+export default function ServicesPage() {
   const { toast } = useToast();
   const [business, setBusiness] = useState<any>(null);
-  const [products, setProducts] = useState<any[]>([]);
-  const [categories, setCategories] = useState<any[]>([]);
+  const [services, setServices] = useState<any[]>([]);
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<any>(null);
@@ -27,15 +26,6 @@ export default function ProductsPage() {
   const [pageLoading, setPageLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [form, setForm] = useState(BLANK_FORM);
-
-  // Stock adjustment dialog
-  const [stockOpen, setStockOpen] = useState(false);
-  const [stockProduct, setStockProduct] = useState<any>(null);
-  const [stockAction, setStockAction] = useState<"restock" | "adjust" | "loss">("restock");
-  const [stockQty, setStockQty] = useState("");
-  const [stockCost, setStockCost] = useState("");
-  const [stockNote, setStockNote] = useState("");
-  const [stockLoading, setStockLoading] = useState(false);
 
   const loadData = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -45,10 +35,9 @@ export default function ProductsPage() {
       if (!res.ok) throw new Error("Failed to load");
       const data = await res.json();
       setBusiness(data.business);
-      setProducts(data.products ?? []);
-      setCategories(data.categories ?? []);
+      setServices(data.products ?? []);
     } catch (err: any) {
-      toast({ title: "Couldn't load products", description: err.message, variant: "destructive" });
+      toast({ title: "Couldn't load services", description: err.message, variant: "destructive" });
     } finally {
       setPageLoading(false);
       setRefreshing(false);
@@ -63,9 +52,8 @@ export default function ProductsPage() {
     setForm({
       name: p.name, description: p.description ?? "",
       price: String(p.price), cost: String(p.cost ?? 0),
-      unit: p.unit ?? "",
-      stock_quantity: String(p.stock_quantity ?? 0),
-      reorder_level: String(p.reorder_level ?? 0),
+      unit: p.unit ?? "hr",
+      estimated_hours: p.estimated_hours ? String(p.estimated_hours) : "",
     });
     setOpen(true);
   }
@@ -74,54 +62,9 @@ export default function ProductsPage() {
     if (!v) { setEditing(null); setForm(BLANK_FORM); }
   }
 
-  function openStockAdjust(product: any, action: "restock" | "adjust" | "loss") {
-    setStockProduct(product);
-    setStockAction(action);
-    setStockQty(action === "adjust" ? String(product.stock_quantity ?? 0) : "");
-    setStockCost("");
-    setStockNote("");
-    setStockOpen(true);
-  }
-
-  async function handleStockSave() {
-    if (!stockProduct) return;
-    const qty = parseFloat(stockQty);
-    if (isNaN(qty) || qty < 0) {
-      toast({ title: "Invalid quantity", variant: "destructive" });
-      return;
-    }
-    setStockLoading(true);
-    try {
-      const res = await fetch("/api/data/products", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          product_id: stockProduct.id,
-          action: stockAction,
-          quantity: stockAction === "adjust" ? qty : qty,
-          unit_cost: stockAction === "restock" ? parseFloat(stockCost) || 0 : 0,
-          note: stockNote || null,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to adjust stock");
-      toast({
-        title: stockAction === "restock" ? "Stock restocked" : stockAction === "loss" ? "Stock loss recorded" : "Stock adjusted",
-        description: `${stockProduct.name}: ${data.product?.stock_quantity ?? qty} ${stockProduct.stock_unit || "units"} on hand`,
-      });
-      setStockOpen(false);
-      loadData(true);
-    } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    } finally {
-      setStockLoading(false);
-    }
-  }
-
   async function handleSave() {
     if (!form.name.trim()) return;
     const parsedPrice = parseFloat(form.price);
-    const parsedCost = parseFloat(form.cost);
     if (form.price && (isNaN(parsedPrice) || parsedPrice < 0)) {
       toast({ title: "Invalid price", description: "Price must be a positive number.", variant: "destructive" });
       return;
@@ -133,10 +76,9 @@ export default function ProductsPage() {
         description: form.description,
         price: form.price || "0",
         cost: form.cost || "0",
-        unit: form.unit,
+        unit: form.unit || "hr",
         is_active: true,
-        stock_quantity: form.stock_quantity || "0",
-        reorder_level: form.reorder_level || "0",
+        estimated_hours: form.estimated_hours || null,
       };
       const method = editing ? "PUT" : "POST";
       const fullBody = editing ? { ...body, id: editing.id } : body;
@@ -147,7 +89,7 @@ export default function ProductsPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to save");
-      toast({ title: editing ? "Product updated" : "Product added" });
+      toast({ title: editing ? "Service updated" : "Service added" });
       setOpen(false);
       loadData(true);
     } catch (err: any) {
@@ -158,31 +100,40 @@ export default function ProductsPage() {
   }
 
   async function handleDelete(id: string) {
-    if (!confirm("Delete this product?")) return;
+    if (!confirm("Delete this service?")) return;
     try {
       const res = await fetch(`/api/data/products?id=${id}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to delete");
-      toast({ title: "Product deleted" });
+      toast({ title: "Service deleted" });
       loadData(true);
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     }
   }
 
-  const filtered = products.filter(p =>
+  const filtered = services.filter(p =>
     p.name.toLowerCase().includes(search.toLowerCase()) ||
     p.description?.toLowerCase().includes(search.toLowerCase())
   );
 
   const currency = business?.currency ?? "MWK";
-  const lowStockCount = products.filter(p => Number(p.stock_quantity || 0) <= Number(p.reorder_level || 0) && Number(p.reorder_level || 0) > 0).length;
-  const outOfStockCount = products.filter(p => Number(p.stock_quantity || 0) <= 0).length;
-  const totalStockValue = products.reduce((s, p) => s + Number(p.cost || 0) * Number(p.stock_quantity || 0), 0);
+  const activeServices = services.filter(s => s.is_active !== false);
+  const avgRate = activeServices.length > 0
+    ? activeServices.reduce((s, p) => s + Number(p.price), 0) / activeServices.length
+    : 0;
+  const avgMargin = activeServices.length > 0
+    ? activeServices.reduce((s, p) => {
+        const profit = Number(p.price) - Number(p.cost || 0);
+        const margin = Number(p.price) > 0 ? (profit / Number(p.price) * 100) : 0;
+        return s + margin;
+      }, 0) / activeServices.length
+    : 0;
+  const totalEstHours = activeServices.reduce((s, p) => s + Number(p.estimated_hours || 0), 0);
 
   if (pageLoading) return (
     <div>
-      <Header title="Products & Inventory" description="Manage your catalog and stock" icon={Package} />
+      <Header title="Services" description="Manage your service packages" icon={Briefcase} />
       <div className="p-6 flex items-center justify-center py-32">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
       </div>
@@ -191,28 +142,36 @@ export default function ProductsPage() {
 
   return (
     <div>
-      <Header title="Products & Inventory" description="Manage your catalog and stock" icon={Package}
+      <Header title="Services" description="Manage your service packages" icon={Briefcase}
         actions={
           <div className="flex items-center gap-2">
             {refreshing && <RefreshCw className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
             <Dialog open={open} onOpenChange={handleOpenChange}>
-              <DialogTrigger asChild><Button onClick={openAdd} size="sm"><Plus className="mr-1.5 h-4 w-4" />Add Product</Button></DialogTrigger>
+              <DialogTrigger asChild><Button onClick={openAdd} size="sm"><Plus className="mr-1.5 h-4 w-4" />Add Service</Button></DialogTrigger>
               <DialogContent>
-                <DialogHeader><DialogTitle>{editing ? "Edit Product" : "Add Product"}</DialogTitle></DialogHeader>
+                <DialogHeader><DialogTitle>{editing ? "Edit Service" : "Add Service"}</DialogTitle></DialogHeader>
                 <div className="space-y-4 py-2">
-                  <div className="space-y-2"><Label>Name *</Label><Input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="Product name" /></div>
-                  <div className="space-y-2"><Label>Description</Label><Input value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} placeholder="Optional description" /></div>
+                  <div className="space-y-2"><Label>Name *</Label><Input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Logo Design, Consulting, Branding Package" /></div>
+                  <div className="space-y-2"><Label>Description</Label><Input value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} placeholder="What's included in this service" /></div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-2"><Label>Price *</Label><Input type="number" min="0" step="0.01" value={form.price} onChange={e => setForm(p => ({ ...p, price: e.target.value }))} placeholder="0.00" /></div>
-                    <div className="space-y-2"><Label>Cost</Label><Input type="number" min="0" step="0.01" value={form.cost} onChange={e => setForm(p => ({ ...p, cost: e.target.value }))} placeholder="0.00" /></div>
+                    <div className="space-y-2"><Label>Your Cost</Label><Input type="number" min="0" step="0.01" value={form.cost} onChange={e => setForm(p => ({ ...p, cost: e.target.value }))} placeholder="0.00" /></div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-2"><Label>Stock Quantity</Label><Input type="number" min="0" step="0.01" value={form.stock_quantity} onChange={e => setForm(p => ({ ...p, stock_quantity: e.target.value }))} placeholder="0" /></div>
-                    <div className="space-y-2"><Label>Reorder Level</Label><Input type="number" min="0" step="0.01" value={form.reorder_level} onChange={e => setForm(p => ({ ...p, reorder_level: e.target.value }))} placeholder="0 (alert threshold)" /></div>
+                    <div className="space-y-2"><Label>Est. Hours</Label><Input type="number" min="0" step="0.5" value={form.estimated_hours} onChange={e => setForm(p => ({ ...p, estimated_hours: e.target.value }))} placeholder="e.g. 5" /></div>
+                    <div className="space-y-2"><Label>Unit</Label>
+                      <select className="w-full h-9 rounded-md border border-input bg-white px-3 text-sm" value={form.unit} onChange={e => setForm(p => ({ ...p, unit: e.target.value }))}>
+                        <option value="hr">Per hour</option>
+                        <option value="project">Per project</option>
+                        <option value="session">Per session</option>
+                        <option value="day">Per day</option>
+                        <option value="month">Per month</option>
+                        <option value="ea">Per item</option>
+                      </select>
+                    </div>
                   </div>
-                  <div className="space-y-2"><Label>Unit</Label><Input value={form.unit} onChange={e => setForm(p => ({ ...p, unit: e.target.value }))} placeholder="ea, hr, kg..." /></div>
                   <Button onClick={handleSave} disabled={loading || !form.name.trim()} className="w-full">
-                    {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Saving...</> : editing ? "Update Product" : "Add Product"}
+                    {loading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Saving...</> : editing ? "Update Service" : "Add Service"}
                   </Button>
                 </div>
               </DialogContent>
@@ -221,50 +180,45 @@ export default function ProductsPage() {
         }
       />
       <div className="p-3 sm:p-6 space-y-4">
-        {products.length > 0 && (
-          <div className="grid grid-cols-4 gap-2">
+        {services.length > 0 && (
+          <div className="grid grid-cols-3 gap-2">
             <Card className="shadow-sm"><CardContent className="p-3 text-center">
-              <div className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Products</div>
-              <div className="text-lg font-bold mt-0.5">{products.length}</div>
+              <div className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Services</div>
+              <div className="text-lg font-bold mt-0.5">{activeServices.length}</div>
             </CardContent></Card>
             <Card className="shadow-sm"><CardContent className="p-3 text-center">
-              <div className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Stock Value</div>
-              <div className="text-sm font-bold mt-1 text-primary">{formatCurrency(totalStockValue, currency)}</div>
+              <div className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Avg Rate</div>
+              <div className="text-sm font-bold mt-1 text-primary">{formatCurrency(avgRate, currency)}</div>
             </CardContent></Card>
             <Card className="shadow-sm"><CardContent className="p-3 text-center">
-              <div className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Low Stock</div>
-              <div className={`text-lg font-bold mt-0.5 ${lowStockCount > 0 ? "text-amber-600" : ""}`}>{lowStockCount}</div>
-            </CardContent></Card>
-            <Card className="shadow-sm"><CardContent className="p-3 text-center">
-              <div className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Out of Stock</div>
-              <div className={`text-lg font-bold mt-0.5 ${outOfStockCount > 0 ? "text-destructive" : ""}`}>{outOfStockCount}</div>
+              <div className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Avg Margin</div>
+              <div className="text-lg font-bold mt-0.5 text-emerald-600">{avgMargin.toFixed(1)}%</div>
             </CardContent></Card>
           </div>
         )}
 
         <div className="relative max-w-sm">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input placeholder="Search products..." className="pl-9" value={search} onChange={e => setSearch(e.target.value)} />
+          <Input placeholder="Search services..." className="pl-9" value={search} onChange={e => setSearch(e.target.value)} />
         </div>
 
         {filtered.length === 0 ? (
           <Card><CardContent className="flex flex-col items-center justify-center py-16 gap-3">
-            <Package className="h-12 w-12 text-muted-foreground/50" />
-            <p className="text-muted-foreground text-sm">{search ? "No products match your search." : "No products yet. Add your first product!"}</p>
+            <Briefcase className="h-12 w-12 text-muted-foreground/50" />
+            <p className="text-muted-foreground text-sm">{search ? "No services match your search." : "No services yet. Add your first service package!"}</p>
           </CardContent></Card>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {filtered.map(p => {
               const profit = Number(p.price) - Number(p.cost || 0);
               const margin = Number(p.profit_margin) || (Number(p.price) > 0 ? (profit / Number(p.price) * 100) : 0);
-              const stock = Number(p.stock_quantity || 0);
-              const reorder = Number(p.reorder_level || 0);
-              const isLowStock = stock <= reorder && reorder > 0;
-              const isOutOfStock = stock <= 0;
-              const stockUnit = p.stock_unit || "units";
+              const estHours = Number(p.estimated_hours || 0);
+              const effectiveRate = estHours > 0 ? Number(p.price) / estHours : 0;
+              const unit = p.unit || "hr";
+              const unitLabel = unit === "hr" ? "per hour" : unit === "project" ? "per project" : unit === "session" ? "per session" : unit === "day" ? "per day" : unit === "month" ? "per month" : "each";
 
               return (
-                <Card key={p.id} className="shadow-sm hover:shadow-md transition-sm">
+                <Card key={p.id} className="shadow-sm hover:shadow-md transition-shadow">
                   <CardContent className="p-4">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
@@ -281,46 +235,35 @@ export default function ProductsPage() {
                       <div>
                         <div className="text-xs text-muted-foreground">Price</div>
                         <div className="text-sm font-bold text-primary">{formatCurrency(Number(p.price), currency)}</div>
+                        <div className="text-[10px] text-muted-foreground">{unitLabel}</div>
                       </div>
                       <div>
-                        <div className="text-xs text-muted-foreground">Cost</div>
+                        <div className="text-xs text-muted-foreground">Your Cost</div>
                         <div className="text-sm font-semibold text-destructive">{formatCurrency(Number(p.cost || 0), currency)}</div>
                       </div>
                     </div>
 
-                    {/* Stock section */}
+                    {/* Service-specific info */}
                     <div className="mt-2 pt-2 border-t flex items-center justify-between">
                       <div className="flex items-center gap-1.5">
-                        {isOutOfStock ? (
-                          <AlertTriangle className="h-3.5 w-3.5 text-destructive" />
-                        ) : isLowStock ? (
-                          <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                        {estHours > 0 ? (
+                          <>
+                            <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                            <span className="text-xs font-medium text-muted-foreground">{estHours}h estimated</span>
+                            {effectiveRate > 0 && (
+                              <span className="text-[10px] text-muted-foreground">
+                                ({formatCurrency(effectiveRate, currency)}/hr)
+                              </span>
+                            )}
+                          </>
                         ) : (
-                          <PackageCheck className="h-3.5 w-3.5 text-emerald-500" />
-                        )}
-                        <span className={`text-xs font-medium ${isOutOfStock ? "text-destructive" : isLowStock ? "text-amber-600" : "text-emerald-600"}`}>
-                          {isOutOfStock ? "Out of stock" : `${stock} ${stockUnit}`}
-                        </span>
-                        {isLowStock && !isOutOfStock && (
-                          <span className="text-[10px] text-amber-500">(reorder at {reorder})</span>
+                          <div className="flex items-center gap-1">
+                            <TrendingUp className="h-3.5 w-3.5 text-emerald-500" />
+                            <span className="text-xs font-medium text-emerald-600">{formatCurrency(profit, currency)} profit</span>
+                          </div>
                         )}
                       </div>
                       <span className="text-xs text-muted-foreground">{margin.toFixed(1)}% margin</span>
-                    </div>
-
-                    {/* Stock actions */}
-                    <div className="mt-2 flex gap-1">
-                      <Button size="sm" variant="outline" className="flex-1 h-7 text-xs" onClick={() => openStockAdjust(p, "restock")}>
-                        <ArrowDownToLine className="h-3 w-3 mr-1" />Restock
-                      </Button>
-                      <Button size="sm" variant="outline" className="flex-1 h-7 text-xs" onClick={() => openStockAdjust(p, "adjust")}>
-                        <ClipboardCheck className="h-3 w-3 mr-1" />Count
-                      </Button>
-                      {stock > 0 && (
-                        <Button size="sm" variant="outline" className="h-7 px-2 text-xs text-destructive hover:text-destructive" onClick={() => openStockAdjust(p, "loss")}>
-                          <X className="h-3 w-3" />
-                        </Button>
-                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -329,75 +272,6 @@ export default function ProductsPage() {
           </div>
         )}
       </div>
-
-      {/* Stock Adjustment Dialog */}
-      <Dialog open={stockOpen} onOpenChange={setStockOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {stockAction === "restock" ? "Restock Product" : stockAction === "loss" ? "Record Stock Loss" : "Stock Count Adjustment"}
-            </DialogTitle>
-          </DialogHeader>
-          {stockProduct && (
-            <div className="space-y-4 py-2">
-              <div className="rounded-lg bg-muted p-3">
-                <p className="font-semibold text-sm">{stockProduct.name}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Current stock: {Number(stockProduct.stock_quantity || 0)} {stockProduct.stock_unit || "units"}
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label>
-                  {stockAction === "restock" ? "Quantity to add" : stockAction === "loss" ? "New stock level (after loss)" : "Counted quantity"}
-                </Label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={stockQty}
-                  onChange={e => setStockQty(e.target.value)}
-                  placeholder="0"
-                />
-              </div>
-
-              {stockAction === "restock" && (
-                <div className="space-y-2">
-                  <Label>Unit cost (optional — updates product cost)</Label>
-                  <Input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={stockCost}
-                    onChange={e => setStockCost(e.target.value)}
-                    placeholder={String(stockProduct.cost || 0)}
-                  />
-                </div>
-              )}
-
-              <div className="space-y-2">
-                <Label>Note (optional)</Label>
-                <Input
-                  value={stockNote}
-                  onChange={e => setStockNote(e.target.value)}
-                  placeholder={stockAction === "restock" ? "Supplier name, invoice ref..." : stockAction === "loss" ? "Reason for loss..." : "Stock take note..."}
-                />
-              </div>
-
-              <div className="flex gap-2 pt-2">
-                <Button variant="outline" className="flex-1" onClick={() => setStockOpen(false)}>Cancel</Button>
-                <Button
-                  className="flex-1"
-                  disabled={stockLoading || !stockQty}
-                  onClick={handleStockSave}
-                >
-                  {stockLoading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Saving...</> : "Confirm"}
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
