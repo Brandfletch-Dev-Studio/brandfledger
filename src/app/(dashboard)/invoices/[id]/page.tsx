@@ -1,11 +1,12 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle, Send, Copy, Trash2, Loader2, ArrowLeft, Mail, MessageCircle } from "lucide-react";
+import { CheckCircle, Send, Copy, Trash2, Loader2, ArrowLeft, Mail, MessageCircle, Download } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter, useParams } from "next/navigation";
 import { BFLogo } from "@/components/bf-logo";
+import { generateInvoicePDF } from "@/lib/invoice-pdf";
 
 const STATUS: Record<string, { label: string; cls: string }> = {
   draft:   { label: "Draft",   cls: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300" },
@@ -165,6 +166,17 @@ export default function InvoiceDetailPage() {
   const clientEmail = invoice.customer_email || "";
   const clientPhone = invoice.customer_phone || "";
 
+  function handleDownloadPDF() {
+    if (!invoice || !business) return;
+    generateInvoicePDF(invoice, {
+      name: business.name || "Your Business",
+      email: business.email,
+      phone: business.phone,
+      address: business.address,
+      currency: business.currency ?? "MWK",
+    });
+  }
+
   return (
     <div className="p-3 sm:p-6 space-y-4 max-w-2xl mx-auto">
       <button onClick={() => router.push("/invoices")}
@@ -178,6 +190,10 @@ export default function InvoiceDetailPage() {
           <Badge className={`mt-1 text-xs ${status.cls}`}>{status.label}</Badge>
         </div>
         <div className="flex items-center gap-1.5">
+          <button onClick={handleDownloadPDF} title="Download PDF"
+            className="h-8 px-3 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 flex items-center gap-1.5 text-xs font-semibold transition-colors">
+            <Download className="h-3.5 w-3.5" /> PDF
+          </button>
           <button onClick={copyLink} title="Copy share link"
             className="h-8 w-8 rounded-lg border flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
             <Copy className="h-4 w-4" />
