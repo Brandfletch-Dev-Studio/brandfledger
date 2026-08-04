@@ -21,7 +21,7 @@ export async function GET(request: Request) {
     // Include payment_methods and paychangu availability in business data
     const { data: business, error: businessErr } = await supabase
       .from("businesses")
-      .select("name, email, phone, address, currency, payment_methods, paychangu_secret_key")
+      .select("name, email, phone, address, currency, payment_methods, paychangu_secret_key, logo_url, invoice_accent_color, invoice_template")
       .eq("id", invoice.business_id).maybeSingle();
     if (businessErr) throw businessErr;
 
@@ -42,6 +42,9 @@ export async function GET(request: Request) {
         address: business?.address, currency: business?.currency,
         payment_methods: business?.payment_methods || [],
         paychangu_enabled: !!business?.paychangu_secret_key,
+        logo_url: business?.logo_url || null,
+        invoice_accent_color: business?.invoice_accent_color || "#4f46e5",
+        invoice_template: business?.invoice_template || "classic",
       },
       customer: customer || null,
     });
