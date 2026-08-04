@@ -16,7 +16,7 @@ import { getContext, upsertContext, clearPendingAction, ConversationContext, Cha
 import { sendWhatsAppMessage } from "./send";
 import { supabase } from "@/lib/db";
 
-const MAX_FUNCTION_CALLS = 5;
+const MAX_FUNCTION_CALLS = 8;
 const MODEL = "gpt-4o";
 
 async function getOpenAIKey(): Promise<string> {
@@ -427,11 +427,13 @@ export async function processWhatsAppMessage(
               content: JSON.stringify(executionResult),
             });
           } catch (execErr: any) {
-            console.error("Pending action execution error:", execErr);
+            console.error("Pending action execution error:", execErr.message, execErr.stack);
+            // Send error back to LLM so it can relay a helpful message
+            const errorMsg = `Execution failed: ${execErr.message || "Unknown error"}. Please try again or check the details in the web app.`;
             messages.push({
               role: "tool",
               tool_call_id: toolCall.id,
-              content: JSON.stringify({ error: execErr.message || "Execution failed" }),
+              content: JSON.stringify({ error: errorMsg }),
             });
           }
 
