@@ -15,6 +15,7 @@ export async function PUT(request: Request) {
       business_type, tax_id,
       paychangu_secret_key, paychangu_public_key, payment_methods,
       custom_instructions,
+      logo_url, invoice_accent_color, invoice_template,
     } = body;
 
     const { data: businesses, error: bizError } = await supabase
@@ -41,6 +42,20 @@ export async function PUT(request: Request) {
       tax_id: tax_id || null,
       updated_at: new Date().toISOString(),
     };
+
+    // Invoice branding
+    if (logo_url !== undefined) {
+      updateData.logo_url = logo_url || null;
+    }
+    if (invoice_accent_color !== undefined) {
+      // Validate hex color
+      const hexRegex = /^#[0-9a-fA-F]{6}$/;
+      updateData.invoice_accent_color = hexRegex.test(invoice_accent_color) ? invoice_accent_color : '#4f46e5';
+    }
+    if (invoice_template !== undefined) {
+      const validTemplates = ['classic', 'modern', 'minimal'];
+      updateData.invoice_template = validTemplates.includes(invoice_template) ? invoice_template : 'classic';
+    }
 
     // Only update Paychangu/payment fields if explicitly provided
     if (paychangu_secret_key !== undefined) {
