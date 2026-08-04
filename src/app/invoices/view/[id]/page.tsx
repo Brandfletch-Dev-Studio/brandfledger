@@ -462,18 +462,6 @@ export default function PublicInvoiceView() {
                   </button>
                 </div>
 
-                {/* Payer name (shared) */}
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground mb-1 block">Your Name (optional)</label>
-                  <input
-                    type="text"
-                    value={payerName}
-                    onChange={(e) => setPayerName(e.target.value)}
-                    placeholder="John Doe"
-                    className="w-full rounded-lg border border-input bg-white px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  />
-                </div>
-
                 {/* Mobile Money Tab */}
                 {payTab === "mobile" && paychanguEnabled && (
                   <>
