@@ -62,7 +62,7 @@ export async function POST(request: Request) {
     const businessId = await getBusinessId(user.userId, body.business_id);
     if (!businessId) return NextResponse.json({ error: "No business found" }, { status: 404 });
 
-    const { name, description, price, cost, unit, stock_quantity, reorder_level } = body;
+    const { name, description, price, cost, unit, stock_quantity, reorder_level, estimated_hours, is_service } = body;
     if (!name?.trim()) return NextResponse.json({ error: "Name required" }, { status: 400 });
 
     const parsedPrice = parseFloat(price) || 0;
@@ -83,7 +83,9 @@ export async function POST(request: Request) {
         profit_margin: profitMargin,
         stock_quantity: parseFloat(stock_quantity) || 0,
         reorder_level: parseFloat(reorder_level) || 0,
-        stock_unit: unit || 'units'
+        stock_unit: unit || 'units',
+        estimated_hours: estimated_hours ? parseFloat(estimated_hours) : null,
+        is_service: is_service !== undefined ? is_service : (unit === 'hr' || unit === 'project' || unit === 'session'),
       })
       .select('*')
       .single();
@@ -101,7 +103,7 @@ export async function PUT(request: Request) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const body = await request.json();
-    const { id, name, description, price, cost, unit, is_active, stock_quantity, reorder_level } = body;
+    const { id, name, description, price, cost, unit, is_active, stock_quantity, reorder_level, estimated_hours, is_service } = body;
     if (!id) return NextResponse.json({ error: "ID required" }, { status: 400 });
 
     // Verify ownership via business (two-step)
@@ -141,6 +143,8 @@ export async function PUT(request: Request) {
         profit_margin: profitMargin,
         stock_quantity: stock_quantity !== undefined ? parseFloat(stock_quantity) : undefined,
         reorder_level: reorder_level !== undefined ? parseFloat(reorder_level) : undefined,
+        estimated_hours: estimated_hours !== undefined ? (estimated_hours ? parseFloat(estimated_hours) : null) : undefined,
+        is_service: is_service,
         updated_at: new Date().toISOString()
       })
       .eq('id', id)
