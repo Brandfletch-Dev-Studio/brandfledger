@@ -2,14 +2,14 @@
 import Link from "next/link";
 import { BFLogo } from "@/components/bf-logo";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Users, Package, Settings, BarChart3, Receipt, Crown, X, ArrowLeftRight, Shield, FileText, Database, UserCog } from "lucide-react";
+import { LayoutDashboard, Users, Briefcase, Settings, BarChart3, Receipt, Crown, X, ArrowLeftRight, Shield, FileText, Database, UserCog } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/transactions", label: "Transactions", icon: ArrowLeftRight },
   { href: "/invoices", label: "Invoices", icon: FileText },
-  { href: "/products", label: "Products", icon: Package },
+  { href: "/products", label: "Services", icon: Briefcase },
   { href: "/customers", label: "Clients", icon: Users },
   { href: "/team", label: "Team", icon: UserCog },
   { href: "/expenses", label: "Expenses", icon: Receipt },
