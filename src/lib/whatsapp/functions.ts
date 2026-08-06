@@ -1390,11 +1390,12 @@ export async function createInvoice(
     .maybeSingle();
   const prefix = biz?.invoice_prefix || "INV";
 
-  const { count } = await supabase
-    .from("invoices")
-    .select("*", { count: "exact", head: true })
-    .eq("business_id", ctx.business_id);
-  const num = (count || 0) + 1;
+  // Atomic per-business counter — avoids collisions from concurrent creates
+  // or from numbers freed up by deleted invoices.
+  const { data: num, error: numError } = await supabase.rpc("get_next_invoice_number", {
+    p_business_id: ctx.business_id,
+  });
+  if (numError) throw new Error(`Failed to generate invoice number: ${numError.message}`);
   const year = new Date().getFullYear();
   const invNumber = `${prefix}-${year}-${String(num).padStart(4, "0")}`;
 

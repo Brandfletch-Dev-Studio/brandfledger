@@ -99,7 +99,8 @@ export async function POST(request: Request) {
 
     const { customer_id, customer_name, issue_date, due_date, status, notes, items, tax_rate } = body;
 
-    // Generate invoice number
+    // Generate invoice number — atomic per-business counter (avoids collisions from
+    // concurrent creates or from numbers freed up by deleted invoices).
     const { data: biz, error: bizError } = await supabase
       .from('businesses')
       .select('invoice_prefix')
@@ -108,12 +109,10 @@ export async function POST(request: Request) {
     if (bizError) throw bizError;
     const prefix = biz?.invoice_prefix || "INV";
 
-    const { count, error: countError } = await supabase
-      .from('invoices')
-      .select('*', { count: 'exact', head: true })
-      .eq('business_id', businessId);
-    if (countError) throw countError;
-    const num = (count || 0) + 1;
+    const { data: num, error: numError } = await supabase.rpc('get_next_invoice_number', {
+      p_business_id: businessId,
+    });
+    if (numError) throw numError;
 
     const year = new Date().getFullYear();
     const invNumber = `${prefix}-${year}-${String(num).padStart(4, "0")}`;
